@@ -4,11 +4,19 @@ Tracked gaps in the end-to-end workflow. Resolve as prototyping proceeds. Cross-
 
 ## Fiducials
 
-- What pattern per link? Small ArUco, AprilTag, QR-like, or a custom LLM-friendly glyph?
-- What size fits on a 5–10 mm link face and still prints and scans reliably?
+**Preliminary direction (2026-04-22):** per-link solid circle + glyph side-by-side, perpendicular to the chain axis, both recessed from the link face with a single filament swap for contrast. The per-link circle→glyph axis provides orientation, so no separate end-of-chain skew fiducial is needed. Full spec and validation plan in `fiducial-design.md`.
+
+Still open:
+
+- What size fits on a 5–10 mm link face and still prints and scans reliably? (Preliminary design pushes toward the 8–10 mm end of that range.)
 - Can a hobbyist FDM printer hit the needed contrast and edge accuracy? If not, what's the fallback — resin printing, printed paper labels stuck on, laser-engraved inserts?
-- Do fiducials need to encode a link index, or is neighbor adjacency inferable from spatial position alone?
-- What does the skew fiducial look like? One large asymmetric marker at one end, or two markers for more correspondences?
+- Which glyph alphabet — digits 0–9 (10 links), hex 0–F (16 links), or two-character codes (100+)? Bounded by legibility at the chosen tile size.
+
+Resolved:
+
+- ~~What pattern per link?~~ LLM-friendly custom: solid circle + adjacent glyph.
+- ~~Do fiducials need to encode a link index?~~ Yes — glyph encodes ID; spatial adjacency corroborates.
+- ~~Skew fiducial shape?~~ No separate feature. Every link's circle→glyph axis serves as an orientation reference.
 
 ## Computer vision
 
