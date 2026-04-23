@@ -1,0 +1,37 @@
+# Canonical ground-truth specification for the printed test strip.
+# All positions are in millimeters, measured on the planar strip surface.
+# Origin is the lower-left corner of the strip.
+# Tile centers are evenly spaced along the strip x-axis.
+# Each tile's orientation is the direction of the circle→glyph axis,
+# in degrees, measured counterclockwise from the +x axis of the strip.
+
+units: mm
+
+sets:
+  A:
+    fiducial_type: circle_glyph
+    tile_face_mm: 8.0
+    tile_pitch_mm: 10.0
+    origin_mm: [15.0, 20.0]   # center of tile 0
+    count: 10
+    orientation_deg: 90.0     # circle→glyph axis perpendicular to strip
+    glyph_alphabet: "0123456789"
+
+  B:
+    fiducial_type: circle_glyph
+    tile_face_mm: 5.0
+    tile_pitch_mm: 7.0
+    origin_mm: [15.0, 40.0]
+    count: 10
+    orientation_deg: 90.0
+    glyph_alphabet: "0123456789"
+
+  C:
+    fiducial_type: aruco_4x4
+    tile_face_mm: 8.0
+    tile_pitch_mm: 10.0
+    origin_mm: [15.0, 60.0]
+    count: 10
+    orientation_deg: 0.0      # ArUco has no orientation axis in this sense
+    aruco_dict: DICT_4X4_50
+    aruco_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
