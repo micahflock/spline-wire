@@ -27,12 +27,18 @@ def _build_tile_set(name: str, entry: dict) -> TileSet:
 
     if fid_type is FiducialType.CIRCLE_GLYPH:
         alphabet = entry["glyph_alphabet"]
-        assert len(alphabet) >= count, (
-            f"Set {name}: glyph alphabet shorter than count"
-        )
+        if len(alphabet) < count:
+            raise ValueError(
+                f"Set {name}: glyph_alphabet has {len(alphabet)} chars, need {count}"
+            )
         ids = list(alphabet[:count])
     else:
-        ids = [str(i) for i in entry["aruco_ids"]]
+        aruco_ids = entry["aruco_ids"]
+        if len(aruco_ids) < count:
+            raise ValueError(
+                f"Set {name}: aruco_ids has {len(aruco_ids)} entries, need {count}"
+            )
+        ids = [str(i) for i in aruco_ids[:count]]
 
     tiles = [
         GroundTruthTile(
