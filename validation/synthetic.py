@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -8,6 +9,11 @@ from validation.schemas import FiducialType, TileSet
 
 _BG = (240, 240, 240)
 _INK = (20, 20, 20)
+
+# Distance between the circle center and the glyph center along the tile's
+# orientation axis. Must match GLYPH_OFFSET_MM in validation/scoring.py —
+# the renderer and the scorer share this constant as the tile's geometry.
+GLYPH_OFFSET_MM = 3.0
 
 
 def render_set(tile_set: TileSet, out_path: Path, px_per_mm: int = 20) -> None:
@@ -45,10 +51,12 @@ def _mm_to_px(x_mm: float, y_mm: float, px_per_mm: int, h_px: int) -> tuple[int,
 
 
 def _draw_circle_glyph(draw, cx_mm, cy_mm, tile, px_per_mm, h_px):
-    # circle at -1.5mm y from tile center, glyph at +1.5mm y
-    # (matches orientation_deg=90.0 axis)
-    circle_mm = (cx_mm, cy_mm - 1.5)
-    glyph_mm = (cx_mm, cy_mm + 1.5)
+    # Circle sits at tile.center_mm (the tile's position reference).
+    # Glyph is offset along the orientation axis at GLYPH_OFFSET_MM.
+    rad = math.radians(tile.orientation_deg)
+    dx, dy = math.cos(rad), math.sin(rad)
+    circle_mm = (cx_mm, cy_mm)
+    glyph_mm = (cx_mm + GLYPH_OFFSET_MM * dx, cy_mm + GLYPH_OFFSET_MM * dy)
     radius_px = int(1.5 * px_per_mm)
 
     cx, cy = _mm_to_px(*circle_mm, px_per_mm, h_px)
