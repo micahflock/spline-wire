@@ -1,7 +1,9 @@
 # Canonical ground-truth specification for the printed test strip.
 # All positions are in millimeters, measured on the planar strip surface.
 # Origin is the lower-left corner of the strip.
-# Tile centers are evenly spaced along the strip x-axis.
+# For circle_glyph tiles, the circle center IS the tile's position reference
+# (origin_mm points at the circle of tile 0). The glyph sits 3 mm from the
+# circle along the orientation axis — see GLYPH_OFFSET_MM in scoring.py.
 # Each tile's orientation is the direction of the circle→glyph axis,
 # in degrees, measured counterclockwise from the +x axis of the strip.
 
@@ -12,7 +14,7 @@ sets:
     fiducial_type: circle_glyph
     tile_face_mm: 8.0
     tile_pitch_mm: 10.0
-    origin_mm: [15.0, 20.0]   # center of tile 0
+    origin_mm: [15.0, 20.0]   # circle of tile 0
     count: 10
     orientation_deg: 90.0     # circle→glyph axis perpendicular to strip
     glyph_alphabet: "0123456789"

@@ -35,13 +35,11 @@ def test_render_set_places_dark_circle_at_each_tile_center(
     out = tmp_path / "set_a.png"
     render_set(set_a, out, px_per_mm=20)
     img = np.array(Image.open(out).convert("L"))
-    # at the pixel of the first tile's circle center, expect a dark pixel
-    # circle is offset from tile center toward -y in the rendered orientation
-    # (circle→glyph axis = 90deg means glyph is +y of circle)
-    # so circle sits at tile_center with an offset of -1.5mm in y
+    # Circle is drawn at tile.center_mm — the tile's position reference.
+    # The glyph is offset from there along the orientation axis.
     tile0 = set_a.tiles[0]
     circle_x_mm = tile0.center_mm[0]
-    circle_y_mm = tile0.center_mm[1] - 1.5
+    circle_y_mm = tile0.center_mm[1]
     px = int(circle_x_mm * 20)
     py = int(circle_y_mm * 20)
     # image y grows downward, spec y grows upward — synthetic must handle this
