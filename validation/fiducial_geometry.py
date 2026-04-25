@@ -106,3 +106,83 @@ def digit_polygon(
         for interior in rounded.interiors
     ]
     return Polygon(exterior_mm=exterior, interiors_mm=interiors)
+
+
+@dataclass(frozen=True)
+class StripGeometry:
+    """Plain-parameter view of a StripSpec for the geometry layer.
+
+    Decoupled from validation.schemas.StripSpec to avoid circular imports.
+    The ground_truth loader (Task 7) builds a StripGeometry from a StripSpec.
+    """
+    ring_outer_diameter_mm: float
+    ring_inner_diameter_mm: float
+    digit_width_mm: float
+    digit_height_mm: float
+    digit_stroke_mm: float
+    digit_corner_radius_mm: float
+    ring_to_digit_gap_mm: float
+    tile_pitch_mm: float
+    margin_left_mm: float
+    margin_bottom_mm: float
+    count: int
+    alphabet: str
+
+    @property
+    def glyph_offset_mm(self) -> float:
+        return (
+            self.ring_outer_diameter_mm / 2.0
+            + self.ring_to_digit_gap_mm
+            + self.digit_width_mm / 2.0
+        )
+
+    @property
+    def tile_center_y_mm(self) -> float:
+        return self.margin_bottom_mm + max(
+            self.ring_outer_diameter_mm, self.digit_height_mm
+        ) / 2.0
+
+    @property
+    def first_ring_center_x_mm(self) -> float:
+        return self.margin_left_mm + self.ring_outer_diameter_mm / 2.0
+
+
+def tile_primitives(
+    tile_id: str,
+    ring_center_mm: tuple[float, float],
+    geom: StripGeometry,
+) -> list[Annulus | Polygon]:
+    """Build the primitives for one tile: ring + rounded digit polygon."""
+    rx, ry = ring_center_mm
+    annulus = Annulus(
+        center_mm=(rx, ry),
+        outer_radius_mm=geom.ring_outer_diameter_mm / 2.0,
+        inner_radius_mm=geom.ring_inner_diameter_mm / 2.0,
+    )
+    digit_origin = (
+        rx + geom.glyph_offset_mm - geom.digit_width_mm / 2.0,
+        ry - geom.digit_height_mm / 2.0,
+    )
+    digit = digit_polygon(
+        tile_id,
+        origin_mm=digit_origin,
+        width_mm=geom.digit_width_mm,
+        height_mm=geom.digit_height_mm,
+        stroke_mm=geom.digit_stroke_mm,
+        corner_radius_mm=geom.digit_corner_radius_mm,
+    )
+    return [annulus, digit]
+
+
+def strip_primitives(geom: StripGeometry) -> list[Annulus | Polygon]:
+    """Build the full strip's primitives in tile-id order."""
+    if len(geom.alphabet) != geom.count:
+        raise ValueError(
+            f"alphabet length {len(geom.alphabet)} does not match count {geom.count}"
+        )
+    prims: list[Annulus | Polygon] = []
+    cy = geom.tile_center_y_mm
+    for i, char in enumerate(geom.alphabet):
+        cx = geom.first_ring_center_x_mm + i * geom.tile_pitch_mm
+        prims.extend(tile_primitives(char, (cx, cy), geom))
+    return prims
