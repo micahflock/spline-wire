@@ -58,3 +58,51 @@ SEGMENTS_FOR: dict[str, str] = {
     "E": "adefg",
     "F": "aefg",
 }
+
+
+from shapely.geometry import box, MultiPolygon
+from shapely.geometry import Polygon as ShapelyPolygon
+from shapely.ops import unary_union
+
+
+def digit_polygon(
+    char: str,
+    origin_mm: tuple[float, float],
+    width_mm: float,
+    height_mm: float,
+    stroke_mm: float,
+    corner_radius_mm: float,
+) -> Polygon:
+    """Build the rounded outline of a 7-segment hex character.
+
+    Returns a Polygon whose coordinates are in mm, translated by origin_mm.
+    The outline has all corners rounded (convex outward, concave inward) at
+    corner_radius_mm via shapely's morphological-opening pipeline.
+    """
+    if char not in SEGMENTS_FOR:
+        raise KeyError(f"no 7-segment glyph defined for character {char!r}")
+
+    rects = [
+        box(*SEGMENT_LAYOUT[seg](width_mm, height_mm, stroke_mm))
+        for seg in SEGMENTS_FOR[char]
+    ]
+    union = unary_union(rects)
+    rounded = union.buffer(-corner_radius_mm).buffer(corner_radius_mm)
+
+    if isinstance(rounded, MultiPolygon):
+        raise ValueError(
+            f"digit {char!r}: corner rounding produced disconnected pieces — "
+            f"the segment layout is wrong for this character"
+        )
+    if not isinstance(rounded, ShapelyPolygon):
+        raise ValueError(
+            f"digit {char!r}: unexpected shapely result {type(rounded).__name__}"
+        )
+
+    ox, oy = origin_mm
+    exterior = [(x + ox, y + oy) for x, y in rounded.exterior.coords]
+    interiors = [
+        [(x + ox, y + oy) for x, y in interior.coords]
+        for interior in rounded.interiors
+    ]
+    return Polygon(exterior_mm=exterior, interiors_mm=interiors)
