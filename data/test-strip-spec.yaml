@@ -1,39 +1,35 @@
 # Canonical ground-truth specification for the printed test strip.
-# All positions are in millimeters, measured on the planar strip surface.
-# Origin is the lower-left corner of the strip.
-# For circle_glyph tiles, the circle center IS the tile's position reference
-# (origin_mm points at the circle of tile 0). The glyph sits 3 mm from the
-# circle along the orientation axis — see GLYPH_OFFSET_MM in scoring.py.
-# Each tile's orientation is the direction of the circle→glyph axis,
-# in degrees, measured counterclockwise from the +x axis of the strip.
+# All positions are in millimeters; origin is the lower-left corner of the strip.
+# Single fiducial design: ring (annulus) + 7-segment hex digit beside it.
+# Reference: docs/superpowers/specs/2026-04-25-ring-glyph-fiducial-design.md
 
 units: mm
 
-sets:
-  A:
-    fiducial_type: circle_glyph
-    tile_face_mm: 8.0
-    tile_pitch_mm: 10.0
-    origin_mm: [15.0, 20.0]   # circle of tile 0
-    count: 10
-    orientation_deg: 90.0     # circle→glyph axis perpendicular to strip
-    glyph_alphabet: "0123456789"
+# --- Per-tile geometry ---
+tile:
+  ring:
+    outer_diameter_mm: 5.00
+    inner_diameter_mm: 1.66        # wall = 1.67 mm
+  digit:
+    width_mm: 2.58                 # 3 × stroke
+    height_mm: 5.00                # vertically centered on ring center
+    stroke_mm: 0.86                # 0.4 mm nozzle, 2 perimeters
+    corner_radius_mm: 0.20         # outline-level rounding via shapely buffer
+  ring_to_digit_gap_mm: 1.72       # 2 strokes; ring outer edge → digit left edge
 
-  B:
-    fiducial_type: circle_glyph
-    tile_face_mm: 5.0
-    tile_pitch_mm: 7.0
-    origin_mm: [15.0, 40.0]
-    count: 10
-    orientation_deg: 90.0
-    glyph_alphabet: "0123456789"
+# Derived by ground_truth.load_strip_spec (not in spec):
+#   glyph_offset_mm = 2.5 + 1.72 + 1.29 = 5.51 mm
+#   strip_width_mm  = 5.0 + 15*11.02 + 5.51 + 1.29 + 5.0 = 184.60 mm
+#   strip_height_mm = 3.0 + 5.0 + 3.0 = 11.00 mm
 
-  C:
-    fiducial_type: aruco_4x4
-    tile_face_mm: 8.0
-    tile_pitch_mm: 10.0
-    origin_mm: [15.0, 60.0]
-    count: 10
-    orientation_deg: 0.0      # ArUco has no orientation axis in this sense
-    aruco_dict: DICT_4X4_50
-    aruco_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# --- Strip layout ---
+strip:
+  count: 16
+  alphabet: "0123456789AbCdEF"     # mixed-case hex (7-seg display convention)
+  tile_pitch_mm: 11.02             # ring-center to ring-center; inter-tile gap = 1.72 mm
+  orientation_deg: 0.0             # ring → digit axis is +x for every tile
+  margin_mm:
+    left: 5.0
+    right: 5.0
+    top: 3.0
+    bottom: 3.0
