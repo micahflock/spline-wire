@@ -44,9 +44,9 @@ def test_claude_extractor_builds_request_with_image_and_prompt(tmp_path: Path):
     mock_client.messages.create.return_value = mock_response
 
     extractor = ClaudeExtractor(
-        client=mock_client, model="claude-opus-4-7", prompt_version="v1"
+        client=mock_client, model="claude-opus-4-7", prompt_version="v2"
     )
-    result = extractor.extract(img_path, set_name="A")
+    result = extractor.extract(img_path)
 
     mock_client.messages.create.assert_called_once()
     kwargs = mock_client.messages.create.call_args.kwargs
@@ -57,7 +57,6 @@ def test_claude_extractor_builds_request_with_image_and_prompt(tmp_path: Path):
         for block in (msg["content"] if isinstance(msg["content"], list) else [])
     )
     assert result.model == "claude-opus-4-7"
-    assert result.prompt_version == "v1"
-    assert result.set_name == "A"
+    assert result.prompt_version == "v2"
     assert len(result.detections) == 1
     assert result.detections[0].tile_id == "0"

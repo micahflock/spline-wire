@@ -7,12 +7,12 @@ import time
 from pathlib import Path
 from typing import Protocol
 
-from validation.prompts import prompt_for_set
+from validation.prompts import prompt_for_strip
 from validation.schemas import DetectedTile, ImageDetection
 
 
 class Extractor(Protocol):
-    def extract(self, image_path: Path, set_name: str) -> ImageDetection: ...
+    def extract(self, image_path: Path) -> ImageDetection: ...
 
 
 class ClaudeExtractor:
@@ -20,16 +20,14 @@ class ClaudeExtractor:
         self,
         client,
         model: str = "claude-opus-4-7",
-        prompt_version: str = "v1",
+        prompt_version: str = "v2",
     ) -> None:
         self.client = client
         self.model = model
         self.prompt_version = prompt_version
 
-    def extract(self, image_path: Path, set_name: str) -> ImageDetection:
-        # TODO when executing: route fiducial_type from the strip spec
-        # rather than hard-coding circle_glyph. For set C, pass aruco_4x4.
-        prompt = prompt_for_set(set_name, "circle_glyph")
+    def extract(self, image_path: Path) -> ImageDetection:
+        prompt = prompt_for_strip()
         image_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
         media_type = _media_type_for(image_path)
 
@@ -64,7 +62,6 @@ class ClaudeExtractor:
         detections = parse_extraction_json(raw)
         return ImageDetection(
             image_path=str(image_path),
-            set_name=set_name,
             model=self.model,
             prompt_version=self.prompt_version,
             detections=detections,
