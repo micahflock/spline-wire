@@ -58,3 +58,72 @@ def test_vertical_segments_split_at_half_height_for_seamless_fusion():
     _, ey0, _, ey1 = SEGMENT_LAYOUT["e"](2.58, H, 0.86)
     assert fy0 == H / 2
     assert ey1 == H / 2
+
+
+import pytest
+
+from validation.fiducial_geometry import digit_polygon
+
+
+# Reusable digit dimensions for tests.
+DIGIT_W = 2.58
+DIGIT_H = 5.00
+DIGIT_STROKE = 0.86
+DIGIT_RADIUS = 0.20
+
+
+def _digit(char, origin=(0.0, 0.0)):
+    return digit_polygon(
+        char,
+        origin_mm=origin,
+        width_mm=DIGIT_W,
+        height_mm=DIGIT_H,
+        stroke_mm=DIGIT_STROKE,
+        corner_radius_mm=DIGIT_RADIUS,
+    )
+
+
+def test_zero_has_one_exterior_and_one_interior():
+    p = _digit("0")
+    assert len(p.interiors_mm) == 1
+
+
+def test_one_has_no_interior():
+    p = _digit("1")
+    assert len(p.interiors_mm) == 0
+
+
+def test_eight_has_two_interiors():
+    # "8" lights all segments; the upper and lower bowls form two holes.
+    p = _digit("8")
+    assert len(p.interiors_mm) == 2
+
+
+def test_digit_bounds_fit_inside_design_box():
+    # Every character's outline must lie inside the nominal digit cell
+    # (with at most corner_radius_mm of inset on convex outer corners).
+    for char in "0123456789AbCdEF":
+        p = _digit(char)
+        xs = [x for x, _ in p.exterior_mm]
+        ys = [y for _, y in p.exterior_mm]
+        assert min(xs) >= -1e-9
+        assert min(ys) >= -1e-9
+        assert max(xs) <= DIGIT_W + 1e-9
+        assert max(ys) <= DIGIT_H + 1e-9
+
+
+def test_origin_offset_translates_polygon():
+    p = _digit("1", origin=(10.0, 20.0))
+    xs = [x for x, _ in p.exterior_mm]
+    ys = [y for _, y in p.exterior_mm]
+    # "1" lights b+c only — a single rectangle on the right side.
+    # x range should be ~[10 + W - S, 10 + W] = [11.72, 12.58]; y range ~[20, 25].
+    assert min(xs) >= 10.0 + DIGIT_W - DIGIT_STROKE - 1e-9
+    assert max(xs) <= 10.0 + DIGIT_W + 1e-9
+    assert min(ys) >= 20.0 - 1e-9
+    assert max(ys) <= 20.0 + DIGIT_H + 1e-9
+
+
+def test_unknown_character_raises():
+    with pytest.raises(KeyError):
+        _digit("Z")
