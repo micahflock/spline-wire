@@ -1,24 +1,26 @@
 from __future__ import annotations
 
-PROMPT_V1_CIRCLE_GLYPH = """\
+PROMPT_V2_RING_GLYPH = """\
 You are looking at a photograph of a planar test strip containing a \
 horizontal row of fiducial tiles.
 
 Each tile has TWO features:
-1. A solid dark FILLED CIRCLE (the position reference).
-2. A DIGIT from 0-9 printed next to the circle (the ID reference).
+1. A RING (an annulus / hollow circle) — the position reference. Treat \
+   the ring's center as the tile's position.
+2. A 7-SEGMENT-DISPLAY-STYLE HEX DIGIT to the right of the ring — the ID \
+   reference. Characters are from 0-9, A, b, C, d, E, F (mixed case, \
+   industry-standard 7-segment hex convention).
 
-Within each tile, the circle and digit are aligned along an axis \
-perpendicular to the strip's long direction. Treat the circle's center \
-as the tile's position. Treat the digit as the tile's ID.
+The ring → digit axis is horizontal (digit to the right of the ring) for \
+every tile.
 
 For EVERY tile visible in the image, return a JSON array with one object \
 per tile:
 
 [
   {
-    "tile_id": "<digit as string, e.g. '0'>",
-    "circle_xy_px": [<circle center x>, <circle center y>],
+    "tile_id": "<character as string, e.g. '0' or 'A' or 'b'>",
+    "circle_xy_px": [<ring center x>, <ring center y>],
     "glyph_xy_px": [<digit center x>, <digit center y>],
     "confidence": <float 0-1>
   },
@@ -32,32 +34,7 @@ read the digit, set "tile_id" to "?" and set "confidence" below 0.5.
 Return ONLY the JSON array, no prose, no markdown fences.\
 """
 
-PROMPT_V1_ARUCO = """\
-You are looking at a photograph of a planar test strip containing a \
-horizontal row of ArUco 4x4 fiducial markers.
 
-For EACH visible ArUco marker, return a JSON array with one object per \
-marker:
-
-[
-  {
-    "tile_id": "<marker id as string, e.g. '0'>",
-    "circle_xy_px": [<marker center x>, <marker center y>],
-    "glyph_xy_px": null,
-    "confidence": <float 0-1>
-  },
-  ...
-]
-
-The marker ID is encoded in the black-and-white grid. Coordinates are \
-pixel coordinates in the original image, with (0,0) at top-left. Return \
-ONLY the JSON array.\
-"""
-
-
-def prompt_for_set(set_name: str, fiducial_type: str) -> str:
-    if fiducial_type == "circle_glyph":
-        return PROMPT_V1_CIRCLE_GLYPH
-    if fiducial_type == "aruco_4x4":
-        return PROMPT_V1_ARUCO
-    raise ValueError(f"no prompt for fiducial type {fiducial_type}")
+def prompt_for_strip() -> str:
+    """Return the extraction prompt for the canonical ring + 7-seg-hex strip."""
+    return PROMPT_V2_RING_GLYPH
