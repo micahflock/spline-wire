@@ -127,3 +127,84 @@ def test_origin_offset_translates_polygon():
 def test_unknown_character_raises():
     with pytest.raises(KeyError):
         _digit("Z")
+
+
+from validation.fiducial_geometry import (
+    tile_primitives,
+    strip_primitives,
+    StripGeometry,
+)
+
+
+def _strip_geom(count=16, alphabet="0123456789AbCdEF"):
+    return StripGeometry(
+        ring_outer_diameter_mm=5.00,
+        ring_inner_diameter_mm=1.66,
+        digit_width_mm=2.58,
+        digit_height_mm=5.00,
+        digit_stroke_mm=0.86,
+        digit_corner_radius_mm=0.20,
+        ring_to_digit_gap_mm=1.72,
+        tile_pitch_mm=11.02,
+        margin_left_mm=5.0,
+        margin_bottom_mm=3.0,
+        count=count,
+        alphabet=alphabet,
+    )
+
+
+def test_tile_primitives_returns_one_annulus_then_one_polygon():
+    geom = _strip_geom()
+    prims = tile_primitives(tile_id="0", ring_center_mm=(7.5, 5.5), geom=geom)
+    assert len(prims) == 2
+    assert isinstance(prims[0], Annulus)
+    assert isinstance(prims[1], Polygon)
+
+
+def test_tile_primitives_ring_matches_ring_dimensions():
+    geom = _strip_geom()
+    prims = tile_primitives(tile_id="3", ring_center_mm=(7.5, 5.5), geom=geom)
+    annulus = prims[0]
+    assert annulus.center_mm == (7.5, 5.5)
+    assert annulus.outer_radius_mm == pytest.approx(2.5)
+    assert annulus.inner_radius_mm == pytest.approx(0.83)
+
+
+def test_tile_primitives_digit_centered_on_ring_y_axis():
+    # Digit's vertical center should equal ring center y (digit centered on ring axis).
+    # Digit's horizontal center is offset to the right by glyph_offset_mm.
+    geom = _strip_geom()
+    prims = tile_primitives(tile_id="3", ring_center_mm=(7.5, 5.5), geom=geom)
+    digit = prims[1]
+    xs = [x for x, _ in digit.exterior_mm]
+    ys = [y for _, y in digit.exterior_mm]
+    digit_center_y = (min(ys) + max(ys)) / 2
+    assert digit_center_y == pytest.approx(5.5, abs=0.001)
+    # glyph_offset = 2.5 + 1.72 + 1.29 = 5.51
+    digit_center_x = (min(xs) + max(xs)) / 2
+    assert digit_center_x == pytest.approx(7.5 + 5.51, abs=0.001)
+
+
+def test_strip_primitives_emits_count_annuli_and_count_polygons():
+    geom = _strip_geom(count=16)
+    prims = strip_primitives(geom)
+    annuli = [p for p in prims if isinstance(p, Annulus)]
+    polygons = [p for p in prims if isinstance(p, Polygon)]
+    assert len(annuli) == 16
+    assert len(polygons) == 16
+
+
+def test_strip_primitives_first_ring_at_left_margin_plus_radius():
+    # First ring center x should be margin_left + ring_outer_radius.
+    geom = _strip_geom()
+    prims = strip_primitives(geom)
+    first_annulus = next(p for p in prims if isinstance(p, Annulus))
+    assert first_annulus.center_mm[0] == pytest.approx(7.5)
+
+
+def test_strip_primitives_ring_centers_step_by_pitch():
+    geom = _strip_geom()
+    prims = strip_primitives(geom)
+    annuli = [p for p in prims if isinstance(p, Annulus)]
+    assert annuli[1].center_mm[0] - annuli[0].center_mm[0] == pytest.approx(11.02)
+    assert annuli[15].center_mm[0] == pytest.approx(7.5 + 15 * 11.02)
