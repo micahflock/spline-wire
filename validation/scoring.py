@@ -6,27 +6,29 @@ import numpy as np
 
 from validation.homography import apply_homography, fit_homography
 from validation.schemas import (
-    GroundTruthTile,
     ImageDetection,
     ScoringResult,
+    StripSpec,
 )
-
-# Distance between circle center and glyph center along the tile's orientation
-# axis. Must match GLYPH_OFFSET_MM in validation/synthetic.py.
-GLYPH_OFFSET_MM = 3.0
 
 
 def score_detection(
     detection: ImageDetection,
-    ground_truth: list[GroundTruthTile],
+    spec: StripSpec,
 ) -> ScoringResult:
-    truth_by_id = {t.tile_id: t for t in ground_truth}
+    """Score one image's detections against the strip ground truth.
+
+    Per-tile error is the circle-center reprojection error after fitting a
+    homography from detected pixel positions to known mm positions. Glyph
+    positions, when reported, contribute additional correspondences offset
+    by spec.glyph_offset_mm along each tile's orientation axis to break
+    collinearity.
+    """
+    truth_by_id = {t.tile_id: t for t in spec.tiles}
     matched = [d for d in detection.detections if d.tile_id in truth_by_id]
 
-    # Collect correspondences. Each matched detection contributes its circle.
-    # If the detection also reports a glyph, add that as a second correspondence
-    # offset by GLYPH_OFFSET_MM along the tile's orientation axis — this breaks
-    # collinearity when all circles sit on a single strip row.
+    glyph_offset = spec.glyph_offset_mm
+
     corr_px: list[tuple[float, float]] = []
     corr_mm: list[tuple[float, float]] = []
     for d in matched:
@@ -36,8 +38,8 @@ def score_detection(
         if d.glyph_xy_px is not None:
             rad = math.radians(tile.orientation_deg)
             glyph_mm = (
-                tile.center_mm[0] + GLYPH_OFFSET_MM * math.cos(rad),
-                tile.center_mm[1] + GLYPH_OFFSET_MM * math.sin(rad),
+                tile.center_mm[0] + glyph_offset * math.cos(rad),
+                tile.center_mm[1] + glyph_offset * math.sin(rad),
             )
             corr_px.append(d.glyph_xy_px)
             corr_mm.append(glyph_mm)
@@ -52,8 +54,6 @@ def score_detection(
     pts_mm = np.array(corr_mm, dtype=float)
     H = fit_homography(pts_px, pts_mm)
 
-    # Per-tile error is the circle-center reprojection error vs ground truth.
-    # The circle is the tile's position reference per the extraction prompt.
     circle_px = np.array([d.circle_xy_px for d in matched], dtype=float)
     circle_mm = np.array(
         [truth_by_id[d.tile_id].center_mm for d in matched], dtype=float
@@ -69,7 +69,6 @@ def score_detection(
 
     mean_err = float(np.mean(errors_mm)) if errors_mm else 0.0
 
-    # Homography RMSE across all correspondences (circles and glyphs).
     H_inv = np.linalg.inv(H)
     reproj_px = apply_homography(H_inv, pts_mm)
     rmse_px = float(np.sqrt(np.mean(np.sum((reproj_px - pts_px) ** 2, axis=1))))
