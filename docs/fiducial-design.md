@@ -4,7 +4,9 @@ The in-depth tracker for the fiducial workstream. `open-questions.md` carries th
 
 ## Status
 
-**2026-04-22** — preliminary design locked in at the concept level. Numeric parameters and feasibility unvalidated. First test is `next-steps.md` item 1.
+**2026-04-25** — design locked in. Ring + 7-segment hex glyph at 5 mm tile size, 16-tile strip. See `docs/superpowers/specs/2026-04-25-ring-glyph-fiducial-design.md` for the full numeric spec, including outline-level corner rounding. The earlier "preliminary design at 8 mm with TrueType digit" parameter table below is superseded by that spec.
+
+**2026-04-22** — preliminary design at concept level (superseded).
 
 ## Design spec
 
@@ -72,4 +74,5 @@ The feasibility test compares the preliminary design against two alternates to c
 
 ## Decision log
 
+- **2026-04-25** — Iterated the fiducial: filled circle → ring (annulus); TrueType digit → 7-segment-hex with outline-level rounded corners; multi-set comparison strip (A/B/C) → single canonical strip at the 5 mm size. Drove the change by promoting the SVG output to a print artifact, which made print-print-correct rendering load-bearing. Full spec at `docs/superpowers/specs/2026-04-25-ring-glyph-fiducial-design.md`.
 - **2026-04-22** — Chose circle + adjacent-glyph pattern. Rejected: digit-inside-circle (cramped dual-purpose feature), dense small ArUco (LLM-hostile), color-coded dots (needs AMS beyond a few links). Keeping small ArUco as the classical-CV fallback design if the LLM path fails validation.
