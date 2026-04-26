@@ -1,86 +1,70 @@
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-from validation.schemas import FiducialType, TileSet
-
-_BG = (240, 240, 240)
-_INK = (20, 20, 20)
-
-# Distance between the circle center and the glyph center along the tile's
-# orientation axis. Must match GLYPH_OFFSET_MM in validation/scoring.py —
-# the renderer and the scorer share this constant as the tile's geometry.
-GLYPH_OFFSET_MM = 3.0
+from validation.fiducial_geometry import Annulus, Polygon
+from validation.schemas import StripSpec
 
 
-def render_set(tile_set: TileSet, out_path: Path, px_per_mm: int = 20) -> None:
-    last = tile_set.tiles[-1]
-    width_mm = last.center_mm[0] + tile_set.tile_pitch_mm
-    height_mm = last.center_mm[1] + tile_set.tile_pitch_mm
-    w_px = int(width_mm * px_per_mm)
-    h_px = int(height_mm * px_per_mm)
+_BG_RGB = (240, 240, 240)
+_INK_RGB = (20, 20, 20)
 
-    img = Image.new("RGB", (w_px, h_px), _BG)
+
+def render_png(
+    primitives: list[Annulus | Polygon],
+    out_path: Path,
+    spec: StripSpec,
+    px_per_mm: int = 40,
+) -> None:
+    """Rasterize primitives onto a fresh background and write a PNG.
+
+    Spec is required to size the canvas. Primitives are rendered in order;
+    annulus holes and polygon holes are produced by overdraw with background.
+    The strip layout guarantees rings and digits do not overlap, so overdraw
+    is safe.
+    """
+    w_px = int(round(spec.strip_width_mm * px_per_mm))
+    h_px = int(round(spec.strip_height_mm * px_per_mm))
+    img = Image.new("RGB", (w_px, h_px), _BG_RGB)
     draw = ImageDraw.Draw(img)
 
-    for tile in tile_set.tiles:
-        _draw_tile(draw, tile_set, tile, px_per_mm, h_px)
+    for prim in primitives:
+        if isinstance(prim, Annulus):
+            _draw_annulus(draw, prim, px_per_mm, h_px)
+        elif isinstance(prim, Polygon):
+            _draw_polygon(draw, prim, px_per_mm, h_px)
+        else:
+            raise TypeError(f"unsupported primitive type: {type(prim).__name__}")
 
     img.save(out_path)
 
 
-def _draw_tile(draw, tile_set, tile, px_per_mm, h_px):
-    cx_mm, cy_mm = tile.center_mm
-    if tile_set.fiducial_type is FiducialType.CIRCLE_GLYPH:
-        _draw_circle_glyph(draw, cx_mm, cy_mm, tile, px_per_mm, h_px)
-    elif tile_set.fiducial_type is FiducialType.ARUCO_4X4:
-        # synthetic ArUco: a simple binary pattern placeholder — the real
-        # validation run uses actual cv2.aruco.generateImageMarker patterns.
-        # For synthetic-pipeline testing, a solid dark square is enough to
-        # confirm the pipeline moves data through; ArUco decoding is tested
-        # separately against real photos.
-        _draw_aruco_placeholder(draw, cx_mm, cy_mm, tile_set, px_per_mm, h_px)
-
-
 def _mm_to_px(x_mm: float, y_mm: float, px_per_mm: int, h_px: int) -> tuple[int, int]:
     """Convert strip-mm coords (y-up origin-bottom-left) to image px (y-down)."""
-    return int(x_mm * px_per_mm), h_px - int(y_mm * px_per_mm)
+    return int(round(x_mm * px_per_mm)), h_px - int(round(y_mm * px_per_mm))
 
 
-def _draw_circle_glyph(draw, cx_mm, cy_mm, tile, px_per_mm, h_px):
-    # Circle sits at tile.center_mm (the tile's position reference).
-    # Glyph is offset along the orientation axis at GLYPH_OFFSET_MM.
-    rad = math.radians(tile.orientation_deg)
-    dx, dy = math.cos(rad), math.sin(rad)
-    circle_mm = (cx_mm, cy_mm)
-    glyph_mm = (cx_mm + GLYPH_OFFSET_MM * dx, cy_mm + GLYPH_OFFSET_MM * dy)
-    radius_px = int(1.5 * px_per_mm)
-
-    cx, cy = _mm_to_px(*circle_mm, px_per_mm, h_px)
+def _draw_annulus(draw: ImageDraw.ImageDraw, a: Annulus, px_per_mm: int, h_px: int) -> None:
+    cx, cy = a.center_mm
+    outer_px = a.outer_radius_mm * px_per_mm
+    inner_px = a.inner_radius_mm * px_per_mm
+    cx_px, cy_px = _mm_to_px(cx, cy, px_per_mm, h_px)
+    # Outer disc in ink, then inner disc in background to cut the hole.
     draw.ellipse(
-        (cx - radius_px, cy - radius_px, cx + radius_px, cy + radius_px),
-        fill=_INK,
+        (cx_px - outer_px, cy_px - outer_px, cx_px + outer_px, cy_px + outer_px),
+        fill=_INK_RGB,
+    )
+    draw.ellipse(
+        (cx_px - inner_px, cy_px - inner_px, cx_px + inner_px, cy_px + inner_px),
+        fill=_BG_RGB,
     )
 
-    gx, gy = _mm_to_px(*glyph_mm, px_per_mm, h_px)
-    font = _load_font(px_per_mm)
-    draw.text((gx, gy), tile.tile_id, fill=_INK, anchor="mm", font=font)
 
-
-def _draw_aruco_placeholder(draw, cx_mm, cy_mm, tile_set, px_per_mm, h_px):
-    half = tile_set.tile_face_mm / 2
-    x0, y0 = _mm_to_px(cx_mm - half, cy_mm + half, px_per_mm, h_px)
-    x1, y1 = _mm_to_px(cx_mm + half, cy_mm - half, px_per_mm, h_px)
-    draw.rectangle((x0, y0, x1, y1), outline=_INK, width=2)
-
-
-def _load_font(px_per_mm: int) -> ImageFont.ImageFont:
-    # 3mm glyph height target → ~3 * px_per_mm font size
-    size = max(8, int(3 * px_per_mm))
-    try:
-        return ImageFont.truetype("arial.ttf", size=size)
-    except OSError:
-        return ImageFont.load_default()
+def _draw_polygon(draw: ImageDraw.ImageDraw, p: Polygon, px_per_mm: int, h_px: int) -> None:
+    exterior_px = [_mm_to_px(x, y, px_per_mm, h_px) for x, y in p.exterior_mm]
+    draw.polygon(exterior_px, fill=_INK_RGB)
+    for interior in p.interiors_mm:
+        interior_px = [_mm_to_px(x, y, px_per_mm, h_px) for x, y in interior]
+        draw.polygon(interior_px, fill=_BG_RGB)

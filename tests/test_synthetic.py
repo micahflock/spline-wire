@@ -1,58 +1,75 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
-from validation.ground_truth import load_strip_spec
-from validation.synthetic import render_set
+from validation.fiducial_geometry import strip_primitives
+from validation.ground_truth import build_strip_geometry, load_strip_spec
+from validation.synthetic import render_png
 
 
-def test_render_set_produces_rgb_image(data_dir: Path, tmp_path: Path):
+PX_PER_MM = 20  # tests run faster at 20 than at 40
+
+
+@pytest.fixture
+def primitives_and_spec(data_dir):
     spec = load_strip_spec(data_dir / "test-strip-spec.yaml")
-    out = tmp_path / "set_a.png"
-    render_set(spec.sets["A"], out, px_per_mm=20)
-    assert out.exists()
+    geom = build_strip_geometry(spec)
+    prims = strip_primitives(geom)
+    return prims, spec
+
+
+def test_render_png_produces_rgb_image(tmp_path, primitives_and_spec):
+    prims, spec = primitives_and_spec
+    out = tmp_path / "strip.png"
+    render_png(prims, out, spec, px_per_mm=PX_PER_MM)
     img = Image.open(out)
     assert img.mode == "RGB"
 
 
-def test_render_set_is_wide_enough_for_all_tiles(data_dir: Path, tmp_path: Path):
-    spec = load_strip_spec(data_dir / "test-strip-spec.yaml")
-    set_a = spec.sets["A"]
-    out = tmp_path / "set_a.png"
-    render_set(set_a, out, px_per_mm=20)
+def test_render_png_dimensions_match_strip(tmp_path, primitives_and_spec):
+    prims, spec = primitives_and_spec
+    out = tmp_path / "strip.png"
+    render_png(prims, out, spec, px_per_mm=PX_PER_MM)
     img = np.array(Image.open(out))
-    # strip width must cover last tile's x + half pitch, with 20 px/mm
-    min_width_px = int((set_a.tiles[-1].center_mm[0] + set_a.tile_pitch_mm) * 20)
-    assert img.shape[1] >= min_width_px
+    expected_w = int(round(spec.strip_width_mm * PX_PER_MM))
+    expected_h = int(round(spec.strip_height_mm * PX_PER_MM))
+    assert img.shape[1] == expected_w
+    assert img.shape[0] == expected_h
 
 
-def test_render_set_places_dark_circle_at_each_tile_center(
-    data_dir: Path, tmp_path: Path
-):
-    spec = load_strip_spec(data_dir / "test-strip-spec.yaml")
-    set_a = spec.sets["A"]
-    out = tmp_path / "set_a.png"
-    render_set(set_a, out, px_per_mm=20)
+def test_render_png_ring_is_hollow(tmp_path, primitives_and_spec):
+    """A pixel at the very center of a ring should be background (the hole),
+    while a pixel halfway between center and outer edge should be inked."""
+    prims, spec = primitives_and_spec
+    out = tmp_path / "strip.png"
+    render_png(prims, out, spec, px_per_mm=PX_PER_MM)
     img = np.array(Image.open(out).convert("L"))
-    # Circle is drawn at tile.center_mm — the tile's position reference.
-    # The glyph is offset from there along the orientation axis.
-    tile0 = set_a.tiles[0]
-    circle_x_mm = tile0.center_mm[0]
-    circle_y_mm = tile0.center_mm[1]
-    px = int(circle_x_mm * 20)
-    py = int(circle_y_mm * 20)
-    # image y grows downward, spec y grows upward — synthetic must handle this
-    # we expect a *low* pixel value (dark ink on light background)
-    assert img[img.shape[0] - py, px] < 80
+    h_px = img.shape[0]
+
+    ring_center_mm = spec.tiles[0].center_mm
+    cx_px = int(round(ring_center_mm[0] * PX_PER_MM))
+    cy_px = h_px - int(round(ring_center_mm[1] * PX_PER_MM))
+    # center pixel: light (background, inside the hole)
+    assert img[cy_px, cx_px] > 200
+    # halfway between center and outer edge (outer radius 2.5 mm)
+    half_radius_mm = 1.25
+    edge_x_px = cx_px + int(round(half_radius_mm * PX_PER_MM))
+    assert img[cy_px, edge_x_px] < 80
 
 
-def test_render_set_draws_all_tiles(data_dir: Path, tmp_path: Path):
-    spec = load_strip_spec(data_dir / "test-strip-spec.yaml")
-    set_a = spec.sets["A"]
-    out = tmp_path / "set_a.png"
-    render_set(set_a, out, px_per_mm=20)
+def test_render_png_inks_each_ring(tmp_path, primitives_and_spec):
+    """Every tile's ring should leave dark pixels in the image."""
+    prims, spec = primitives_and_spec
+    out = tmp_path / "strip.png"
+    render_png(prims, out, spec, px_per_mm=PX_PER_MM)
     img = np.array(Image.open(out).convert("L"))
-    # sum dark pixels — should have roughly (circle area + glyph strokes) × 10 tiles
-    dark = (img < 80).sum()
-    assert dark > 1000
+    h_px = img.shape[0]
+    # Halfway from ring center toward outer edge along +x.
+    half_r_mm = 1.25
+    for tile in spec.tiles:
+        cx, cy = tile.center_mm
+        px = int(round((cx + half_r_mm) * PX_PER_MM))
+        py = h_px - int(round(cy * PX_PER_MM))
+        assert img[py, px] < 80, f"tile {tile.tile_id}: expected dark pixel at ({px},{py})"
