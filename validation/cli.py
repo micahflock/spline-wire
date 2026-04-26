@@ -22,11 +22,11 @@ def main() -> None:
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument(
         "--photos", type=Path, required=True,
-        help="directory of images; filename format: <set>_<angle>_<light>_<rep>.<ext>",
+        help="directory of images; every image is treated as a photo of the canonical strip",
     )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--model", default="claude-opus-4-7")
-    parser.add_argument("--prompt-version", default="v1")
+    parser.add_argument("--prompt-version", default="v2")
     args = parser.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -40,18 +40,13 @@ def main() -> None:
     for img_path in sorted(args.photos.glob("*")):
         if img_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".heic"}:
             continue
-        set_name = img_path.stem.split("_", 1)[0].upper()
-        if set_name not in spec.sets:
-            print(f"skipping {img_path.name}: unknown set {set_name}")
-            continue
 
-        print(f"extracting {img_path.name} (set {set_name})...")
-        detection = extractor.extract(img_path, set_name=set_name)
-
+        print(f"extracting {img_path.name}...")
+        detection = extractor.extract(img_path)
         _dump_detection(args.out, detection)
 
         try:
-            result = score_detection(detection, spec.sets[set_name].tiles)
+            result = score_detection(detection, spec)
             rows.append(_flatten_result(detection, result))
             print(
                 f"  {len(detection.detections)} tiles detected, "
@@ -61,7 +56,6 @@ def main() -> None:
             print(f"  scoring failed: {err}")
             rows.append({
                 "image": img_path.name,
-                "set": set_name,
                 "model": args.model,
                 "prompt_version": args.prompt_version,
                 "n_detected": len(detection.detections),
@@ -82,7 +76,6 @@ def _dump_detection(out_dir: Path, detection: ImageDetection) -> None:
 def _flatten_result(d: ImageDetection, r: ScoringResult) -> dict:
     return {
         "image": Path(d.image_path).name,
-        "set": d.set_name,
         "model": d.model,
         "prompt_version": d.prompt_version,
         "n_detected": len(d.detections),
