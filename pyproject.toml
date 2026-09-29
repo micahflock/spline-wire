@@ -1,6 +1,6 @@
 [project]
 name = "spline-wire"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Measure real-world curves with a fiducial chain and a phone photo"
 authors = [
     { name = "micah", email = "mookerish@gmail.com" }
@@ -25,6 +25,9 @@ splinewire-gui = "splinewire.gui:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "splinewire/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["splinewire"]

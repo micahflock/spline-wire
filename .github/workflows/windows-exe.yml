@@ -38,6 +38,10 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
+      - name: Stamp the build number
+        # Shown in the app's title bar, e.g. "Spline Wire 0.4.0 (build 12, 8bdccf7)".
+        run: uv run python packaging/stamp_build.py
+
       - name: Build SplineWire.exe
         run: uv run python packaging/build_exe.py
 
