@@ -84,6 +84,16 @@ The curve is a cubic spline through the contact points (chord-length parameter, 
 
 In Fusion, the intended path is a small script that reads the JSON and creates a fitted spline through `curve_points` in the active sketch. That script is not built yet; see next steps.
 
+## Desktop app — `gui.py`
+
+A Tkinter window for Windows (packaged as a single `SplineWire.exe`) that wraps the same `process_photo` as the CLI:
+
+- Add photos (JPEG, PNG, HEIC, …) or drop them onto the .exe. Chain settings, object side, focal-length override, an optional truth file and the output location are set in the left panel and remembered between runs (`%APPDATA%\SplineWire\settings.json`).
+- "Process all" runs in a background thread. Each photo's row shows pins found and tilt, or max error against a truth file, with warnings flagged.
+- Tabs: **Detections** (the preview cropped to the chain), **Curve** (pins, curve points and fitted spline in mm), **Details** (diagnostics, warnings, saved files).
+- Output files are the same as the CLI's, by default in a `splinewire-out` folder next to each photo.
+- Unexpected errors are shown and appended to `%APPDATA%\SplineWire\errors.log`.
+
 ## Testing without hardware
 
 - `splinewire synth` renders a photo of a posed chain through a simulated tilted phone camera (with EXIF), plus a truth file.

@@ -1,6 +1,7 @@
 """Physical chain model: rigid links of fixed pitch joined at pins."""
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,12 @@ class ChainSpec:
             )
         if self.n_pins < 3:
             raise ValueError(f"n_pins must be >= 3, got {self.n_pins}")
+
+
+def default_chain_path() -> Path:
+    """data/chain.yaml in the repo, or its bundled copy in a packaged app."""
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return root / "data" / "chain.yaml"
 
 
 def load_chain_spec(path: Path) -> ChainSpec:

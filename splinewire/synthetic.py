@@ -5,13 +5,19 @@ without hardware.
 """
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image
 
-from splinewire.camera import Camera
+from splinewire.camera import Camera, focal_px_from_35mm, look_at_plane
 from splinewire.chain import ChainSpec, pins_from_turns
+
+TRUTH_SCHEMA = "spline-wire/truth@1"
+_EXIF_IFD, _TAG_FOCAL_LENGTH_35MM = 0x8769, 0xA405
 
 TABLE_GRAY = 205
 LINK_GRAY = 45
@@ -92,3 +98,31 @@ def render_photo(
         img = cv2.GaussianBlur(img, (0, 0), blur_px)
     img += rng.normal(0.0, noise_gray, img.shape)
     return np.clip(np.round(img), 0, 255).astype(np.uint8)
+
+
+def write_synthetic_photo(
+    path: Path,
+    pins_mm: np.ndarray,
+    spec: ChainSpec,
+    image_size: tuple[int, int],
+    focal_35mm: float = 26.0,
+    distance_mm: float = 200.0,
+    tilt_deg: float = 25.0,
+    seed: int = 0,
+) -> None:
+    """Render a tilted phone photo of the chain and save it with EXIF focal length."""
+    focal = focal_px_from_35mm(focal_35mm, image_size)
+    cam = look_at_plane(focal, image_size, distance_mm, tilt_deg=tilt_deg,
+                        tilt_direction_deg=35.0, roll_deg=10.0, target_mm=tuple(pins_mm.mean(axis=0)))
+    img = render_photo(pins_mm, spec, cam, rng=np.random.default_rng(seed))
+    exif = Image.Exif()
+    exif.get_ifd(_EXIF_IFD)[_TAG_FOCAL_LENGTH_35MM] = int(round(focal_35mm))
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(img).save(path, quality=92, exif=exif)
+
+
+def write_truth(path: Path, pins_mm: np.ndarray) -> None:
+    doc = {"schema": TRUTH_SCHEMA, "units": "mm",
+           "pin_points": [[round(float(x), 6), round(float(y), 6)] for x, y in pins_mm]}
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")

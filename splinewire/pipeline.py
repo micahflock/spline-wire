@@ -7,6 +7,12 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageOps
 
+try:  # HEIC/HEIF, the iPhone default photo format
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:  # pragma: no cover
+    pass
+
 from splinewire.camera import focal_px_from_exif
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side, contact_points, object_sign

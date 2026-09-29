@@ -10,12 +10,16 @@ dependencies = [
     "numpy>=2.0",
     "opencv-python-headless>=4.10",
     "pillow>=11.0",
+    "pillow-heif>=0.18",
     "pyyaml>=6.0",
     "scipy>=1.14",
 ]
 
 [project.scripts]
 splinewire = "splinewire.cli:main"
+
+[project.gui-scripts]
+splinewire-gui = "splinewire.gui:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -27,4 +31,7 @@ packages = ["splinewire"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+]
+build = [
+    "pyinstaller>=6.10",
 ]

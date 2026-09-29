@@ -9,6 +9,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [x] Deskew from the pin pitch and EXIF focal length: ≤0.02 mm on clean synthetic photos, ~0.3 mm worst-case with 1 px center noise (`experiments/self_rectification.py`).
 - [x] Contact offset from the pin line to the target curve (convex and concave), matching circular targets to 0.05 mm.
 - [x] CLI: `measure`, `synth`, `test-part`; JSON/CSV/SVG output and a preview image.
+- [x] Windows desktop app (`SplineWire.exe`, built by GitHub Actions) for processing photos with a GUI.
 
 ## 1. Real-photo accuracy with a printed test part  ← next
 
@@ -16,7 +17,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 - `uv run splinewire test-part` for each shape (`--shape s-curve|pipe|cove`). Print at 100% on paper and check the 50 mm scale bar with calipers. Glue it to something flat.
 - Photograph each shape: 3 tilts (straight-on, ~20°, ~40°) × 2 lighting setups (daylight, indoor bulb) × 2 phones if available.
-- `uv run splinewire measure photo.jpg --truth out/test-part/<shape>-truth.json --out results/`.
+- Process them in `SplineWire.exe` with the matching truth file set under Options (any row over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-part/<shape>-truth.json --out results/`.
 - **Exit criterion:** worst pin error under **1 mm** on every photo, and under 0.5 mm on most.
 - Things to watch for: EXIF focal accuracy (compare `focal_px` to an estimated-f run), lens distortion on wide lenses, glare on glossy prints, printer scale error (the scale bar check).
 
