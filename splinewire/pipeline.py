@@ -1,0 +1,115 @@
+"""Photo in, curve points out."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+from PIL import Image, ImageOps
+
+from splinewire.camera import focal_px_from_exif
+from splinewire.chain import ChainSpec
+from splinewire.contact import Side, contact_points, object_sign
+from splinewire.detect import Ring, detect_rings
+from splinewire.order import ChainOrder, order_chain
+from splinewire.rectify import Rectification, rectify_chain
+
+
+@dataclass(frozen=True)
+class Measurement:
+    rings: list[Ring]            # every ring detected in the photo
+    order: ChainOrder
+    rectification: Rectification
+    object_side: Side
+    contacts_mm: np.ndarray      # points on the target curve, in chain order
+    warnings: list[str]
+
+    @property
+    def pins_mm(self) -> np.ndarray:
+        return self.rectification.pins_mm
+
+    @property
+    def pins_px(self) -> np.ndarray:
+        return np.array([self.rings[i].center_px for i in self.order.indices])
+
+
+def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
+    """Grayscale pixels (upright per EXIF orientation) and EXIF focal length in px.
+
+    Rotating to upright keeps the image diagonal, so the focal length holds.
+    """
+    with Image.open(path) as im:
+        focal = focal_px_from_exif(im)
+        upright = ImageOps.exif_transpose(im)
+        return np.asarray(upright.convert("L")), focal
+
+
+def measure(
+    image: np.ndarray,
+    spec: ChainSpec,
+    focal_px: float | None,
+    side: Side = "inside",
+) -> Measurement:
+    warnings: list[str] = []
+    rings = detect_rings(image, spec.ring_inner_mm / spec.ring_outer_mm)
+    if len(rings) < 3:
+        raise ValueError(f"found {len(rings)} ring fiducials; need the whole chain in view")
+
+    centers = np.array([r.center_px for r in rings])
+    order = order_chain(centers)
+    n_on_chain = len(order.indices)
+    if order.rejected:
+        warnings.append(f"ignored {len(order.rejected)} ring-like detection(s) not on the chain")
+    if order.gaps:
+        warnings.append(f"{len(order.gaps)} pin(s) not detected; the curve bridges those gaps")
+    expected = spec.n_pins - len(order.gaps)
+    if n_on_chain != expected:
+        warnings.append(
+            f"found {n_on_chain} pins on the chain but the spec has {spec.n_pins} "
+            f"({len(order.gaps)} gap(s)); is the whole chain in the photo?"
+        )
+    if focal_px is None:
+        warnings.append(
+            "no focal length (EXIF or --focal-35mm); estimating it from the chain, "
+            "which is unreliable for nearly straight chains"
+        )
+
+    h, w = image.shape[:2]
+    rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
+    if rect.residual_max_mm > 0.05 * spec.pitch_mm:
+        warnings.append(
+            f"link lengths deviate from the pitch by up to {rect.residual_max_mm:.2f} mm; "
+            "check the detections in the preview image"
+        )
+
+    sign = object_sign(rect.pins_mm, side)
+    contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign)
+    return Measurement(
+        rings=rings, order=order, rectification=rect, object_side=side,
+        contacts_mm=contacts, warnings=warnings,
+    )
+
+
+def compare_to_truth(pins_mm: np.ndarray, truth_mm: np.ndarray) -> dict[str, float]:
+    """Error of measured pins against known pins after the best rigid fit.
+
+    The chain has no labels, so both directions along the chain are tried.
+    Reflections are not allowed: a mirrored result is an error.
+    """
+    if len(pins_mm) != len(truth_mm):
+        raise ValueError(f"measured {len(pins_mm)} pins but truth has {len(truth_mm)}")
+    best = None
+    for t in (truth_mm, truth_mm[::-1]):
+        err = rigid_fit_errors(pins_mm, t)
+        if best is None or err.max() < best.max():
+            best = err
+    return {"max_error_mm": float(best.max()), "rms_error_mm": float(np.sqrt(np.mean(best ** 2)))}
+
+
+def rigid_fit_errors(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Per-point distance after rotating and translating a onto b (no reflection)."""
+    a0, b0 = a - a.mean(axis=0), b - b.mean(axis=0)
+    u, _, vt = np.linalg.svd(a0.T @ b0)
+    d = np.sign(np.linalg.det(u @ vt))
+    rot = u @ np.diag([1.0, d]) @ vt
+    return np.linalg.norm(a0 @ rot - b0, axis=1)
