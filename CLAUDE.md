@@ -21,9 +21,9 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 
 ## Repo layout
 
-- `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`; `process` measures one photo and writes its files, shared by `cli` and the Tkinter desktop app `gui`. `synthetic` renders test photos; `testpart` renders a paper test chain and `plaque` a 3D-printable one (black/white, one filament swap); `selftest` checks a packaged build.
+- `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`; `process` measures one photo and writes its files, shared by `cli` and the app in `webapp/` (a local web server with browser UI and phone upload over Wi-Fi; `settings` holds its per-user settings). `synthetic` renders test photos; `testpart` renders a paper test chain and `plaque` a 3D-printable one (black/white, one filament swap); `selftest` checks a packaged build.
 - `fusion/SplineWire/` — Fusion add-in: a Paste points button that reads the table SplineWire.exe's Copy points puts on the clipboard (mm) and adds sketch points plus a fitted spline (API units are cm). `splinewire/fusion_addin.py` installs it. Feasibility notes: `docs/fusion-import.md`.
-- `packaging/` — PyInstaller build of the desktop app (`SplineWire.exe`); `.github/workflows/windows-exe.yml` builds, tests and uploads it on Windows.
+- `packaging/` — PyInstaller build of the app (`SplineWire.exe`, a console program that serves the web app); `.github/workflows/windows-exe.yml` builds, tests and uploads it on Windows.
 - `data/chain.yaml` — the chain's physical parameters (pitch, half-width, ring size, pin count).
 - `tests/` — pytest suite; end-to-end tests run on synthetic photos with known geometry.
 - `experiments/` — standalone studies (e.g. how accurate pitch-only deskewing is).
@@ -40,12 +40,12 @@ uv run splinewire synth --shape pipe      # synthetic photo + truth -> out/synth
 uv run splinewire measure out/synth/pipe.jpg --truth out/synth/pipe-truth.json
 uv run splinewire test-part               # printable paper SVG + truth -> out/test-part/
 uv run splinewire test-plaque             # 3D-printable plaque STLs + truth -> out/test-plaque/
-uv run splinewire-gui                     # desktop app (needs a Python with tkinter)
-uv run splinewire-gui --selftest log.txt  # headless check, also run on the packaged .exe
+uv run splinewire-app                     # the app: opens http://localhost:8765/ (phone page via its QR code)
+uv run splinewire-app --selftest log.txt  # headless check over HTTP, also run on the packaged .exe
 uv sync --group build && uv run python packaging/build_exe.py   # dist/SplineWire(.exe)
 ```
 
-PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` GitHub Actions workflow (artifact `SplineWire-windows`). Pillow's Tk bridge must stay a hidden import (`PIL._tkinter_finder`) or photo previews break in the packaged app; the selftest catches this.
+PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` GitHub Actions workflow (artifact `SplineWire-windows`). The web pages in `splinewire/webapp/static` are bundled as data files; the selftest fetches them from the packaged build. The title and pages show the version and CI build (`packaging/stamp_build.py`).
 
 ## Priority
 

@@ -1,6 +1,6 @@
 """Process one photo end to end and write its output files.
 
-Shared by the CLI and the GUI.
+Shared by the CLI and the web app.
 """
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+
+from PIL import Image
 
 from splinewire.camera import focal_px_from_35mm
 from splinewire.chain import ChainSpec
@@ -29,6 +31,32 @@ class PhotoResult:
     preview: np.ndarray                     # BGR photo with detections drawn on
     truth_comparison: dict | None = None
     outputs: dict[str, Path] = field(default_factory=dict)
+    focal_source: str = "exif"    # "exif", "override", "default" or "estimated"
+    info: dict = field(default_factory=dict)   # what the photo file carried; see photo_info
+
+
+_EXIF_IFD = 0x8769
+_TAGS = {"make": 0x010F, "model": 0x0110}
+_EXIF_TAGS = {"focal_mm": 0x920A, "focal_35mm": 0xA405}
+
+
+def photo_info(path: Path) -> dict:
+    """Format, size and camera metadata of a photo file.
+
+    Shown after a phone upload, because some upload paths strip metadata
+    (iOS Safari has at times dropped EXIF, including the focal length).
+    """
+    with Image.open(path) as im:
+        exif = im.getexif()
+        sub = exif.get_ifd(_EXIF_IFD)
+        info = {"format": im.format, "width": im.size[0], "height": im.size[1]}
+        for key, tag in _TAGS.items():
+            value = exif.get(tag)
+            info[key] = str(value).strip("\x00 ") if value else None
+        for key, tag in _EXIF_TAGS.items():
+            value = sub.get(tag) or exif.get(tag)
+            info[key] = float(value) if value else None
+    return info
 
 
 def process_photo(
@@ -38,15 +66,22 @@ def process_photo(
     focal_35mm: float | None = None,
     side: Side = "inside",
     truth_path: Path | None = None,
+    default_focal_35mm: float | None = None,
 ) -> PhotoResult:
     """Measure the chain in `photo` and write JSON, CSV, SVG and preview to out_dir.
 
-    focal_35mm overrides the photo's EXIF focal length when given.
+    Focal length, in order of preference: focal_35mm (an explicit override),
+    the photo's EXIF, default_focal_35mm (e.g. the user's phone camera, for
+    uploads that lost their EXIF), or an estimate from the chain itself.
     """
     photo = Path(photo)
     image, focal = load_photo(photo)
+    size = (image.shape[1], image.shape[0])
+    source = "exif" if focal is not None else "estimated"
     if focal_35mm is not None:
-        focal = focal_px_from_35mm(focal_35mm, (image.shape[1], image.shape[0]))
+        focal, source = focal_px_from_35mm(focal_35mm, size), "override"
+    elif focal is None and default_focal_35mm is not None:
+        focal, source = focal_px_from_35mm(default_focal_35mm, size), "default"
     m = measure(image, spec, focal, side=side)
 
     extra: dict = {"photo": photo.name}
@@ -77,4 +112,5 @@ def process_photo(
     return PhotoResult(
         photo=photo, measurement=m, image=image, preview=preview,
         truth_comparison=truth_comparison, outputs=outputs,
+        focal_source=source, info=photo_info(photo),
     )

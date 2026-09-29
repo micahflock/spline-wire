@@ -38,8 +38,7 @@ def test_focal_override_beats_exif(spec, tmp_path):
     assert res.measurement.rectification.focal_px > 2900   # twice the EXIF focal (~1500 px)
 
 
-def test_selftest_passes(tmp_path, monkeypatch):
-    monkeypatch.delenv("DISPLAY", raising=False)   # GUI part is skipped off Windows without a display
+def test_selftest_passes(tmp_path):
     log = tmp_path / "selftest.log"
     assert run_selftest(log) == 0
     assert "OK: 0 failure(s)" in log.read_text()
@@ -69,3 +68,24 @@ def test_fusion_outputs(spec, tmp_path):
     samples = np.array(list(splines[0].construction_tool().approximate(20000)))[:, :2]
     gaps = [np.linalg.norm(samples - p, axis=1).min() for p in curve]
     assert max(gaps) < 0.01
+
+
+def test_focal_source_and_photo_info(spec, tmp_path):
+    from PIL import Image as PILImage
+
+    pins = s_curve_pins(spec)
+    with_exif = tmp_path / "exif.jpg"
+    write_synthetic_photo(with_exif, pins, spec, (2000, 1500), focal_35mm=26)
+    res = process_photo(with_exif, spec, tmp_path / "out", default_focal_35mm=40)
+    assert res.focal_source == "exif"                    # EXIF beats the default
+    assert res.info["focal_35mm"] == 26 and res.info["format"] == "JPEG"
+    assert res.info["width"] == 2000
+
+    stripped = tmp_path / "stripped.jpg"                 # what a metadata-stripping upload sends
+    with PILImage.open(with_exif) as im:
+        im.save(stripped, quality=95)
+    res = process_photo(stripped, spec, tmp_path / "out", default_focal_35mm=26)
+    assert res.focal_source == "default" and res.info["focal_35mm"] is None
+    assert not res.measurement.rectification.focal_estimated
+    assert process_photo(stripped, spec, tmp_path / "out").focal_source == "estimated"
+    assert process_photo(stripped, spec, tmp_path / "out", focal_35mm=26).focal_source == "override"

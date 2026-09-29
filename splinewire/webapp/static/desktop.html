@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spline Wire</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2024; --muted: #636b75; --line: #dde1e6;
+  --accent: #1f6feb; --accent-ink: #ffffff; --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e;
+  --chip: #eef1f4; --grid: #eef1f4; --pin: #8c959f; --link: #d0d7de; --curve: #1d2024; --point: #d1242f;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 1px 8px rgba(0,0,0,.04);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216; --panel: #171b21; --ink: #e6e9ed; --muted: #9aa4af; --line: #2a313a;
+    --accent: #4c8dff; --accent-ink: #0b1220; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    --chip: #222932; --grid: #212830; --pin: #8b949e; --link: #36404b; --curve: #e6e9ed; --point: #ff6b6b;
+    --shadow: none; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 18px; background: var(--panel);
+  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
+header .version { color: var(--muted); font-size: 12px; }
+header .spacer { flex: 1; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 12px;
+  cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.big { padding: 10px 18px; font-size: 15px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.link { border: none; background: none; color: var(--accent); padding: 4px 6px; }
+a.btn { text-decoration: none; color: inherit; display: inline-block; }
+.layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; padding: 16px 18px;
+  min-height: calc(100% - 56px); }
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.phone { padding: 14px; display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: center; }
+.phone img { width: 120px; height: 120px; border-radius: 8px; background: #fff; display: block; }
+.phone h2 { font-size: 14px; margin: 0 0 4px; }
+.phone p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.phone .url { grid-column: 1 / -1; font: 11.5px ui-monospace, Consolas, monospace; color: var(--muted);
+  word-break: break-all; }
+.list { padding: 6px; min-height: 120px; }
+.list h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 8px 8px 6px; }
+.item { display: grid; grid-template-columns: 56px 1fr; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer;
+  align-items: center; }
+.item:hover { background: var(--chip); }
+.item.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.item .thumb { width: 56px; height: 42px; border-radius: 6px; background: var(--chip) center/cover no-repeat; }
+.item .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub.ok { color: var(--ok); } .sub.warn { color: var(--warn); } .sub.bad { color: var(--bad); }
+.empty { padding: 36px; text-align: center; color: var(--muted); }
+.empty h2 { color: var(--ink); font-size: 18px; margin: 0 0 8px; }
+.main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.title { padding: 14px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.title h2 { margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; }
+.title .meta { color: var(--muted); font-size: 12.5px; }
+.title .actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hint { color: var(--muted); font-size: 12.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; }
+.chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
+.views { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.view { padding: 10px; display: flex; flex-direction: column; min-height: 360px; }
+.view h3 { margin: 2px 4px 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.view .body { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 300px;
+  border-radius: 8px; overflow: hidden; background: var(--bg); }
+.view img { max-width: 100%; max-height: 520px; display: block; }
+.view svg { width: 100%; height: 100%; max-height: 520px; }
+.details { padding: 14px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 24px; }
+.details h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--muted); }
+.details h3:first-child { margin-top: 0; }
+.row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.row span:first-child { color: var(--muted); }
+.row span:last-child { text-align: right; }
+.warnings { grid-column: 1 / -1; margin: 6px 0 0; padding-left: 18px; color: var(--warn); }
+.error { padding: 16px; color: var(--bad); white-space: pre-wrap; font: 12.5px ui-monospace, Consolas, monospace; }
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink);
+  padding: 0; width: min(560px, 94vw); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog form { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; max-height: 86vh; overflow: auto; }
+dialog h2 { margin: 0; font-size: 17px; }
+fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 12px; margin: 0; }
+legend { padding: 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+.grid2 { display: grid; grid-template-columns: 1fr 120px; gap: 8px 12px; align-items: center; }
+.grid2 input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); text-align: right; }
+label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+.small { font-size: 12.5px; color: var(--muted); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+#toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--panel);
+  padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; }
+#toast.show { opacity: 1; }
+#drop { position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent); border: 3px dashed var(--accent);
+  display: none; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; z-index: 30; }
+#drop.show { display: flex; }
+.offline { background: var(--bad); color: #fff; padding: 8px 18px; display: none; }
+.offline.show { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spline Wire</h1><span class="version">{{VERSION}}</span>
+  <span class="spacer"></span>
+  <button class="btn" id="add">Add photos…</button>
+  <input type="file" id="file" accept="image/*,.heic,.heif" multiple hidden>
+  <button class="btn" id="settings-btn">Settings</button>
+  <button class="btn" id="install">Install Fusion add-in</button>
+  <button class="btn" id="quit" title="Stop Spline Wire">Quit</button>
+</header>
+<div class="offline" id="offline">Spline Wire isn't running. Start SplineWire.exe again, then reload this page.</div>
+
+<div class="layout">
+  <aside class="side">
+    <section class="card phone">
+      <img id="qr" alt="QR code for the phone upload page">
+      <div>
+        <h2>Send photos from your iPhone</h2>
+        <p>Scan with the Camera app. The phone and this computer need the same Wi-Fi, or put this computer on your phone's hotspot.</p>
+      </div>
+      <div class="url" id="phone-url"></div>
+    </section>
+    <section class="card list">
+      <h2>Photos</h2>
+      <div id="list"></div>
+    </section>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+
+<dialog id="settings">
+  <form method="dialog" id="settings-form">
+    <h2>Settings</h2>
+    <fieldset>
+      <legend>Chain</legend>
+      <div class="grid2">
+        <span>Pitch, pin to pin (mm)</span><input name="pitch_mm" inputmode="decimal">
+        <span>Half width, pin line to edge (mm)</span><input name="half_width_mm" inputmode="decimal">
+        <span>Ring outer diameter (mm)</span><input name="ring_outer_mm" inputmode="decimal">
+        <span>Ring inner diameter (mm)</span><input name="ring_inner_mm" inputmode="decimal">
+        <span>Number of pins</span><input name="n_pins" inputmode="numeric">
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>The object was on the…</legend>
+      <label class="radio"><input type="radio" name="side" value="inside"> inside of the bend (chain wrapped around it)</label>
+      <label class="radio"><input type="radio" name="side" value="outside"> outside of the bend (chain pressed into a hollow)</label>
+    </fieldset>
+    <fieldset>
+      <legend>Camera</legend>
+      <div class="grid2">
+        <span>iPhone focal length (mm, 35 mm equiv.)</span><input name="phone_focal_35mm" inputmode="decimal" placeholder="none">
+        <span>Override for every photo</span><input name="focal_override_35mm" inputmode="decimal" placeholder="off">
+      </div>
+      <p class="small">The first is used only when an uploaded photo has lost its camera data. iPhone main (1×) camera:
+        24&nbsp;mm on iPhone 14&nbsp;Pro and iPhone 15 or later, 26&nbsp;mm on earlier models. Shoot at 1×.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Test part</legend>
+      <p class="small" id="truth-status"></p>
+      <div style="display:flex; gap:8px">
+        <button type="button" class="btn" id="truth-pick">Choose truth file…</button>
+        <button type="button" class="btn" id="truth-clear">Clear</button>
+        <input type="file" id="truth-file" accept=".json,application/json" hidden>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Files</legend>
+      <p class="small" id="workspace"></p>
+      <div style="display:flex; gap:8px">
+        <button type="button" class="btn" data-open="photos">Open photos folder</button>
+        <button type="button" class="btn" data-open="results">Open results folder</button>
+      </div>
+    </fieldset>
+    <p class="small" id="settings-error" style="color: var(--bad)"></p>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" id="settings-save" value="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+<div id="drop">Drop photos to measure them</div>
+
+<script>
+"use strict";
+let TOKEN = null;
+let state = null;
+let selected = null;
+let detailCache = {};
+let lastCount = 0;
+
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {...opts, headers: {...(opts.headers || {}), "X-Token": TOKEN}});
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).error || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return res;
+}
+const withToken = (path) => `${path}${path.includes("?") ? "&" : "?"}t=${encodeURIComponent(TOKEN)}`;
+
+function toast(msg, ms = 2600) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), ms);
+}
+
+async function init() {
+  const m = location.hash.match(/t=([^&]+)/);
+  if (m) TOKEN = decodeURIComponent(m[1]);
+  if (!TOKEN) TOKEN = sessionStorage.getItem("sw-token");
+  if (!TOKEN) TOKEN = (await (await fetch("/api/local-token")).json()).token;
+  sessionStorage.setItem("sw-token", TOKEN);
+  history.replaceState(null, "", "/");
+  $("#qr").src = withToken("/api/qr.svg");
+  poll();
+}
+
+async function poll() {
+  try {
+    const s = await (await api("/api/state")).json();
+    $("#offline").classList.remove("show");
+    if (!state || s.state_version !== state.state_version) {
+      const newest = s.photos[0];
+      if (s.photos.length > lastCount && newest) selected = newest.id;   // follow new uploads
+      lastCount = s.photos.length;
+      state = s;
+      render();
+    }
+  } catch (e) {
+    $("#offline").classList.add("show");
+  }
+  setTimeout(poll, 900);
+}
+
+function statusLine(p) {
+  if (p.status === "queued") return ["", "Waiting…"];
+  if (p.status === "processing") return ["", "Measuring…"];
+  if (p.status === "error") return ["bad", (p.error || "Couldn't measure this photo").split("\n").pop()];
+  const r = p.result;
+  const t = r.truth ? ` · error ${r.truth.max_error_mm.toFixed(2)} mm` : "";
+  const cls = r.warnings.length || (r.truth && r.truth.max_error_mm > 1) ? "warn" : "ok";
+  return [cls, `${r.pins} pins · ${r.curve_points} curve points${t}`];
+}
+
+function render() {
+  $("#phone-url").textContent = (state.phone_urls && state.phone_urls[0] || "No network found").replace(/#t=.*/, "");
+  if (!selected && state.photos.length) selected = state.photos[0].id;
+  if (selected && !state.photos.find((p) => p.id === selected)) selected = state.photos[0]?.id || null;
+  const list = $("#list");
+  if (!state.photos.length) {
+    list.innerHTML = '<p class="small" style="margin: 4px 8px 10px">No photos yet.</p>';
+  } else {
+    list.innerHTML = state.photos.map((p) => {
+      const [cls, text] = statusLine(p);
+      const thumb = p.status === "done" ? `style="background-image:url('${withToken(`/api/photo/${p.id}/thumb.jpg`)}&v=${state.state_version}')"` : "";
+      const when = new Date(p.received * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+      return `<div class="item ${p.id === selected ? "sel" : ""}" data-id="${p.id}">
+        <div class="thumb" ${thumb}></div>
+        <div style="min-width:0"><div class="name">${esc(p.name)}</div>
+        <div class="sub ${cls}">${esc(text)}</div><div class="sub">${p.source === "phone" ? "From phone" : "Added here"} · ${when}</div></div></div>`;
+    }).join("");
+  }
+  renderMain();
+}
+
+async function renderMain() {
+  const main = $("#main");
+  const p = state.photos.find((x) => x.id === selected);
+  if (!p) {
+    main.innerHTML = `<section class="card empty"><h2>Photograph the chain with your phone</h2>
+      <p>Lay the chain flat, rings facing up, the whole chain in the frame. Scan the QR code on the left
+      with your iPhone and take the photo from that page. It shows up here within a few seconds.</p>
+      <p>Photos already on this computer: use <b>Add photos…</b> or drop them on this window.</p></section>`;
+    return;
+  }
+  let d = null;
+  if (p.status === "done") {
+    const key = `${p.id}:${state.state_version}`;
+    d = detailCache[key] || (detailCache[key] = await (await api(`/api/photo/${p.id}`)).json());
+  }
+  if (selected !== p.id) return;   // selection changed while loading
+  const help = `<section class="card empty"><p>Check that the whole chain is in the photo, rings facing up and in focus,
+    without glare, and that the chain settings match your chain. Then take the photo again.</p></section>`;
+  main.innerHTML = titleCard(p, d) + (p.status === "error" ? help : "")
+    + (d ? viewsCard(p, d) + detailsCard(d) : "");
+}
+
+function titleCard(p, d) {
+  const [cls, text] = statusLine(p);
+  const dl = d ? d.downloads.map((k) => `<a class="btn" href="${withToken(`/api/photo/${p.id}/download/${k}`)}">${
+    {dxf: "DXF", csv: "CSV", svg: "SVG", json: "JSON", fusion_csv: "Fusion CSV"}[k]}</a>`).join("") : "";
+  return `<section class="card title">
+    <div style="min-width:0"><h2>${esc(p.name)}</h2><div class="meta sub ${cls}">${esc(text)}</div></div>
+    <div class="actions">
+      ${d ? `<button class="btn primary big" id="copy">Copy points</button><span class="hint">then <b>Paste points</b> in a Fusion sketch</span>` : ""}
+      ${dl}
+      <button class="btn link" id="delete">Remove</button>
+    </div></section>`;
+}
+
+function viewsCard(p, d) {
+  return `<div class="views">
+    <section class="card view"><h3>Measured curve</h3><div class="body">${curveSvg(d.curve)}</div></section>
+    <section class="card view"><h3>Detected rings</h3><div class="body">
+      <img alt="Photo with detected rings" src="${withToken(`/api/photo/${p.id}/preview.jpg`)}&v=${state.state_version}"></div></section>
+  </div>`;
+}
+
+function curveSvg(c) {
+  const all = c.spline.concat(c.pins);
+  const xs = all.map((p) => p[0]), ys = all.map((p) => p[1]);
+  const pad = 6;
+  const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+  const w = x1 - x0, h = y1 - y0;
+  const step = Math.max(w, h) > 150 ? 20 : 10;
+  const grid = [];
+  for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) grid.push(`<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}"/>`);
+  for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) grid.push(`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>`);
+  const path = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(3)} ${p[1].toFixed(3)}`).join(" ");
+  const r = Math.max(w, h) / 160;
+  const bar = `<g transform="translate(${x0 + 3} ${y0 + 3})"><line x1="0" y1="0" x2="${step}" y2="0" stroke="var(--ink)" stroke-width="3" vector-effect="non-scaling-stroke"/></g>`;
+  return `<svg viewBox="${x0} ${-y1} ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Measured curve">
+    <g transform="scale(1,-1)">
+      <g stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke">${grid.join("")}</g>
+      <path d="${path(c.pins)}" fill="none" stroke="var(--link)" stroke-width="${r * 2.4}" stroke-linecap="round" stroke-linejoin="round"/>
+      ${c.pins.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="${r * 1.6}" fill="var(--panel)" stroke="var(--pin)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`).join("")}
+      <path d="${path(c.spline)}" fill="none" stroke="var(--curve)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      ${c.points.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="var(--point)"/>`).join("")}
+      ${bar}
+    </g>
+    <text x="${x0 + 3 + step + 1.5}" y="${-(y0 + 3) + r}" font-size="${r * 3.2}" fill="var(--muted)">${step} mm</text>
+  </svg>`;
+}
+
+function rowHtml(k, v) { return `<div class="row"><span>${esc(k)}</span><span>${v}</span></div>`; }
+
+function detailsCard(d) {
+  const r = d.result, info = d.info || {};
+  const focalSrc = {exif: "from the photo", override: "override", default: "iPhone setting (photo had none)",
+    estimated: "estimated from the chain"}[r.focal_source];
+  const t = r.truth;
+  const truth = t ? `<h3>Compared to test-part truth</h3>
+      ${rowHtml("Max pin error", `${t.max_error_mm.toFixed(3)} mm`)}
+      ${rowHtml("After scale fit", `${t.max_error_scaled_mm.toFixed(3)} mm`)}
+      ${rowHtml("Part size vs design", `${((t.scale - 1) * 100).toFixed(2)} %`)}
+      ${rowHtml("RMS pin error", `${t.rms_error_mm.toFixed(3)} mm`)}` : "";
+  const camera = [info.make, info.model].filter(Boolean).join(" ") || "not recorded";
+  const warn = r.warnings.length ? `<ul class="warnings">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
+  return `<section class="card details">
+    <h3>Measurement</h3>
+    ${rowHtml("Pins found", `${r.pins}${r.missing_pins ? ` (${r.missing_pins} missing)` : ""}`)}
+    ${rowHtml("Curve points", r.curve_points)}
+    ${rowHtml("Camera tilt", `${r.tilt_deg}°`)}
+    ${rowHtml("Focal length", `${r.focal_35mm} mm <span class="small">${esc(focalSrc)}</span>`)}
+    ${rowHtml("Link length error", `rms ${r.link_residual_rms_mm} · max ${r.link_residual_max_mm} mm`)}
+    ${rowHtml("Object side", `${r.object_side} of the bend`)}
+    ${rowHtml("Stray rings ignored", r.rejected)}
+    ${truth}
+    <h3>Photo file</h3>
+    ${rowHtml("Format", `${esc(info.format)} · ${info.width} × ${info.height}`)}
+    ${rowHtml("Camera", esc(camera))}
+    ${rowHtml("Focal length in file", info.focal_35mm ? `${info.focal_35mm} mm (35 mm equiv.)` : '<span style="color:var(--warn)">missing</span>')}
+    ${warn}
+  </section>`;
+}
+
+async function copyPoints() {
+  if (!selected) return;
+  try {
+    const text = await (await api(`/api/photo/${selected}/points.tsv`)).text();
+    await navigator.clipboard.writeText(text);
+    const n = text.trim().split("\n").length - 1;
+    toast(`Copied ${n} points. In Fusion, click Paste points while editing a sketch.`);
+  } catch (e) {
+    toast("Couldn't copy: " + e.message);
+  }
+}
+
+async function upload(files) {
+  for (const f of files) {
+    try {
+      await api(`/api/upload?name=${encodeURIComponent(f.name)}`, {method: "POST", body: f});
+    } catch (e) { toast(`${f.name}: ${e.message}`); }
+  }
+}
+
+document.addEventListener("click", async (ev) => {
+  const item = ev.target.closest(".item");
+  if (item) { selected = item.dataset.id; render(); return; }
+  if (ev.target.id === "copy") return copyPoints();
+  if (ev.target.id === "delete" && selected) { await api(`/api/photo/${selected}/delete`, {method: "POST"}); selected = null; }
+  const open = ev.target.dataset && ev.target.dataset.open;
+  if (open) api("/api/open-folder", {method: "POST", body: JSON.stringify({which: open})});
+});
+document.addEventListener("keydown", (ev) => {
+  const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === "c" && !typing && !String(getSelection())) { ev.preventDefault(); copyPoints(); }
+});
+$("#add").onclick = () => $("#file").click();
+$("#file").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
+$("#install").onclick = async () => {
+  try {
+    const r = await (await api("/api/install-addin", {method: "POST"})).json();
+    alert(`Installed the Fusion add-in to:\n${r.path}\n\nRestart Fusion. "Paste points" then appears in the sketch Create panel and in the Insert menu.\n\nIf it doesn't: in Fusion open Utilities > Add-Ins, select Spline Wire, click Run, and tick Run on Startup.`);
+  } catch (e) { alert("Couldn't install the Fusion add-in:\n" + e.message); }
+};
+$("#quit").onclick = async () => {
+  if (!confirm("Stop Spline Wire? The phone page stops working until you start it again.")) return;
+  await api("/api/quit", {method: "POST"}).catch(() => {});
+  document.body.innerHTML = '<div class="empty"><h2>Spline Wire has stopped.</h2><p>You can close this tab.</p></div>';
+};
+
+// Settings dialog
+const form = $("#settings-form");
+$("#settings-btn").onclick = () => {
+  const s = state.settings;
+  for (const [k, v] of Object.entries(s.chain)) form.elements[k].value = v;
+  form.elements.side.value = s.side;
+  form.elements.phone_focal_35mm.value = s.phone_focal_35mm ?? "";
+  form.elements.focal_override_35mm.value = s.focal_override_35mm ?? "";
+  $("#truth-status").textContent = s.truth_name ? `Comparing every photo to ${s.truth_name}.` :
+    "Load the truth file that came with a printed test plaque to see each photo's error.";
+  $("#workspace").textContent = state.workspace;
+  $("#settings-error").textContent = "";
+  $("#settings").showModal();
+};
+$("#settings-save").onclick = async (ev) => {
+  ev.preventDefault();
+  const e = form.elements;
+  const body = {chain: {}, side: e.side.value, phone_focal_35mm: e.phone_focal_35mm.value.trim(),
+    focal_override_35mm: e.focal_override_35mm.value.trim()};
+  for (const k of ["pitch_mm", "half_width_mm", "ring_outer_mm", "ring_inner_mm", "n_pins"]) body.chain[k] = e[k].value.trim();
+  try {
+    await api("/api/settings", {method: "POST", body: JSON.stringify(body)});
+    $("#settings").close();
+    toast("Saved. Re-measuring every photo.");
+  } catch (err) { $("#settings-error").textContent = err.message; }
+};
+$("#truth-pick").onclick = () => $("#truth-file").click();
+$("#truth-file").onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  try {
+    await api(`/api/truth?name=${encodeURIComponent(f.name)}`, {method: "POST", body: f});
+    $("#truth-status").textContent = `Comparing every photo to ${f.name}.`;
+  } catch (err) { $("#settings-error").textContent = err.message; }
+};
+$("#truth-clear").onclick = async () => {
+  await api("/api/truth/clear", {method: "POST"});
+  $("#truth-status").textContent = "No truth file.";
+};
+
+// Drag and drop
+let dragDepth = 0;
+addEventListener("dragenter", (e) => { if (e.dataTransfer.types.includes("Files")) { dragDepth++; $("#drop").classList.add("show"); } });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#drop").classList.remove("show"); } });
+addEventListener("dragover", (e) => e.preventDefault());
+addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; $("#drop").classList.remove("show");
+  upload([...e.dataTransfer.files].filter((f) => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name)));
+});
+
+init();
+</script>
+</body>
+</html>

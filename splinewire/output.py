@@ -156,3 +156,18 @@ def _ip(p) -> tuple[int, int]:
 
 def _round(pts: np.ndarray) -> list[list[float]]:
     return [[round(float(x), 4), round(float(y), 4)] for x, y in pts]
+
+
+def crop_to_rings(preview: np.ndarray, m: Measurement, margin: float = 0.25) -> np.ndarray:
+    """The preview cropped to the detected rings plus a margin, so the chain
+    fills the view even when it is small in the photo."""
+    if not m.rings:
+        return preview
+    pts = np.array([r.center_px for r in m.rings])
+    size = max(r.outer_axes_px[0] for r in m.rings)
+    lo, hi = pts.min(axis=0) - size, pts.max(axis=0) + size
+    pad = margin * (hi - lo).max()
+    h, w = preview.shape[:2]
+    x0, y0 = int(max(0, lo[0] - pad)), int(max(0, lo[1] - pad))
+    x1, y1 = int(min(w, hi[0] + pad)), int(min(h, hi[1] + pad))
+    return preview[y0:y1, x0:x1]

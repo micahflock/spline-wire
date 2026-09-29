@@ -87,15 +87,15 @@ The curve is a cubic spline through the contact points (chord-length parameter, 
 
 Into Fusion, the main path is the `fusion/SplineWire` add-in: Copy points in the app, then Paste points in a sketch. See `docs/fusion-import.md` for the options compared and the test protocol.
 
-## Desktop app — `gui.py`
+## App — `webapp/` (SplineWire.exe)
 
-A Tkinter window for Windows (packaged as a single `SplineWire.exe`) that wraps the same `process_photo` as the CLI:
+The app is a small local web server (standard library `http.server`) with its UI in the browser, so display scaling, layout and fonts are the browser's job. `SplineWire.exe` starts it in a console window (close the window to quit), opens `http://localhost:8765/`, and reuses an already-running copy if there is one.
 
-- Add photos (JPEG, PNG, HEIC, …) or drop them onto the .exe. Chain settings, object side, focal-length override, an optional truth file and the output location are set in the left panel and remembered between runs (`%APPDATA%\SplineWire\settings.json`).
-- "Process all" runs in a background thread. Each photo's row shows pins found and tilt, or max error against a truth file, with warnings flagged.
-- Tabs: **Detections** (the preview cropped to the chain), **Curve** (pins, curve points and fitted spline in mm), **Details** (diagnostics, warnings, saved files).
-- Output files are the same as the CLI's, by default in a `splinewire-out` folder next to each photo.
-- Unexpected errors are shown and appended to `%APPDATA%\SplineWire\errors.log`.
+- **Phone → computer:** the desktop page shows a QR code for `http://<this computer's LAN IP>:8765/phone`. The phone page has **Take photo** and **Choose from library**; uploads are sent as the raw file body and saved byte-for-byte, then measured by a worker thread. The phone and computer must share a network (a phone hotspot works). The desktop page follows new uploads automatically.
+- **Camera metadata:** some iOS versions strip EXIF from web uploads. Every photo shows what arrived (format, size, camera, focal length). Focal length is taken from: an override, else EXIF, else the saved "iPhone focal length" setting, else estimated from the chain.
+- **Desktop page:** photo list with thumbnails and status; for the selected photo, the measured curve (SVG in mm), the photo cropped to the chain with detections, **Copy points** (Ctrl+C also works), downloads (DXF, CSV, SVG, JSON, Fusion CSV) and diagnostics. Settings (chain, object side, focal lengths, test-part truth file) persist in `%APPDATA%\SplineWire\settings.json`. Photos and results go to `Documents\SplineWire`.
+- **Security:** a random token (in the QR code, stored with the settings) is needed for every API call, as an `X-Token` header, which cross-site pages can't send without a CORS preflight. Images and downloads take it as `?t=`. The Host header must name this computer (against DNS rebinding). Settings, downloads, installing the Fusion add-in, opening folders and quitting only work from this computer.
+- **First run on Windows:** Windows Firewall asks whether to allow Spline Wire; allow it on private networks (and public, if you use a phone hotspot that Windows classes as public), or the phone can't connect.
 
 ## Testing without hardware
 
