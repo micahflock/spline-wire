@@ -30,7 +30,10 @@ packages = ["splinewire"]
 
 [dependency-groups]
 dev = [
+    "mapbox-earcut>=2.1.0",
     "pytest>=8.0",
+    "shapely>=2.1.2",
+    "trimesh>=5.1.0",
 ]
 build = [
     "pyinstaller>=6.10",

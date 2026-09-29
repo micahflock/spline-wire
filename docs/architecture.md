@@ -24,7 +24,7 @@ Fiducials go on one face only because a chain photographed from the other side i
 
 ## 3. Detection and ordering — `detect.py`, `order.py`
 
-- **Rings:** local adaptive threshold, then contours with exactly one hole whose outer and inner edges both fit concentric ellipses, with the spec's inner/outer diameter ratio. Both polarities are tried. The center is the mean of the two ellipse centers. On synthetic photos the error is 0.05–0.2 px.
+- **Rings:** local adaptive threshold, then contours with exactly one hole (specks of noise smaller than 2% of the ring are ignored) whose outer and inner edges both fit concentric ellipses. The inner/outer diameter ratio must be roughly the spec's; the accepted range is lopsided upward because thresholding, defocus, undersized printed windows and recess walls all thin the ring band. Both polarities are tried. The center is the mean of the two ellipse centers. On synthetic photos the error is 0.05–0.2 px.
 - **Order:** the rings carry no IDs, so order comes from geometry. Walk from ring to ring stepping about one pitch, preferring the smallest turn, with joints limited to 80°. A ~2-pitch step counts as one missing ring (a *gap*). Every ring is tried as the start and the longest walk wins. Rings off the walk are rejected as strays.
 - Direction along the chain is arbitrary and doesn't matter for the curve.
 
@@ -97,4 +97,7 @@ A Tkinter window for Windows (packaged as a single `SplineWire.exe`) that wraps 
 ## Testing without hardware
 
 - `splinewire synth` renders a photo of a posed chain through a simulated tilted phone camera (with EXIF), plus a truth file.
-- `splinewire test-part` writes a printable SVG of a chain with exactly known pins, plus a truth file. Print it at 100%, photograph it, then run `measure --truth` to get real-world error.
+- `splinewire test-part` writes a paper-printable SVG of a chain with exactly known pins, plus a truth file.
+- `splinewire test-plaque` writes a 3D-printable version (STLs plus printing notes and truth): a white 2.4 mm plate, one manual filament swap, then a 0.4 mm black chain layer with a ring-shaped window over each pin and a 50 mm caliper bar. White goes underneath because white PLA is translucent; black is opaque in two layers, which keeps the window walls shallow.
+- Truth comparisons report the error after a rigid fit and after a scale fit. The scale fit removes the test part's own print or paper scale error, and the fitted scale shows how far off-size the part (or the pitch setting) is.
+- `experiments/relief_bias.py` ray-casts tilted photos of the plaque with its real window walls. At 0.4 mm depth all pins are found up to 40° tilt and the error matches a flat print (≈0.01–0.02 mm), because the walls shift every ring about the same way. At 0.8 mm, rings start being lost at 40°.

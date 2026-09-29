@@ -62,3 +62,15 @@ def test_compare_to_truth_rejects_mirror_image():
     pts = rng.normal(size=(8, 2)) * 20
     assert compare_to_truth(pts, pts[::-1])["max_error_mm"] < 1e-9     # reversed order is fine
     assert compare_to_truth(pts * [1, -1], pts)["max_error_mm"] > 1.0   # mirror is not
+
+
+def test_scale_fit_separates_print_scale_from_shape_error():
+    rng = np.random.default_rng(0)
+    truth = rng.normal(size=(13, 2)) * 30
+    th = 0.7
+    rot = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+    measured = (truth @ rot.T) * 0.995 + [3.0, 4.0]      # a part printed 0.5% small
+    t = compare_to_truth(measured, truth)
+    assert t["scale"] == pytest.approx(0.995)
+    assert t["max_error_scaled_mm"] < 1e-9
+    assert t["max_error_mm"] > 0.1

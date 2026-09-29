@@ -24,12 +24,15 @@ def detect_rings(
     image: np.ndarray,
     inner_outer_ratio: float,
     min_diameter_px: float = 8.0,
-    ratio_tolerance: float = 0.35,
 ) -> list[Ring]:
     """Detect ring fiducials.
 
     inner_outer_ratio is the ring's inner/outer diameter ratio from the chain
-    spec; it rejects blobs-with-holes that are not our rings.
+    spec; it rejects blobs-with-holes that are not our rings. The accepted
+    range is lopsided on purpose: thresholding a blurred ring erodes its
+    band from both sides (a 0.4 ring measures ~0.5), and slightly small
+    printed windows, recess walls seen at an angle and defocus all push the
+    same way. Centers are unaffected because the erosion is symmetric.
     """
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (0, 0), 0.8)
@@ -40,23 +43,35 @@ def detect_rings(
 
     rings: list[Ring] = []
     for mask in (binary, 255 - binary):
-        rings.extend(_rings_in(mask, inner_outer_ratio, min_diameter_px, ratio_tolerance))
+        rings.extend(_rings_in(mask, inner_outer_ratio, min_diameter_px))
     return _dedupe(rings)
 
 
 def _rings_in(
-    mask: np.ndarray, target_ratio: float, min_diameter_px: float, tol: float
+    mask: np.ndarray, target_ratio: float, min_diameter_px: float
 ) -> list[Ring]:
+    ratio_lo = 0.5 * target_ratio
+    ratio_hi = target_ratio + 0.75 * (1.0 - target_ratio)
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
     if hierarchy is None:
         return []
     hierarchy = hierarchy[0]
     found = []
     for i, (_next, _prev, child, parent) in enumerate(hierarchy):
-        if parent != -1 or child == -1 or hierarchy[child][0] != -1:
-            continue  # need a top-level blob with exactly one hole
-        outer, inner = contours[i], contours[child]
-        if len(outer) < 12 or len(inner) < 8:
+        if parent != -1 or child == -1:
+            continue  # need a top-level blob with a hole
+        outer = contours[i]
+        if len(outer) < 12:
+            continue
+        # Exactly one real hole. Specks of noise inside the ring make extra
+        # tiny holes, so holes far smaller than a ring's hole are ignored.
+        min_hole = max(4.0, 0.02 * cv2.contourArea(outer))
+        holes = [contours[c] for c in _children(hierarchy, child)
+                 if cv2.contourArea(contours[c]) >= min_hole]
+        if len(holes) != 1:
+            continue
+        inner = holes[0]
+        if len(inner) < 8:
             continue
         eo, ei = cv2.fitEllipse(outer), cv2.fitEllipse(inner)
         (cxo, cyo), (ao, bo), angle = eo
@@ -66,7 +81,7 @@ def _rings_in(
         if not (_ellipse_like(outer, eo) and _ellipse_like(inner, ei)):
             continue
         ratio = np.sqrt(ai * bi / (ao * bo))
-        if abs(ratio - target_ratio) > tol * target_ratio:
+        if not ratio_lo <= ratio <= ratio_hi:
             continue
         if np.hypot(cxo - cxi, cyo - cyi) > 0.1 * min(ao, bo):
             continue
@@ -80,6 +95,14 @@ def _rings_in(
             angle_deg=angle,
         ))
     return found
+
+
+def _children(hierarchy: np.ndarray, first: int) -> list[int]:
+    out = []
+    while first != -1:
+        out.append(first)
+        first = hierarchy[first][0]
+    return out
 
 
 def _ellipse_like(contour: np.ndarray, ellipse) -> bool:

@@ -39,7 +39,21 @@ def test_shapes_that_are_not_our_ring_are_ignored(spec):
     img = np.full((400, 600), 220, np.uint8)
     cv2.circle(img, (100, 200), 40, 30, -1, cv2.LINE_AA)            # solid dot
     cv2.circle(img, (300, 200), 40, 30, -1, cv2.LINE_AA)            # thin ring: wrong ratio
-    cv2.circle(img, (300, 200), 36, 220, -1, cv2.LINE_AA)
+    cv2.circle(img, (300, 200), 38, 220, -1, cv2.LINE_AA)
     cv2.rectangle(img, (440, 160), (520, 240), 30, -1)               # square with square hole
     cv2.rectangle(img, (460, 180), (500, 220), 220, -1)
     assert detect_rings(img, 0.5) == []
+
+
+def test_noise_specks_inside_the_ring_do_not_hide_it():
+    # Real photos threshold into rings with a few tiny dark specks, which
+    # appear as extra holes. They must not count as the ring's hole.
+    img = np.full((400, 400), 220, np.uint8)
+    cv2.circle(img, (200, 200), 40, 30, -1, cv2.LINE_AA)
+    cv2.circle(img, (200, 200), 20, 220, -1, cv2.LINE_AA)   # light ring on a dark disc...
+    img = 255 - img                                          # ...so dark specks land in a light ring
+    for x, y in [(200, 170), (228, 205), (185, 228)]:
+        img[y:y + 3, x:x + 3] = 0
+    rings = detect_rings(img, 0.5)
+    assert len(rings) == 1
+    np.testing.assert_allclose(rings[0].center_px, (200, 200), atol=0.3)

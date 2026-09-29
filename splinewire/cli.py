@@ -3,6 +3,7 @@
     splinewire measure PHOTO           photo of the chain -> curve points + SVG
     splinewire synth                   synthetic chain photo with known shape
     splinewire test-part               printable chain drawing with known shape
+    splinewire test-plaque             3D-printable chain plaque (STL) with known shape
 """
 from __future__ import annotations
 
@@ -51,9 +52,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, default=Path("out/test-part"))
     _add_shape_args(p)
 
+    p = sub.add_parser("test-plaque", help="write a 3D-printable chain plaque with known geometry")
+    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--out", type=Path, default=Path("out/test-plaque"))
+    _add_shape_args(p)
+
     args = parser.parse_args(argv)
     spec = load_chain_spec(args.chain)
-    return {"measure": _measure, "synth": _synth, "test-part": _test_part}[args.command](args, spec)
+    commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque}
+    return commands[args.command](args, spec)
 
 
 def _add_shape_args(p: argparse.ArgumentParser) -> None:
@@ -77,7 +84,9 @@ def _measure(args, spec: ChainSpec) -> int:
           f"link residual rms {r.residual_rms_mm:.3f} mm")
     if result.truth_comparison:
         t = result.truth_comparison
-        print(f"vs truth: max error {t['max_error_mm']:.3f} mm, rms {t['rms_error_mm']:.3f} mm")
+        print(f"vs truth: max error {t['max_error_mm']:.3f} mm, rms {t['rms_error_mm']:.3f} mm; "
+              f"after scale fit {t['max_error_scaled_mm']:.3f} mm "
+              f"(measured/true scale {t['scale']:.4f})")
     for w in m.warnings:
         print(f"warning: {w}", file=sys.stderr)
     print(f"wrote {args.out}/{args.photo.stem}.json, -curve.csv, -curve.svg, -preview.jpg")
@@ -104,6 +113,20 @@ def _test_part(args, spec: ChainSpec) -> int:
     svg.write_text(test_part_svg(pins, spec), encoding="utf-8")
     write_truth(args.out / f"{args.shape}-truth.json", pins)
     print(f"wrote {svg} (print at 100% scale) and {args.shape}-truth.json")
+    return 0
+
+
+def _test_plaque(args, spec: ChainSpec) -> int:
+    try:
+        from splinewire.plaque import write_plaque
+    except ImportError as err:
+        print(f"test-plaque needs the dev dependencies (uv sync): {err}", file=sys.stderr)
+        return 1
+    pins = _shape(args, spec)
+    paths = write_plaque(args.out, args.shape, pins, spec)
+    write_truth(args.out / f"{args.shape}-truth.json", pins)
+    print(paths["instructions"].read_text(encoding="utf-8"))
+    print("wrote " + ", ".join(p.name for p in paths.values()) + f", {args.shape}-truth.json in {args.out}")
     return 0
 
 

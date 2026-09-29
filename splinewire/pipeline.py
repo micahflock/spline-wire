@@ -97,7 +97,13 @@ def measure(
 
 
 def compare_to_truth(pins_mm: np.ndarray, truth_mm: np.ndarray) -> dict[str, float]:
-    """Error of measured pins against known pins after the best rigid fit.
+    """Error of measured pins against known pins.
+
+    max/rms_error_mm: after the best rigid fit (rotation + translation).
+    max_error_scaled_mm: after also fitting a uniform scale, which removes
+    a test part's own print or paper scale error. scale is measured/true
+    size from that fit; far from 1 means either the part is off-size
+    (check it with calipers) or the chain spec's pitch is wrong.
 
     The chain has no labels, so both directions along the chain are tried.
     Reflections are not allowed: a mirrored result is an error.
@@ -107,15 +113,35 @@ def compare_to_truth(pins_mm: np.ndarray, truth_mm: np.ndarray) -> dict[str, flo
     best = None
     for t in (truth_mm, truth_mm[::-1]):
         err = rigid_fit_errors(pins_mm, t)
-        if best is None or err.max() < best.max():
-            best = err
-    return {"max_error_mm": float(best.max()), "rms_error_mm": float(np.sqrt(np.mean(best ** 2)))}
+        scaled_err, scale = similarity_fit_errors(pins_mm, t)
+        if best is None or err.max() < best[0].max():
+            best = (err, scaled_err, scale)
+    err, scaled_err, scale = best
+    return {
+        "max_error_mm": float(err.max()),
+        "rms_error_mm": float(np.sqrt(np.mean(err ** 2))),
+        "max_error_scaled_mm": float(scaled_err.max()),
+        "scale": float(scale),
+    }
 
 
 def rigid_fit_errors(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Per-point distance after rotating and translating a onto b (no reflection)."""
+    errors, _ = _fit(a, b, with_scale=False)
+    return errors
+
+
+def similarity_fit_errors(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, float]:
+    """Per-point distance after rotating, translating and uniformly scaling
+    a onto b (no reflection), plus the size of a relative to b."""
+    errors, s = _fit(a, b, with_scale=True)
+    return errors, 1.0 / s
+
+
+def _fit(a: np.ndarray, b: np.ndarray, with_scale: bool) -> tuple[np.ndarray, float]:
     a0, b0 = a - a.mean(axis=0), b - b.mean(axis=0)
-    u, _, vt = np.linalg.svd(a0.T @ b0)
+    u, sv, vt = np.linalg.svd(a0.T @ b0)
     d = np.sign(np.linalg.det(u @ vt))
     rot = u @ np.diag([1.0, d]) @ vt
-    return np.linalg.norm(a0 @ rot - b0, axis=1)
+    s = (sv[0] + d * sv[1]) / np.sum(a0 ** 2) if with_scale else 1.0
+    return np.linalg.norm(s * a0 @ rot - b0, axis=1), s
