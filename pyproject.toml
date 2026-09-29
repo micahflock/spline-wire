@@ -1,32 +1,30 @@
 [project]
-name = "spline-wire-validation"
+name = "spline-wire"
 version = "0.1.0"
-description = "LLM-based computer vision validation for spline wire fiducial capture"
+description = "Measure real-world curves with a fiducial chain and a phone photo"
 authors = [
     { name = "micah", email = "mookerish@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=0.96.0",
-    "numpy>=2.4.4",
-    "opencv-python>=4.13.0.92",
-    "pillow>=12.2.0",
-    "pyyaml>=6.0.3",
-    "shapely>=2.0",
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "pillow>=11.0",
+    "pyyaml>=6.0",
+    "scipy>=1.14",
 ]
 
 [project.scripts]
-run-validation = "validation.cli:main"
+splinewire = "splinewire.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["validation"]
+packages = ["splinewire"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
-    "pytest-mock>=3.15.1",
+    "pytest>=8.0",
 ]

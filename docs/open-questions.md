@@ -1,52 +1,36 @@
 # Open questions
 
-Tracked gaps in the end-to-end workflow. Resolve as prototyping proceeds. Cross-reference `next-steps.md` — several of these get answered by the first few experiments.
+Unresolved design questions. Cross-reference `next-steps.md`; several get answered by experiments there.
 
-## Fiducials
+## Accuracy in the real world
 
-**Preliminary direction (2026-04-22):** per-link solid circle + glyph side-by-side, perpendicular to the chain axis, both recessed from the link face with a single filament swap for contrast. The per-link circle→glyph axis provides orientation, so no separate end-of-chain skew fiducial is needed. Full spec and validation plan in `fiducial-design.md`.
-
-Still open:
-
-- What size fits on a 5–10 mm link face and still prints and scans reliably? (Preliminary design pushes toward the 8–10 mm end of that range.)
-- Can a hobbyist FDM printer hit the needed contrast and edge accuracy? If not, what's the fallback — resin printing, printed paper labels stuck on, laser-engraved inserts?
-- Which glyph alphabet — digits 0–9 (10 links), hex 0–F (16 links), or two-character codes (100+)? Bounded by legibility at the chosen tile size.
-
-Resolved:
-
-- ~~What pattern per link?~~ LLM-friendly custom: solid circle + adjacent glyph.
-- ~~Do fiducials need to encode a link index?~~ Yes — glyph encodes ID; spatial adjacency corroborates.
-- ~~Skew fiducial shape?~~ No separate feature. Every link's circle→glyph axis serves as an orientation reference.
-
-## Computer vision
-
-- LLM-based vs. classical (OpenCV / AprilTag libraries) — accuracy comparison, cost per call, latency per photo?
-- What positional accuracy (in mm) is "useful" as CAD reference geometry? Propose a starting target of **±1 mm**; tighten if downstream CAD use demands it.
-- How robust does the pipeline need to be to varying lighting, shadows, and background clutter? Is a "please photograph on a white sheet of paper" constraint acceptable for v1?
-- If LLM-based, which model, and is one photo enough or should we send several at once?
-
-## Phone → computer
-
-- Is there a smooth path that avoids a custom phone app in v1?
-- If web-based: can a mobile browser upload work without friction? (Likely yes.)
-- If cloud folder: Dropbox, iCloud, or Drive — which has the least setup?
-- Is it acceptable to require the user's laptop and phone be on the same local network?
-
-## CAD integration
-
-- Fusion API: add-in vs. standalone script — which is lower friction for the user to install and re-run?
-- What does "drop points into a sketch" look like in the Fusion SDK in practice? (Needs hands-on exploration.)
-- Should the tool emit DXF or SVG as a universal fallback for non-Fusion users?
-- Spline fitting — which algorithm? Candidates: natural cubic, centripetal Catmull-Rom, B-spline via least-squares.
-
-## Units, scale, origin
-
-- How does the system know real-world scale? The known link pitch can act as an intrinsic ruler — is that enough, or do we also want the user to include a printed reference scale in frame?
-- Where is the origin — first link, centroid of the point cloud, or user-selectable?
-- How is chain orientation (which end is "start"?) communicated — visually via the skew fiducial, or implicitly?
+- Is phone EXIF focal length accurate enough? It is an integer 35 mm equivalent (±2% rounding at 26 mm), and some phones crop or digitally zoom. In simulation (noiseless, 12-link chain), a 2% focal error costs ≤0.05 mm worst-case at 25° tilt and ≤0.11 mm at 40°; 5% costs ≤0.12 / ≤0.27 mm. So small errors are tolerable, especially with near-straight-on photos. Real phones still need checking for gross errors (digital zoom, crops).
+- Is lens distortion on phone main cameras corrected well enough in-camera to ignore? Ultra-wide lenses probably are not.
+- How does detection cope with real lighting, shadows, glare on recessed or glossy fiducials, and cluttered backgrounds? Is "photograph on plain paper" an acceptable constraint?
+- The projected center of a circle is not exactly the center of its image ellipse. The bias is estimated below 0.1 px at these ring sizes and ignored; confirm on real photos.
 
 ## Chain hardware
 
-- Is ~125 mm the right length, or should there be a couple of sizes (short / long)?
-- How is pin friction tuned, and does it drift with use?
-- Does the chain need any visible scale reference printed on it (ruler marks) to aid rectification, or is the fiducial pitch enough?
+- Pitch: 10 mm is a guess. Chord sag at the contact is modelled, but a smaller pitch follows tight radii better, while a larger pitch means fewer, bigger, easier-to-detect rings. What is the smallest radius the chain must follow?
+- How consistent is the pitch across links, and does it drift with wear? Pitch error feeds straight into the deskew.
+- How much joint friction, and does it drift with use?
+- Ring construction: printed recess with a filament swap, hollow rivet pins, or a pad-printed/label ring? Contrast and edge sharpness matter more than exact size.
+- Length: is ~120 mm right, or should there be short and long chains? The software handles any pin count; set `n_pins` in the YAML.
+- Physical joint limit: ordering assumes no joint bends more than 80°.
+
+## Contact model
+
+- The model assumes stadium-shaped links (semicircular ends centered on the pins). If the real links differ, the concave-contact rule needs updating.
+- Near inflection points, and where curvature changes quickly relative to the pitch, contact points are approximate. How large is the error on real molding profiles?
+- `--side inside|outside` must be right. Can the UI make this obvious? (For example, the preview could show which side the offset went.)
+
+## Workflow and CAD
+
+- Fusion: script vs add-in — which is lower friction to install and re-run?
+- Does Fusion's Insert SVG keep 1:1 mm scale for our SVG, or is a JSON-reading script required?
+- Origin and orientation in CAD: currently the first pin, with axes following the photo. Should the user be able to pick them, or align them to something?
+- Phone → computer transport: local web upload vs cloud folder; it must preserve EXIF.
+
+## Naming
+
+- Tentative rename from `spline-wire` to `spline-link` (noted 2026-04-22). Decide before anything ships.
