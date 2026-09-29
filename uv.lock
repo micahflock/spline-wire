@@ -688,7 +688,6 @@ wheels = [
 
 [[package]]
 name = "spline-wire"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "ezdxf" },

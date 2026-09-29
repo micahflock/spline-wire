@@ -22,6 +22,7 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image, ImageTk
 
+from splinewire import version_string
 from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec
 from splinewire.contact import spline_samples
 from splinewire.fusion_addin import install_addin
@@ -41,6 +42,41 @@ CHAIN_FIELDS = [
 ]
 
 STATUS_STYLE = {"ok": "#1a7f37", "warn": "#9a6700", "error": "#cf222e", "working": "#0969da", "pending": "#57606a"}
+
+
+class _ScrollableFrame(ttk.Frame):
+    """A frame whose contents scroll vertically when the window is too short."""
+
+    def __init__(self, parent) -> None:
+        super().__init__(parent)
+        background = ttk.Style(self).lookup("TFrame", "background") or None
+        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0, background=background)
+        bar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.inner = ttk.Frame(self.canvas, padding=8)
+        window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self.canvas.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+        def on_inner(_event) -> None:
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"),
+                                  width=self.inner.winfo_reqwidth())
+
+        self.inner.bind("<Configure>", on_inner)
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(window, width=e.width))
+        # Scroll with the mouse wheel while the pointer is over the panel.
+        self.bind("<Enter>", lambda _e: self.bind_all("<MouseWheel>", self._on_wheel))
+        self.bind("<Leave>", self._on_leave)
+
+    def _on_leave(self, _event) -> None:
+        # Tk also reports "leave" when the pointer moves onto a child widget.
+        under = self.winfo_containing(*self.winfo_pointerxy())
+        if under is None or not str(under).startswith(str(self)):
+            self.unbind_all("<MouseWheel>")
+
+    def _on_wheel(self, event) -> None:
+        if self.inner.winfo_reqheight() > self.canvas.winfo_height():
+            self.canvas.yview_scroll(int(-event.delta / 120) or (-1 if event.delta > 0 else 1), "units")
 
 
 @dataclass
@@ -106,9 +142,14 @@ class App:
         self._preview_photo: ImageTk.PhotoImage | None = None
         self._shown: str | None = None
 
-        root.title(APP_TITLE)
-        root.geometry("1280x820")
-        root.minsize(980, 640)
+        root.title(f"{APP_TITLE} {version_string()}")
+        # Size in physical pixels: scale by the display DPI (Windows 125-200%
+        # scaling makes every widget bigger), then keep it on the screen.
+        dpi_scale = max(1.0, root.winfo_fpixels("1i") / 96.0)
+        w = min(int(1280 * dpi_scale), root.winfo_screenwidth() - 60)
+        h = min(int(860 * dpi_scale), root.winfo_screenheight() - 120)
+        root.geometry(f"{w}x{h}")
+        root.minsize(min(900, w), min(560, h))
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.report_callback_exception = self._report_exception
 
@@ -134,7 +175,8 @@ class App:
         self.out_mode_var = tk.StringVar(value=s.get("out_mode", "beside"))
         self.out_dir_var = tk.StringVar(value=s.get("out_dir", ""))
         self.last_dir = s.get("last_dir", str(Path.home()))
-        self.status_var = tk.StringVar(value="Add photos of the chain to begin.")
+        self.status_var = tk.StringVar(value=(
+            "Add photos, Process, then Copy points and click Paste points in a Fusion sketch."))
 
     def _settings(self) -> dict:
         return {
@@ -163,22 +205,25 @@ class App:
             style.theme_use("vista")
         style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"))
 
+        # Packed first so they keep their space however small the window gets:
+        # the status bar at the bottom and the main actions across the top.
+        ttk.Label(self.root, textvariable=self.status_var, anchor="w", padding=(8, 3),
+                  relief="sunken").pack(fill="x", side="bottom")
+        self._build_toolbar(self.root)
+        ttk.Separator(self.root, orient="horizontal").pack(fill="x")
+
         paned = ttk.PanedWindow(self.root, orient="horizontal")
         paned.pack(fill="both", expand=True)
-        left = ttk.Frame(paned, padding=8)
+        left = _ScrollableFrame(paned)
         right = ttk.Frame(paned, padding=(0, 8, 8, 8))
         paned.add(left, weight=0)
         paned.add(right, weight=1)
 
-        self._build_photos(left)
-        self._build_chain(left)
-        self._build_options(left)
-        self._build_output(left)
-        self._build_actions(left)
+        self._build_photos(left.inner)
+        self._build_chain(left.inner)
+        self._build_options(left.inner)
+        self._build_output(left.inner)
         self._build_views(right)
-
-        ttk.Label(self.root, textvariable=self.status_var, anchor="w", padding=(8, 3),
-                  relief="sunken").pack(fill="x", side="bottom")
 
     def _build_photos(self, parent: ttk.Frame) -> None:
         box = ttk.LabelFrame(parent, text="Photos", padding=6)
@@ -202,9 +247,8 @@ class App:
 
         row = ttk.Frame(box)
         row.pack(fill="x", pady=(6, 0))
-        ttk.Button(row, text="Add photos…", command=self.browse_photos).pack(side="left")
-        ttk.Button(row, text="Remove", command=self.remove_selected).pack(side="left", padx=4)
-        ttk.Button(row, text="Clear", command=self.clear_photos).pack(side="left")
+        ttk.Button(row, text="Remove", command=self.remove_selected).pack(side="left")
+        ttk.Button(row, text="Clear", command=self.clear_photos).pack(side="left", padx=4)
 
     def _build_chain(self, parent: ttk.Frame) -> None:
         box = ttk.LabelFrame(parent, text="Chain", padding=6)
@@ -254,25 +298,26 @@ class App:
         ttk.Entry(row, textvariable=self.out_dir_var).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(row, text="…", width=3, command=self.browse_out_dir).pack(side="left")
 
-    def _build_actions(self, parent: ttk.Frame) -> None:
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=(10, 0))
-        self.process_all_btn = ttk.Button(row, text="Process all", style="Accent.TButton",
+    def _build_toolbar(self, parent) -> None:
+        bar = ttk.Frame(parent, padding=(8, 6))
+        bar.pack(fill="x", side="top")
+        # Packed first so it's the last button squeezed out of a narrow window.
+        self.install_btn = ttk.Button(bar, text="Install Fusion add-in…",
+                                      command=self.install_fusion_addin)
+        self.install_btn.pack(side="right")
+        ttk.Button(bar, text="Add photos…", command=self.browse_photos).pack(side="left")
+        self.process_all_btn = ttk.Button(bar, text="Process all", style="Accent.TButton",
                                           command=lambda: self.process(all_items=True))
-        self.process_all_btn.pack(side="left")
-        self.process_sel_btn = ttk.Button(row, text="Process selected",
+        self.process_all_btn.pack(side="left", padx=(4, 0))
+        self.process_sel_btn = ttk.Button(bar, text="Process selected",
                                           command=lambda: self.process(all_items=False))
-        self.process_sel_btn.pack(side="left", padx=4)
-        ttk.Button(row, text="Open output folder", command=self.open_output_folder).pack(side="right")
-
-        box = ttk.LabelFrame(parent, text="Fusion", padding=6)
-        box.pack(fill="x", pady=(8, 0))
-        ttk.Button(box, text="Copy points", style="Accent.TButton",
-                   command=self.copy_points).pack(side="left")
-        ttk.Button(box, text="Install Fusion add-in…", command=self.install_fusion_addin).pack(side="right")
-        ttk.Label(parent, foreground="#57606a", wraplength=360, justify="left", text=(
-            "Copy points (or Ctrl+C in the list), then in Fusion click Paste points "
-            "while editing a sketch.")).pack(fill="x", pady=(4, 0))
+        self.process_sel_btn.pack(side="left", padx=(4, 0))
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
+        self.copy_btn = ttk.Button(bar, text="Copy points", style="Accent.TButton",
+                                   command=self.copy_points)
+        self.copy_btn.pack(side="left")
+        ttk.Button(bar, text="Open output folder", command=self.open_output_folder).pack(
+            side="left", padx=(4, 0))
 
     def _build_views(self, parent: ttk.Frame) -> None:
         self.tabs = ttk.Notebook(parent)

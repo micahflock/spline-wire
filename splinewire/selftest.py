@@ -14,6 +14,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from splinewire import __version__, version_string
 from splinewire.chain import default_chain_path, load_chain_spec
 from splinewire.process import process_photo
 from splinewire.synthetic import s_curve_pins, write_synthetic_photo, write_truth
@@ -91,8 +92,11 @@ def _run(log_path: Path | None) -> int:
         check("fusion add-in install", fusion_addin)
         _progress("gui")
         check("gui window", lambda: _open_gui(jpg))
+        _progress("gui layout")
+        check("buttons visible at high display scaling", _check_layout)
 
-    report = "\n".join(log + [f"{'OK' if not failures else 'FAILED'}: {failures} failure(s)"])
+    report = "\n".join([f"Spline Wire {version_string()}"] + log
+                       + [f"{'OK' if not failures else 'FAILED'}: {failures} failure(s)"])
     if log_path:
         Path(log_path).write_text(report + "\n", encoding="utf-8")
     if sys.stdout:
@@ -103,6 +107,39 @@ def _run(log_path: Path | None) -> int:
 def _progress(step: str) -> None:
     if sys.stdout:
         print(f"selftest: {step}", flush=True)
+
+
+def _check_layout() -> str:
+    """The main buttons must stay on screen on a small, high-DPI display.
+
+    Emulates the most zoomed-in realistic setup for this screen: display
+    scaling chosen so the desktop is 1280 x 720 in scaled pixels (e.g. a
+    1920 x 1080 laptop at 150%). tk scaling is pixels per point, 1.33 = 100%.
+    """
+    import tkinter as tk
+
+    from splinewire.gui import App
+
+    try:
+        root = tk.Tk()
+    except tk.TclError as err:
+        if sys.platform == "win32":
+            raise
+        return f"skipped (no display: {err})"
+    try:
+        zoom = min(root.winfo_screenwidth() / 1280, root.winfo_screenheight() / 720)
+        root.tk.call("tk", "scaling", 1.333 * max(1.0, min(2.0, zoom)))
+        app = App(root, settings={}, persist=False, interactive=False)
+        root.update()
+        if __version__ not in root.title():
+            raise AssertionError(f"version missing from title: {root.title()!r}")
+        hidden = [b.cget("text") for b in (app.process_all_btn, app.copy_btn, app.install_btn)
+                  if not b.winfo_ismapped()]
+        if hidden:
+            raise AssertionError(f"buttons not visible: {hidden}")
+        return f"{root.title()!r} at {root.winfo_width()}x{root.winfo_height()}, zoom {zoom:.2f}"
+    finally:
+        root.destroy()
 
 
 def _open_gui(photo: Path) -> str:
