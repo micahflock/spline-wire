@@ -24,6 +24,8 @@ from PIL import Image, ImageTk
 
 from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec
 from splinewire.contact import spline_samples
+from splinewire.fusion_addin import install_addin
+from splinewire.output import points_tsv
 from splinewire.process import PHOTO_SUFFIXES, PhotoResult, process_photo
 
 APP_TITLE = "Spline Wire"
@@ -196,6 +198,7 @@ class App:
         self.tree.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
         self.tree.bind("<<TreeviewSelect>>", lambda _e: self.show_selected())
+        self.tree.bind("<Control-c>", lambda _e: self.copy_points())
 
         row = ttk.Frame(box)
         row.pack(fill="x", pady=(6, 0))
@@ -261,6 +264,15 @@ class App:
                                           command=lambda: self.process(all_items=False))
         self.process_sel_btn.pack(side="left", padx=4)
         ttk.Button(row, text="Open output folder", command=self.open_output_folder).pack(side="right")
+
+        box = ttk.LabelFrame(parent, text="Fusion", padding=6)
+        box.pack(fill="x", pady=(8, 0))
+        ttk.Button(box, text="Copy points", style="Accent.TButton",
+                   command=self.copy_points).pack(side="left")
+        ttk.Button(box, text="Install Fusion add-in…", command=self.install_fusion_addin).pack(side="right")
+        ttk.Label(parent, foreground="#57606a", wraplength=360, justify="left", text=(
+            "Copy points (or Ctrl+C in the list), then in Fusion click Paste points "
+            "while editing a sketch.")).pack(fill="x", pady=(4, 0))
 
     def _build_views(self, parent: ttk.Frame) -> None:
         self.tabs = ttk.Notebook(parent)
@@ -553,6 +565,31 @@ class App:
             self.out_dir_var.set(path)
             self.out_mode_var.set("folder")
 
+    def copy_points(self) -> None:
+        item = self._selected_item()
+        if item is None or item.result is None:
+            self.status_var.set("Select a processed photo first, then Copy points.")
+            return
+        points = item.result.measurement.contacts_mm
+        self.root.clipboard_clear()
+        self.root.clipboard_append(points_tsv(points))
+        self.root.update()   # hand the clipboard to the OS now
+        self.status_var.set(f"Copied {len(points)} points from {item.path.name}. "
+                            "In Fusion, click Paste points while editing a sketch.")
+
+    def install_fusion_addin(self) -> None:
+        try:
+            dest = install_addin()
+        except Exception as err:
+            messagebox.showerror(APP_TITLE, f"Could not install the Fusion add-in:\n{err}", parent=self.root)
+            return
+        messagebox.showinfo(APP_TITLE, (
+            f"Installed the Spline Wire add-in to:\n{dest}\n\n"
+            "Restart Fusion. A Paste points button then appears in the sketch Create "
+            "panel and in the Insert menu.\n\n"
+            "If it doesn't: in Fusion open Utilities > Add-Ins, select Spline Wire under "
+            "Add-Ins, click Run, and tick Run on Startup."), parent=self.root)
+
     def open_output_folder(self) -> None:
         item = self._selected_item()
         if item is not None and item.result is not None:
@@ -629,8 +666,8 @@ def _details_text(item: PhotoItem | None) -> str:
     lines += ["", "Warnings" if m.warnings else "No warnings."]
     lines += [f"  - {w}" for w in m.warnings]
     lines += ["", "Saved files"] + [f"  {p}" for p in res.outputs.values()]
-    lines += ["", "In Fusion: fit a spline through the points in the -curve.csv file, "
-                  "or insert the -curve.svg (1:1 scale, mm)."]
+    lines += ["", "Into Fusion: click Copy points, then Paste points (Spline Wire add-in) in a "
+                  "sketch. Without the add-in: Insert > Insert DXF with the -curve.dxf file (mm)."]
     return "\n".join(lines)
 
 

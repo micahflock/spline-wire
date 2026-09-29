@@ -17,11 +17,12 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 - **Ordering:** pins are put in chain order geometrically (walk ~one pitch at a time, turning as little as possible).
 - **Deskew:** all pins lie on one plane and consecutive pins are exactly one pitch apart. With the camera focal length from EXIF, that fixes the plane's tilt and distance, so perspective is removed without any reference object in the photo.
 - **Contact offset:** the target touches the chain's edge, not its pin line. Offset by the link half-width at link midpoints (convex bends) or at pins (concave bends).
-- **Output:** curve points (JSON/CSV) and a 1:1 SVG for CAD.
+- **Output:** curve points (JSON/CSV), a mm DXF and a 1:1 SVG, plus Copy points → Fusion add-in Paste points for a two-click path into a sketch.
 
 ## Repo layout
 
 - `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`; `process` measures one photo and writes its files, shared by `cli` and the Tkinter desktop app `gui`. `synthetic` renders test photos; `testpart` renders a paper test chain and `plaque` a 3D-printable one (black/white, one filament swap); `selftest` checks a packaged build.
+- `fusion/SplineWire/` — Fusion add-in: a Paste points button that reads the table SplineWire.exe's Copy points puts on the clipboard (mm) and adds sketch points plus a fitted spline (API units are cm). `splinewire/fusion_addin.py` installs it. Feasibility notes: `docs/fusion-import.md`.
 - `packaging/` — PyInstaller build of the desktop app (`SplineWire.exe`); `.github/workflows/windows-exe.yml` builds, tests and uploads it on Windows.
 - `data/chain.yaml` — the chain's physical parameters (pitch, half-width, ring size, pin count).
 - `tests/` — pytest suite; end-to-end tests run on synthetic photos with known geometry.

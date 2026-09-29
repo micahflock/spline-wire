@@ -8,6 +8,7 @@ on:
     paths:
       - "splinewire/**"
       - "data/**"
+      - "fusion/**"
       - "packaging/**"
       - "tests/**"
       - "pyproject.toml"

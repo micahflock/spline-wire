@@ -1,4 +1,4 @@
-"""Write measurement results: JSON for tools, SVG for CAD import, PNG preview."""
+"""Write measurement results: JSON for tools, DXF/CSV/SVG for CAD, JPEG preview."""
 from __future__ import annotations
 
 import csv
@@ -46,6 +46,45 @@ def write_csv(path: Path, points_mm: np.ndarray) -> None:
         writer = csv.writer(f)
         writer.writerow(["x_mm", "y_mm"])
         writer.writerows(_round(points_mm))
+
+
+def write_dxf(path: Path, curve_points_mm: np.ndarray) -> None:
+    """DXF in mm for CAD import (Fusion: Insert > Insert DXF).
+
+    Layer CURVE holds one spline through the curve points, built the way
+    AutoCAD builds a spline from fit points, so it passes exactly through
+    them. Layer CURVE_POINTS holds the points themselves. $INSUNITS = mm so
+    importers don't have to guess the scale.
+    """
+    import ezdxf
+
+    doc = ezdxf.new("R2010", units=4)   # 4 = millimeters
+    doc.layers.add("CURVE", color=7)
+    doc.layers.add("CURVE_POINTS", color=1)
+    msp = doc.modelspace()
+    pts3 = [(float(x), float(y), 0.0) for x, y in curve_points_mm]
+    msp.add_cad_spline_control_frame(pts3, dxfattribs={"layer": "CURVE"})
+    for p in pts3:
+        msp.add_point(p, dxfattribs={"layer": "CURVE_POINTS"})
+    doc.saveas(str(path))
+
+
+def write_fusion_csv(path: Path, curve_points_mm: np.ndarray) -> None:
+    """CSV for Fusion's built-in ImportSplineCSV script: no header, x,y,z per
+    line, in centimeters (Fusion's internal unit; the script doesn't convert)."""
+    cm = np.asarray(curve_points_mm, dtype=float) / 10.0
+    lines = [f"{x:.5f},{y:.5f},0" for x, y in cm]
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def points_tsv(points_mm: np.ndarray) -> str:
+    """Curve points as a tab-separated table in mm, for the clipboard.
+
+    Pastes into a spreadsheet as two columns, and the Spline Wire Fusion
+    add-in's "Paste points" command reads it straight into a sketch.
+    """
+    rows = ["x_mm\ty_mm"] + [f"{x:.4f}\t{y:.4f}" for x, y in np.asarray(points_mm, dtype=float)]
+    return "\n".join(rows) + "\n"
 
 
 def write_svg(path: Path, m: Measurement, margin_mm: float = 5.0) -> None:
