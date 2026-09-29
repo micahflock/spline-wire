@@ -79,9 +79,19 @@ def write_svg(path: Path, m: Measurement, margin_mm: float = 5.0) -> None:
     Path(path).write_text("\n".join(parts) + "\n", encoding="utf-8")
 
 
-def write_preview(path: Path, image: np.ndarray, m: Measurement) -> None:
-    """The photo with detections drawn on: green = chain pins (numbered in
-    chain order), red = rejected detections, yellow line = chain order."""
+def write_image(path: Path, bgr: np.ndarray) -> None:
+    # imencode + write_bytes rather than cv2.imwrite, which cannot open
+    # non-ASCII paths on Windows.
+    ok, buf = cv2.imencode(Path(path).suffix or ".jpg", bgr)
+    if not ok:
+        raise OSError(f"could not encode image for {path}")
+    Path(path).write_bytes(buf.tobytes())
+
+
+def render_preview(image: np.ndarray, m: Measurement) -> np.ndarray:
+    """BGR copy of the photo with detections drawn on: green = chain pins
+    (numbered in chain order), red = rejected detections, yellow line =
+    chain order (red across a missing pin)."""
     vis = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim == 2 else image.copy()
     scale = max(1, int(round(max(vis.shape[:2]) / 1500)))
     pts = m.pins_px
@@ -98,7 +108,7 @@ def write_preview(path: Path, image: np.ndarray, m: Measurement) -> None:
         ring = m.rings[i]
         cv2.circle(vis, _ip(ring.center_px), int(ring.outer_axes_px[0] / 2) + 2 * scale,
                    (0, 0, 255), scale, cv2.LINE_AA)
-    cv2.imwrite(str(path), vis)
+    return vis
 
 
 def _ip(p) -> tuple[int, int]:

@@ -21,7 +21,8 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 
 ## Repo layout
 
-- `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`, driven by `cli`. `synthetic` renders test photos; `testpart` renders a printable test chain.
+- `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`; `process` measures one photo and writes its files, shared by `cli` and the Tkinter desktop app `gui`. `synthetic` renders test photos; `testpart` renders a printable test chain; `selftest` checks a packaged build.
+- `packaging/` — PyInstaller build of the desktop app (`SplineWire.exe`); `.github/workflows/windows-exe.yml` builds, tests and uploads it on Windows.
 - `data/chain.yaml` — the chain's physical parameters (pitch, half-width, ring size, pin count).
 - `tests/` — pytest suite; end-to-end tests run on synthetic photos with known geometry.
 - `experiments/` — standalone studies (e.g. how accurate pitch-only deskewing is).
@@ -37,7 +38,12 @@ uv run pytest                             # tests (~5 s)
 uv run splinewire synth --shape pipe      # synthetic photo + truth -> out/synth/
 uv run splinewire measure out/synth/pipe.jpg --truth out/synth/pipe-truth.json
 uv run splinewire test-part               # printable SVG + truth -> out/test-part/
+uv run splinewire-gui                     # desktop app (needs a Python with tkinter)
+uv run splinewire-gui --selftest log.txt  # headless check, also run on the packaged .exe
+uv sync --group build && uv run python packaging/build_exe.py   # dist/SplineWire(.exe)
 ```
+
+PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` GitHub Actions workflow (artifact `SplineWire-windows`). Pillow's Tk bridge must stay a hidden import (`PIL._tkinter_finder`) or photo previews break in the packaged app; the selftest catches this.
 
 ## Priority
 
