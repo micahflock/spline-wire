@@ -123,7 +123,7 @@ class App:
             defaults = {k: getattr(default, k) for k, _, _ in CHAIN_FIELDS}
         except (OSError, KeyError, ValueError):
             defaults = {"pitch_mm": 10.0, "half_width_mm": 4.0, "ring_outer_mm": 5.0,
-                        "ring_inner_mm": 2.5, "n_pins": 13}
+                        "ring_inner_mm": 2.0, "n_pins": 13}
         chain = {**defaults, **s.get("chain", {})}
         self.chain_vars = {k: tk.StringVar(value=str(chain[k])) for k, _, _ in CHAIN_FIELDS}
         self.side_var = tk.StringVar(value=s.get("side", "inside"))
@@ -583,7 +583,8 @@ class App:
 def _summarize(result: PhotoResult) -> tuple[str, str]:
     m = result.measurement
     if result.truth_comparison:
-        text = f"max error {result.truth_comparison['max_error_mm']:.2f} mm"
+        t = result.truth_comparison
+        text = f"max error {t['max_error_mm']:.2f} mm ({t['max_error_scaled_mm']:.2f} scale-fit)"
     else:
         text = f"{len(m.order.indices)} pins, tilt {m.rectification.tilt_deg:.0f} deg"
     if m.warnings:
@@ -620,7 +621,11 @@ def _details_text(item: PhotoItem | None) -> str:
         t = res.truth_comparison
         lines += ["", "Compared to truth file",
                   f"  max pin error        {t['max_error_mm']:.3f} mm",
-                  f"  rms pin error        {t['rms_error_mm']:.3f} mm"]
+                  f"  rms pin error        {t['rms_error_mm']:.3f} mm",
+                  f"  after scale fit      {t['max_error_scaled_mm']:.3f} mm "
+                  f"(part measures {100 * (t['scale'] - 1):+.2f}% vs design)",
+                  "  A scale far from 0% means the test part printed off-size "
+                  "(check its 50 mm bar) or the chain pitch setting is wrong."]
     lines += ["", "Warnings" if m.warnings else "No warnings."]
     lines += [f"  - {w}" for w in m.warnings]
     lines += ["", "Saved files"] + [f"  {p}" for p in res.outputs.values()]

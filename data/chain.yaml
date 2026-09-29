@@ -13,8 +13,10 @@ pitch_mm: 10.0
 half_width_mm: 4.0
 
 # Ring fiducial on each pin: outer and inner diameter.
+# A wide ring band (1.5 mm) survives blur, defocus and slightly undersized
+# printed windows better than a thin one.
 ring_outer_mm: 5.0
-ring_inner_mm: 2.5
+ring_inner_mm: 2.0
 
 # Number of pins (links + 1).
 n_pins: 13

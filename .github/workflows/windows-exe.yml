@@ -48,6 +48,20 @@ jobs:
           Get-Content $log
           if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
 
+      - name: Generate test plaques
+        shell: pwsh
+        run: |
+          foreach ($shape in "s-curve", "pipe", "cove") {
+            uv run splinewire test-plaque --shape $shape --out dist/test-plaques
+            if ($LASTEXITCODE -ne 0) { throw "test-plaque $shape failed" }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SplineWire-test-plaques
+          path: dist/test-plaques/
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         with:
           name: SplineWire-windows

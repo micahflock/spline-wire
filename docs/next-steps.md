@@ -15,9 +15,9 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 **Question:** do real phone photos keep pin-center error near 1 px or below?
 
-- `uv run splinewire test-part` for each shape (`--shape s-curve|pipe|cove`). Print at 100% on paper and check the 50 mm scale bar with calipers. Glue it to something flat.
+- Print the test plaque: `uv run splinewire test-plaque --shape s-curve` (also `pipe`, `cove`), white then black PLA with one filament swap; see the generated `*-PRINTING.txt`. Check the 50 mm bar with calipers. (Paper alternative: `splinewire test-part`, printed at 100% and glued flat.)
 - Photograph each shape: 3 tilts (straight-on, ~20°, ~40°) × 2 lighting setups (daylight, indoor bulb) × 2 phones if available.
-- Process them in `SplineWire.exe` with the matching truth file set under Options (any row over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-part/<shape>-truth.json --out results/`.
+- Process them in `SplineWire.exe` with the matching truth file set under Options (any row over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-plaque/<shape>-truth.json --out results/`. Look at both the plain and the scale-fit error: a gap between them is print scale, not measurement.
 - **Exit criterion:** worst pin error under **1 mm** on every photo, and under 0.5 mm on most.
 - Things to watch for: EXIF focal accuracy (compare `focal_px` to an estimated-f run), lens distortion on wide lenses, glare on glossy prints, printer scale error (the scale bar check).
 
