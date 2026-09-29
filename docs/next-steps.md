@@ -9,7 +9,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [x] Deskew from the pin pitch and EXIF focal length: ≤0.02 mm on clean synthetic photos, ~0.3 mm worst-case with 1 px center noise (`experiments/self_rectification.py`).
 - [x] Contact offset from the pin line to the target curve (convex and concave), matching circular targets to 0.05 mm.
 - [x] CLI: `measure`, `synth`, `test-part`; JSON/CSV/SVG output and a preview image.
-- [x] Windows desktop app (`SplineWire.exe`, built by GitHub Actions) for processing photos with a GUI.
+- [x] Windows app (`SplineWire.exe`, built by GitHub Actions): browser UI on the computer plus a phone upload page.
 
 ## 1. Real-photo accuracy with a printed test part  ← next
 
@@ -17,7 +17,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 - Print the test plaque: `uv run splinewire test-plaque --shape s-curve` (also `pipe`, `cove`), white then black PLA with one filament swap; see the generated `*-PRINTING.txt`. Check the 50 mm bar with calipers. (Paper alternative: `splinewire test-part`, printed at 100% and glued flat.)
 - Photograph each shape: 3 tilts (straight-on, ~20°, ~40°) × 2 lighting setups (daylight, indoor bulb) × 2 phones if available.
-- Process them in `SplineWire.exe` with the matching truth file set under Options (any row over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-plaque/<shape>-truth.json --out results/`. Look at both the plain and the scale-fit error: a gap between them is print scale, not measurement.
+- Send them from the phone page to `SplineWire.exe` with the matching truth file set in Settings (any photo over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-plaque/<shape>-truth.json --out results/`. Look at both the plain and the scale-fit error: a gap between them is print scale, not measurement.
 - **Exit criterion:** worst pin error under **1 mm** on every photo, and under 0.5 mm on most.
 - Things to watch for: EXIF focal accuracy (compare `focal_px` to an estimated-f run), lens distortion on wide lenses, glare on glossy prints, printer scale error (the scale bar check).
 
@@ -41,7 +41,13 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 ## 4. Phone → computer
 
-- Least-custom path first: a local web page the phone uploads to, or a watched cloud folder. Uploads must keep EXIF (some share paths strip it).
+**Decision (2026-09):** direct upload from the phone's browser to the app over the local network (same Wi-Fi, or the computer on the phone's hotspot). No phone app, no cloud, nothing watching the photo library.
+
+- [x] Built: phone page (Take photo / Choose from library) reached through a QR code on the desktop page; uploads saved byte-for-byte; results appear on the computer within seconds.
+- [ ] Test with the iPhone:
+  - Does the focal length survive the upload? Try both buttons. The phone page and the desktop details show "Focal length in file". If it's missing, set the iPhone focal length in Settings (24 mm for iPhone 14 Pro and iPhone 15 or later, 26 mm for earlier models).
+  - Time from shutter to the photo appearing on the computer.
+  - Home Wi-Fi and the phone's hotspot; the Windows Firewall prompt on first run.
 - **Exit criterion:** under 15 s from photo to points, no custom phone app.
 
 ## 5. End-to-end

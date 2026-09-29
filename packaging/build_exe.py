@@ -17,18 +17,17 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main() -> None:
     PyInstaller.__main__.run([
-        str(ROOT / "packaging" / "splinewire_gui.py"),
+        str(ROOT / "packaging" / "splinewire_app.py"),
         "--name", "SplineWire",
         "--onefile",
-        "--windowed",
+        "--console",            # the window says the app is running; closing it quits
         "--noconfirm",
         "--clean",
         "--add-data", f"{ROOT / 'data' / 'chain.yaml'}{os.pathsep}data",
         "--add-data", f"{ROOT / 'fusion' / 'SplineWire'}{os.pathsep}fusion/SplineWire",
+        "--add-data", f"{ROOT / 'splinewire' / 'webapp' / 'static'}{os.pathsep}splinewire/webapp/static",
+        "--exclude-module", "tkinter",
         "--collect-all", "pillow_heif",   # bundles libheif for iPhone HEIC photos
-        # Pillow loads its Tk bridge dynamically; without this, showing a
-        # photo in the window fails with "invalid command name PyImagingPhoto".
-        "--hidden-import", "PIL._tkinter_finder",
         "--distpath", str(ROOT / "dist"),
         "--workpath", str(ROOT / "build" / "pyinstaller"),
         "--specpath", str(ROOT / "build"),

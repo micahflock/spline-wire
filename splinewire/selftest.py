@@ -1,22 +1,26 @@
 """Headless check that a packaged build works: `SplineWire.exe --selftest LOG`.
 
-Renders a synthetic chain photo (JPEG and HEIC, with EXIF), processes it,
-checks the error against truth, and opens the GUI window briefly. Exit
-code 0 means every check passed.
+Starts the web app on a spare port with a temporary workspace, uploads
+synthetic chain photos over HTTP (JPEG with EXIF, HEIC, and one with its
+metadata stripped), checks the measurements against truth, fetches both
+pages and the images, checks the security rules, and installs the Fusion
+add-in into a temporary folder. Exit code 0 means every check passed.
 """
 from __future__ import annotations
 
 import faulthandler
+import json
 import sys
 import tempfile
 import traceback
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from PIL import Image
 
-from splinewire import __version__, version_string
+from splinewire import version_string
 from splinewire.chain import default_chain_path, load_chain_spec
-from splinewire.process import process_photo
 from splinewire.synthetic import s_curve_pins, write_synthetic_photo, write_truth
 
 MAX_ERROR_MM = 0.05
@@ -37,11 +41,14 @@ def run_selftest(log_path: Path | None = None) -> int:
 
 
 def _run(log_path: Path | None) -> int:
+    from splinewire.webapp.server import AppState, start_server
+
     log: list[str] = []
     failures = 0
 
     def check(name: str, fn) -> None:
         nonlocal failures
+        _progress(name)
         try:
             log.append(f"PASS {name}: {fn()}")
         except Exception:
@@ -55,45 +62,74 @@ def _run(log_path: Path | None) -> int:
         jpg, truth = tmp / "selftest.jpg", tmp / "truth.json"
         write_synthetic_photo(jpg, pins, spec, (2000, 1500))
         write_truth(truth, pins)
+        heic, bare = tmp / "selftest.heic", tmp / "stripped.jpg"
+        with Image.open(jpg) as im:
+            im.save(heic, exif=im.getexif(), quality=95)
+            im.save(bare, quality=95)                  # no EXIF, like some iOS uploads
 
-        def measure(photo: Path) -> str:
-            res = process_photo(photo, spec, tmp / "out", truth_path=truth)
-            err = res.truth_comparison["max_error_mm"]
-            if err > MAX_ERROR_MM:
-                raise AssertionError(f"max error {err:.4f} mm > {MAX_ERROR_MM} mm")
-            if res.measurement.rectification.focal_estimated:
-                raise AssertionError("EXIF focal length was not read")
-            missing = [p for p in res.outputs.values() if not p.is_file()]
-            if missing:
-                raise AssertionError(f"outputs not written: {missing}")
-            return f"max error {err:.4f} mm"
+        app = AppState(tmp / "workspace", settings={"phone_focal_35mm": 26}, persist=False)
+        server = start_server(app, 0)
+        client = _Client(f"http://127.0.0.1:{server.port}", app.token)
+        try:
+            check("app responds", lambda: client.get("/api/ping"))
+            check("truth file", lambda: client.post("/api/truth?name=truth.json", truth.read_bytes()))
 
-        def heic() -> str:
-            photo = tmp / "selftest.heic"
-            with Image.open(jpg) as im:
-                im.save(photo, exif=im.getexif(), quality=95)
-            return measure(photo)
+            def measure(path: Path, focal_source: str) -> str:
+                pid = client.post_json(f"/api/upload?name={path.name}", path.read_bytes())["id"]
+                if not app.wait_idle(90):
+                    raise AssertionError("processing did not finish")
+                d = client.get_json(f"/api/photo/{pid}")
+                if d["status"] != "done":
+                    raise AssertionError(f"{d['status']}: {d['error']}")
+                r = d["result"]
+                err = r["truth"]["max_error_mm"]
+                if err > MAX_ERROR_MM:
+                    raise AssertionError(f"max error {err:.4f} mm > {MAX_ERROR_MM} mm")
+                if r["focal_source"] != focal_source:
+                    raise AssertionError(f"focal from {r['focal_source']}, expected {focal_source}")
+                for part in ("preview.jpg", "thumb.jpg", "points.tsv", "download/dxf"):
+                    client.get(f"/api/photo/{pid}/{part}")
+                return f"max error {err:.4f} mm, focal from {r['focal_source']}"
 
-        _progress("jpeg")
-        check("jpeg photo", lambda: measure(jpg))
-        _progress("heic")
-        check("heic photo", heic)
-        def fusion_addin() -> str:
-            from splinewire.fusion_addin import install_addin
-            fusion_root = tmp / "Autodesk" / "Autodesk Fusion 360"
-            fusion_root.mkdir(parents=True)
-            dest = install_addin(fusion_root / "API" / "AddIns")
-            files = sorted(p.name for p in dest.iterdir())
-            if not {"SplineWire.py", "SplineWire.manifest", "curvedata.py"} <= set(files):
-                raise AssertionError(f"add-in files missing: {files}")
-            return ", ".join(files)
+            check("jpeg upload", lambda: measure(jpg, "exif"))
+            check("heic upload", lambda: measure(heic, "exif"))
+            check("upload without metadata", lambda: measure(bare, "default"))
 
-        _progress("fusion add-in")
-        check("fusion add-in install", fusion_addin)
-        _progress("gui")
-        check("gui window", lambda: _open_gui(jpg))
-        _progress("gui layout")
-        check("buttons visible at high display scaling", _check_layout)
+            def pages() -> str:
+                for page in ("/", "/phone"):
+                    html = client.get(page, token=False)
+                    if b"Spline Wire" not in html or b"{{VERSION}}" in html:
+                        raise AssertionError(f"{page} did not render")
+                client.get("/api/qr.svg")
+                return "desktop, phone, QR"
+
+            check("pages", pages)
+
+            def security() -> str:
+                refused = [
+                    client.status("/api/state", token=False),
+                    client.status("/api/state", host="attacker.example"),
+                ]
+                if refused != [403, 421]:
+                    raise AssertionError(f"expected [403, 421], got {refused}")
+                return "token and Host checks refuse"
+
+            check("security", security)
+
+            def fusion_addin() -> str:
+                from splinewire.fusion_addin import install_addin
+                fusion_root = tmp / "Autodesk" / "Autodesk Fusion 360"
+                fusion_root.mkdir(parents=True)
+                dest = install_addin(fusion_root / "API" / "AddIns")
+                files = sorted(p.name for p in dest.iterdir())
+                if not {"SplineWire.py", "SplineWire.manifest", "curvedata.py"} <= set(files):
+                    raise AssertionError(f"add-in files missing: {files}")
+                return ", ".join(files)
+
+            check("fusion add-in install", fusion_addin)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     report = "\n".join([f"Spline Wire {version_string()}"] + log
                        + [f"{'OK' if not failures else 'FAILED'}: {failures} failure(s)"])
@@ -104,77 +140,40 @@ def _run(log_path: Path | None) -> int:
     return 1 if failures else 0
 
 
+class _Client:
+    def __init__(self, base: str, token: str) -> None:
+        self.base, self.token = base, token
+
+    def _request(self, path: str, data: bytes | None, token: bool, host: str | None):
+        req = urllib.request.Request(self.base + path, data=data, method="POST" if data is not None else "GET")
+        if token:
+            req.add_header("X-Token", self.token)
+        if host:
+            req.add_header("Host", host)
+        return urllib.request.urlopen(req, timeout=30)
+
+    def get(self, path: str, token: bool = True) -> bytes:
+        with self._request(path, None, token, None) as resp:
+            return resp.read()
+
+    def get_json(self, path: str):
+        return json.loads(self.get(path))
+
+    def post(self, path: str, data: bytes) -> bytes:
+        with self._request(path, data, True, None) as resp:
+            return resp.read()
+
+    def post_json(self, path: str, data: bytes):
+        return json.loads(self.post(path, data))
+
+    def status(self, path: str, token: bool = True, host: str | None = None) -> int:
+        try:
+            with self._request(path, None, token, host) as resp:
+                return resp.status
+        except urllib.error.HTTPError as err:
+            return err.code
+
+
 def _progress(step: str) -> None:
     if sys.stdout:
         print(f"selftest: {step}", flush=True)
-
-
-def _check_layout() -> str:
-    """The main buttons must stay on screen on a small, high-DPI display.
-
-    Emulates the most zoomed-in realistic setup for this screen: display
-    scaling chosen so the desktop is 1280 x 720 in scaled pixels (e.g. a
-    1920 x 1080 laptop at 150%). tk scaling is pixels per point, 1.33 = 100%.
-    """
-    import tkinter as tk
-
-    from splinewire.gui import App
-
-    try:
-        root = tk.Tk()
-    except tk.TclError as err:
-        if sys.platform == "win32":
-            raise
-        return f"skipped (no display: {err})"
-    try:
-        zoom = min(root.winfo_screenwidth() / 1280, root.winfo_screenheight() / 720)
-        root.tk.call("tk", "scaling", 1.333 * max(1.0, min(2.0, zoom)))
-        app = App(root, settings={}, persist=False, interactive=False)
-        root.update()
-        if __version__ not in root.title():
-            raise AssertionError(f"version missing from title: {root.title()!r}")
-        hidden = [b.cget("text") for b in (app.process_all_btn, app.copy_btn, app.install_btn)
-                  if not b.winfo_ismapped()]
-        if hidden:
-            raise AssertionError(f"buttons not visible: {hidden}")
-        return f"{root.title()!r} at {root.winfo_width()}x{root.winfo_height()}, zoom {zoom:.2f}"
-    finally:
-        root.destroy()
-
-
-def _open_gui(photo: Path) -> str:
-    import tkinter as tk
-
-    from splinewire.gui import App
-
-    try:
-        root = tk.Tk()
-    except tk.TclError as err:
-        if sys.platform == "win32":
-            raise
-        return f"skipped (no display: {err})"
-    try:
-        app = App(root, photos=[photo], settings={}, persist=False, interactive=False)
-        root.update()
-        app.process(all_items=True)
-        app.worker.join(timeout=60)
-        for _ in range(20):          # let the event poller deliver the result
-            root.update()
-            root.after(50)
-        if app.errors:
-            raise AssertionError("GUI callback errors:\n" + "\n".join(app.errors))
-        item = next(iter(app.items.values()))
-        if item.result is None:
-            raise AssertionError(f"GUI processing did not finish: {item.status} {item.error}")
-        for tab in range(3):
-            app.tabs.select(tab)
-            root.update()
-        app.copy_points()
-        copied = root.clipboard_get()
-        if not copied.startswith("x_mm\ty_mm") or len(copied.splitlines()) < 3:
-            raise AssertionError(f"Copy points put unexpected text on the clipboard: {copied[:80]!r}")
-        if app.errors:
-            raise AssertionError("GUI callback errors:\n" + "\n".join(app.errors))
-        return item.summary
-    finally:
-        root.destroy()

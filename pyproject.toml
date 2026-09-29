@@ -14,13 +14,12 @@ dependencies = [
     "pillow-heif>=0.18",
     "pyyaml>=6.0",
     "scipy>=1.14",
+    "segno>=1.6.6",
 ]
 
 [project.scripts]
 splinewire = "splinewire.cli:main"
-
-[project.gui-scripts]
-splinewire-gui = "splinewire.gui:main"
+splinewire-app = "splinewire.webapp.app:main"
 
 [build-system]
 requires = ["hatchling"]

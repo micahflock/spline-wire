@@ -4,6 +4,7 @@ Unresolved design questions. Cross-reference `next-steps.md`; several get answer
 
 ## Accuracy in the real world
 
+- Does iOS keep EXIF on web uploads? Some iOS versions strip it (and convert HEIC to JPEG) for photos uploaded from Safari. The app reports what arrived and falls back to a saved per-phone focal length; if EXIF never survives, consider measuring the focal length once from a test-plaque photo.
 - Is phone EXIF focal length accurate enough? It is an integer 35 mm equivalent (±2% rounding at 26 mm), and some phones crop or digitally zoom. In simulation (noiseless, 12-link chain), a 2% focal error costs ≤0.05 mm worst-case at 25° tilt and ≤0.11 mm at 40°; 5% costs ≤0.12 / ≤0.27 mm. So small errors are tolerable, especially with near-straight-on photos. Real phones still need checking for gross errors (digital zoom, crops).
 - Is lens distortion on phone main cameras corrected well enough in-camera to ignore? Ultra-wide lenses probably are not.
 - How does detection cope with real lighting, shadows, glare on glossy fiducials, and cluttered backgrounds? Is "photograph on plain paper" an acceptable constraint? (Shallow relief on its own is fine: see `experiments/relief_bias.py`.)
