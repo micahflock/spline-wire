@@ -24,6 +24,7 @@ def main() -> None:
         "--noconfirm",
         "--clean",
         "--add-data", f"{ROOT / 'data' / 'chain.yaml'}{os.pathsep}data",
+        "--add-data", f"{ROOT / 'fusion' / 'SplineWire'}{os.pathsep}fusion/SplineWire",
         "--collect-all", "pillow_heif",   # bundles libheif for iPhone HEIC photos
         # Pillow loads its Tk bridge dynamically; without this, showing a
         # photo in the window fails with "invalid command name PyImagingPhoto".

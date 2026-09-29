@@ -77,6 +77,18 @@ def _run(log_path: Path | None) -> int:
         check("jpeg photo", lambda: measure(jpg))
         _progress("heic")
         check("heic photo", heic)
+        def fusion_addin() -> str:
+            from splinewire.fusion_addin import install_addin
+            fusion_root = tmp / "Autodesk" / "Autodesk Fusion 360"
+            fusion_root.mkdir(parents=True)
+            dest = install_addin(fusion_root / "API" / "AddIns")
+            files = sorted(p.name for p in dest.iterdir())
+            if not {"SplineWire.py", "SplineWire.manifest", "curvedata.py"} <= set(files):
+                raise AssertionError(f"add-in files missing: {files}")
+            return ", ".join(files)
+
+        _progress("fusion add-in")
+        check("fusion add-in install", fusion_addin)
         _progress("gui")
         check("gui window", lambda: _open_gui(jpg))
 
@@ -120,6 +132,10 @@ def _open_gui(photo: Path) -> str:
         for tab in range(3):
             app.tabs.select(tab)
             root.update()
+        app.copy_points()
+        copied = root.clipboard_get()
+        if not copied.startswith("x_mm\ty_mm") or len(copied.splitlines()) < 3:
+            raise AssertionError(f"Copy points put unexpected text on the clipboard: {copied[:80]!r}")
         if app.errors:
             raise AssertionError("GUI callback errors:\n" + "\n".join(app.errors))
         return item.summary

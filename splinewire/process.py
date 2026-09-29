@@ -13,7 +13,9 @@ import numpy as np
 from splinewire.camera import focal_px_from_35mm
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side
-from splinewire.output import render_preview, write_csv, write_image, write_json, write_svg
+from splinewire.output import (
+    render_preview, write_csv, write_dxf, write_fusion_csv, write_image, write_json, write_svg,
+)
 from splinewire.pipeline import Measurement, compare_to_truth, load_photo, measure
 
 PHOTO_SUFFIXES = (".jpg", ".jpeg", ".png", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".webp")
@@ -61,11 +63,15 @@ def process_photo(
         "json": out_dir / f"{stem}.json",
         "csv": out_dir / f"{stem}-curve.csv",
         "svg": out_dir / f"{stem}-curve.svg",
+        "dxf": out_dir / f"{stem}-curve.dxf",
+        "fusion_csv": out_dir / f"{stem}-fusion-cm.csv",
         "preview": out_dir / f"{stem}-preview.jpg",
     }
     write_json(outputs["json"], m, extra)
     write_csv(outputs["csv"], m.contacts_mm)
     write_svg(outputs["svg"], m)
+    write_dxf(outputs["dxf"], m.contacts_mm)
+    write_fusion_csv(outputs["fusion_csv"], m.contacts_mm)
     preview = render_preview(image, m)
     write_image(outputs["preview"], preview)
     return PhotoResult(

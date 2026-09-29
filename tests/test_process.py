@@ -43,3 +43,29 @@ def test_selftest_passes(tmp_path, monkeypatch):
     log = tmp_path / "selftest.log"
     assert run_selftest(log) == 0
     assert "OK: 0 failure(s)" in log.read_text()
+
+
+def test_fusion_outputs(spec, tmp_path):
+    import ezdxf
+    import numpy as np
+
+    pins = s_curve_pins(spec)
+    photo = tmp_path / "p.jpg"
+    write_synthetic_photo(photo, pins, spec, (2000, 1500))
+    res = process_photo(photo, spec, tmp_path / "out")
+    curve = res.measurement.contacts_mm
+
+    # ImportSplineCSV format: no header, x,y,z in centimeters
+    rows = [line.split(",") for line in res.outputs["fusion_csv"].read_text().splitlines()]
+    assert all(len(r) == 3 for r in rows)
+    np.testing.assert_allclose(np.array(rows, float)[:, :2] * 10, curve, atol=1e-3)
+
+    # DXF: millimeters, one spline passing through every curve point, plus the points
+    doc = ezdxf.readfile(res.outputs["dxf"])
+    assert doc.header["$INSUNITS"] == 4
+    splines = doc.modelspace().query("SPLINE")
+    points = doc.modelspace().query("POINT")
+    assert len(splines) == 1 and len(points) == len(curve)
+    samples = np.array(list(splines[0].construction_tool().approximate(20000)))[:, :2]
+    gaps = [np.linalg.norm(samples - p, axis=1).min() for p in curve]
+    assert max(gaps) < 0.01
