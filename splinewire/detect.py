@@ -42,9 +42,27 @@ def detect_rings(
     binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, block, -4)
 
     rings: list[Ring] = []
-    for mask in (binary, 255 - binary):
+    for mask in (binary, 255 - binary, _midrange_binary(gray, block)):
         rings.extend(_rings_in(mask, inner_outer_ratio, min_diameter_px))
     return _dedupe(rings)
+
+
+def _midrange_binary(gray: np.ndarray, block: int) -> np.ndarray:
+    """Threshold halfway between the local darkest and brightest levels.
+
+    The local mean fails where most of the window is one shade: a black
+    chain on a dark table puts the mean at the black level, so sensor noise
+    speckles the links and breaks up the ring edges. The midpoint between
+    local extremes stays between black and white there. Areas without real
+    contrast are left empty.
+    """
+    step = max(1, block // 32)                      # extremes on a coarse grid: fast
+    small = cv2.resize(gray, (max(1, gray.shape[1] // step), max(1, gray.shape[0] // step)),
+                       interpolation=cv2.INTER_AREA)
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, block // step), max(3, block // step)))
+    lo = cv2.resize(cv2.erode(small, k), gray.shape[::-1], interpolation=cv2.INTER_LINEAR).astype(np.int16)
+    hi = cv2.resize(cv2.dilate(small, k), gray.shape[::-1], interpolation=cv2.INTER_LINEAR).astype(np.int16)
+    return (((gray.astype(np.int16) * 2) > lo + hi) & (hi - lo > 40)).astype(np.uint8) * 255
 
 
 def _rings_in(
