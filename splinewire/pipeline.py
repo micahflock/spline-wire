@@ -61,8 +61,16 @@ def measure(
     if len(rings) < 3:
         raise ValueError(f"found {len(rings)} ring fiducials; need the whole chain in view")
 
+    h, w = image.shape[:2]
     centers = np.array([r.center_px for r in rings])
-    order = order_chain(centers)
+    excluded: set[int] = set()
+    for _ in range(4):
+        order = _order(rings, spec, excluded)
+        rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
+        misfits = _misfits(rings, order, rect, spec)
+        if not misfits:
+            break
+        excluded |= misfits
     n_on_chain = len(order.indices)
     if order.rejected:
         warnings.append(f"ignored {len(order.rejected)} ring-like detection(s) not on the chain")
@@ -79,9 +87,6 @@ def measure(
             "no focal length (EXIF or --focal-35mm); estimating it from the chain, "
             "which is unreliable for nearly straight chains"
         )
-
-    h, w = image.shape[:2]
-    rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
     if rect.residual_max_mm > 0.05 * spec.pitch_mm:
         warnings.append(
             f"link lengths deviate from the pitch by up to {rect.residual_max_mm:.2f} mm; "
@@ -94,6 +99,66 @@ def measure(
         rings=rings, order=order, rectification=rect, object_side=side,
         contacts_mm=contacts, warnings=warnings,
     )
+
+
+def _order(rings: list[Ring], spec: ChainSpec, excluded: set[int]) -> ChainOrder:
+    """Chain order over the rings, trying each polarity on its own.
+
+    Every ring on the chain has the same polarity (light ring on dark link),
+    while look-alikes often have the other one (printed letters are dark on
+    light), so the polarities are never mixed. The longer chain wins.
+    """
+    best = None
+    for polarity in (1, -1):
+        idx = [i for i, r in enumerate(rings) if r.polarity == polarity and i not in excluded]
+        if len(idx) < 3:
+            continue
+        o = order_chain(
+            np.array([rings[i].center_px for i in idx]),
+            axes_px=np.array([rings[i].outer_axes_px for i in idx]),
+            pitch_per_diameter=spec.pitch_mm / spec.ring_outer_mm,
+        )
+        mapped = ChainOrder(
+            indices=[idx[i] for i in o.indices], links=o.links, gaps=o.gaps,
+            rejected=sorted(set(range(len(rings))) - {idx[i] for i in o.indices}),
+        )
+        if best is None or len(mapped.indices) > len(best.indices):
+            best = mapped
+    if best is None:
+        raise ValueError(f"found {len(rings)} ring fiducials; need the whole chain in view")
+    return best
+
+
+def _misfits(rings: list[Ring], order: ChainOrder, rect: Rectification, spec: ChainSpec) -> set[int]:
+    """Pins that do not belong on the chain, judged after deskewing.
+
+    - A ring whose physical size differs from its chain neighbours' by more
+      than 12%: a washer or other look-alike that happened to sit about one
+      pitch from the end of the chain.
+    - An end pin whose link is far from one pitch: a stray ring next to the
+      end. One bad link would otherwise bend the whole solution.
+    """
+    idx = order.indices
+    if len(idx) < 6:
+        return set()
+    major = np.array([rings[i].outer_axes_px[0] for i in idx])
+    size_mm = major * rect.depth_mm / rect.focal_px
+    bad = set()
+    for k in range(len(idx)):
+        nb = [j for j in range(max(0, k - 2), min(len(idx), k + 3)) if j != k]
+        if abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) > 0.12:
+            bad.add(idx[k])
+    res = rect.link_residuals_mm
+    links = order.links
+    if links and len(links) >= 6:
+        worst = float(np.max(np.abs(res)))
+        for end_link, end_pin in ((0, 0), (len(links) - 1, len(idx) - 1)):
+            a, b = links[end_link]
+            if end_pin not in (a, b):
+                continue            # the end is across a gap; leave it
+            if abs(res[end_link]) > 0.08 * spec.pitch_mm and abs(res[end_link]) >= 0.999 * worst:
+                bad.add(idx[end_pin])
+    return bad
 
 
 def compare_to_truth(pins_mm: np.ndarray, truth_mm: np.ndarray) -> dict[str, float]:
