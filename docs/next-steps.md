@@ -47,7 +47,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [ ] Test with the iPhone:
   - Does the focal length survive the upload? Try both buttons. The phone page and the desktop details show "Focal length in file". If it's missing, set the iPhone focal length in Settings (24 mm for iPhone 14 Pro and iPhone 15 or later, 26 mm for earlier models).
   - Time from shutter to the photo appearing on the computer.
-  - Home Wi-Fi and the phone's hotspot; the Windows Firewall prompt on first run.
+  - Home Wi-Fi and the phone's hotspot. First try (0.5.0) timed out: Windows Firewall. 0.5.1 detects it and adds **Allow phone connections**; confirm it fixes the timeout.
 - **Exit criterion:** under 15 s from photo to points, no custom phone app.
 
 ## 5. End-to-end

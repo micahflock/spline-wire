@@ -48,6 +48,16 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .phone p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .phone .url { grid-column: 1 / -1; font: 11.5px ui-monospace, Consolas, monospace; color: var(--muted);
   word-break: break-all; }
+.net { grid-column: 1 / -1; font-size: 12.5px; }
+.net:empty { display: none; }
+.net .note { border-radius: 8px; padding: 8px 10px; }
+.net .note.ok { color: var(--ok); padding: 0; }
+.net .note.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.net .note p { color: var(--ink); margin: 0 0 8px; }
+.net details { color: var(--muted); margin-top: 6px; }
+.net summary { cursor: pointer; color: var(--accent); }
+.net ol { margin: 6px 0 0; padding-left: 18px; }
+.net li { margin: 3px 0; }
 .list { padding: 6px; min-height: 120px; }
 .list h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 8px 8px 6px; }
 .item { display: grid; grid-template-columns: 56px 1fr; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer;
@@ -128,6 +138,7 @@ label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
         <p>Scan with the Camera app. The phone and this computer need the same Wi-Fi, or put this computer on your phone's hotspot.</p>
       </div>
       <div class="url" id="phone-url"></div>
+      <div class="net" id="net"></div>
     </section>
     <section class="card list">
       <h2>Photos</h2>
@@ -227,6 +238,7 @@ async function init() {
   sessionStorage.setItem("sw-token", TOKEN);
   history.replaceState(null, "", "/");
   $("#qr").src = withToken("/api/qr.svg");
+  api("/api/firewall/check", {method: "POST"}).catch(() => {});
   poll();
 }
 
@@ -234,6 +246,7 @@ async function poll() {
   try {
     const s = await (await api("/api/state")).json();
     $("#offline").classList.remove("show");
+    renderNetwork(s.network, s.phone_urls);
     if (!state || s.state_version !== state.state_version) {
       const newest = s.photos[0];
       if (s.photos.length > lastCount && newest) selected = newest.id;   // follow new uploads
@@ -245,6 +258,60 @@ async function poll() {
     $("#offline").classList.add("show");
   }
   setTimeout(poll, 900);
+}
+
+let netKey = null;
+let allowing = false;
+
+function renderNetwork(n, urls) {
+  if (!n) return;
+  const fw = n.firewall || {};
+  const seen = n.phone_seen ? new Date(n.phone_seen * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : null;
+  const key = JSON.stringify([seen, fw.ok, fw.busy, fw.blocking_rules, fw.error, allowing, urls && urls[0]]);
+  if (key === netKey) return;          // keep an open <details> open
+  netKey = key;
+  const address = (urls && urls[0] || "").replace(/#t=.*/, "");
+  const nets = (fw.networks || []).map((x) => `${esc(x.name)} (${esc(x.category)})`).join(", ");
+  const help = `<details><summary>Phone can't connect?</summary><ol>
+    <li>Put the phone on the same Wi-Fi as this computer${nets ? ` (${nets})` : ""}. Guest networks and some
+      mesh or office networks keep devices apart; use the main network, or connect this computer to the phone's hotspot.
+      The QR code follows within a few seconds.</li>
+    <li>Turn off any VPN on the phone and on this computer.</li>
+    <li>Windows Firewall: <button type="button" class="btn link" data-fw="allow">Allow phone connections</button>
+      (asks for admin approval once).</li>
+    <li>Other security software (Norton, McAfee, …) has its own firewall; allow SplineWire.exe there.</li>
+    <li>Then open <b>${esc(address || "the address above")}</b> in Safari on the phone.</li>
+  </ol></details>`;
+  let html;
+  if (seen) {
+    html = `<div class="note ok">✓ Your phone reached Spline Wire (last at ${seen}).</div>`;
+  } else if (allowing) {
+    html = `<div class="note warn"><p>Click <b>Yes</b> on the Windows prompt to let your phone connect…</p></div>`;
+  } else if (fw.ok === false) {
+    const why = fw.blocking_rules
+      ? "Windows Firewall is blocking Spline Wire (it was denied at the firewall prompt), so your phone's request times out."
+      : "Windows Firewall will probably block your phone, so its request times out.";
+    html = `<div class="note warn"><p>${why}</p>
+      <button type="button" class="btn primary" data-fw="allow">Allow phone connections</button>
+      <button type="button" class="btn link" data-fw="check">${fw.busy ? "Checking…" : "Check again"}</button>
+      ${help}</div>`;
+  } else {
+    html = help;
+  }
+  $("#net").innerHTML = html;
+}
+
+async function allowFirewall() {
+  allowing = true; netKey = null;
+  renderNetwork(state && state.network, state && state.phone_urls);
+  try {
+    await api("/api/firewall/allow", {method: "POST"});
+    toast("Done. Scan the QR code again on your phone.", 5000);
+  } catch (e) {
+    toast(e.message, 6000);
+  } finally {
+    allowing = false; netKey = null;
+  }
 }
 
 function statusLine(p) {
@@ -403,6 +470,9 @@ document.addEventListener("click", async (ev) => {
   const item = ev.target.closest(".item");
   if (item) { selected = item.dataset.id; render(); return; }
   if (ev.target.id === "copy") return copyPoints();
+  const fw = ev.target.dataset && ev.target.dataset.fw;
+  if (fw === "allow") return allowFirewall();
+  if (fw === "check") { api("/api/firewall/check", {method: "POST"}); netKey = null; return; }
   if (ev.target.id === "delete" && selected) { await api(`/api/photo/${selected}/delete`, {method: "POST"}); selected = null; }
   const open = ev.target.dataset && ev.target.dataset.open;
   if (open) api("/api/open-folder", {method: "POST", body: JSON.stringify({which: open})});

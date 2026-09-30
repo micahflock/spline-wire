@@ -96,6 +96,8 @@ def test_phone_side_is_limited(served):
     if not server.lan_ips:
         pytest.skip("no LAN address in this environment")
     ip = server.lan_ips[0]
+    local_state = lambda: json.loads(call(server, "/api/state", token=app.token)[1])
+    assert local_state()["network"]["phone_seen"] is None
     status, html = call(server, "/", ip=ip)                     # desktop page redirects to /phone
     assert status == 200 and b"Take photo" in html and b"Install Fusion" not in html
     assert call(server, "/phone", ip=ip)[0] == 200
@@ -103,6 +105,17 @@ def test_phone_side_is_limited(served):
     assert call(server, "/api/state", token=app.token, ip=ip)[0] == 200
     assert call(server, "/api/settings", b"{}", app.token, ip=ip)[0] == 403
     assert call(server, "/api/quit", b"", app.token, ip=ip)[0] == 403
+    assert call(server, "/api/firewall/allow", b"", app.token, ip=ip)[0] == 403
+    assert "network" not in json.loads(call(server, "/api/state", token=app.token, ip=ip)[1])
+    assert local_state()["network"]["phone_seen"] is not None   # the desktop page says "phone reached"
+
+
+def test_network_status_for_the_desktop_page(served):
+    app, server = served
+    state = json.loads(call(server, "/api/state", token=app.token)[1])
+    assert set(state["network"]) == {"phone_seen", "firewall"}
+    assert "ok" in state["network"]["firewall"]
+    assert call(server, "/api/firewall/check", b"", app.token)[0] == 200
 
 
 @pytest.mark.parametrize("name, safe", [

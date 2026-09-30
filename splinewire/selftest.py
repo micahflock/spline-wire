@@ -3,8 +3,8 @@
 Starts the web app on a spare port with a temporary workspace, uploads
 synthetic chain photos over HTTP (JPEG with EXIF, HEIC, and one with its
 metadata stripped), checks the measurements against truth, fetches both
-pages and the images, checks the security rules, and installs the Fusion
-add-in into a temporary folder. Exit code 0 means every check passed.
+pages and the images, checks the security rules, installs the Fusion
+add-in into a temporary folder and reads the Windows Firewall settings. Exit code 0 means every check passed.
 """
 from __future__ import annotations
 
@@ -127,6 +127,17 @@ def _run(log_path: Path | None) -> int:
                 return ", ".join(files)
 
             check("fusion add-in install", fusion_addin)
+
+            def firewall() -> str:
+                from splinewire.webapp.firewall import status
+                st = status()
+                if st.get("error"):
+                    raise AssertionError(st["error"])
+                if client.get_json("/api/state").get("network") is None:
+                    raise AssertionError("no network status in /api/state")
+                return json.dumps(st)
+
+            check("firewall status", firewall)
         finally:
             server.shutdown()
             server.server_close()
