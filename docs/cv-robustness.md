@@ -6,7 +6,7 @@ How the detector holds up in realistic phone photos of a 3D-printed chain, what 
 
 - **The whole chain is now recovered in 155 of 167 simulated photos, up from 77**, over 29 named environments plus 80 random ones. When the chain is recovered, the worst pin is off by 0.023 mm (median), 0.056 mm (95th percentile), 0.13 mm at most: far inside the 1 mm target.
 - **The one failure left is glare on shiny filament.** A lamp reflected in the black layer washes it out until it is as light as the white rings. With **matte** black filament every simulated photo worked (32/32 random setups, including 5 with the lamp reflected on the chain). Standard PLA: 32/34. Glossy or silk: 10/14, and 0/3 with a reflection.
-- **Keep the plain ring.** Of seven fiducial designs printed through the same 0.4 mm-nozzle model, the plain ring (as now, 5.0/2.0 mm) is the most robust. A 20% larger ring (6.0/2.4 mm) is equally robust and ~20% more accurate, and works from further away, but leaves only 1 mm of black around it on the 8 mm link. Designs with 0.8 mm features (bullseye, checker-corner centre, ArUco tags) print, but fall apart with blur, distance or a bad print; ArUco tags don't fit an 8 mm round-ended link at all.
+- **Keep the plain ring.** Of seven fiducial designs printed through the same 0.4 mm-nozzle model, the plain ring (as now, 5.0/2.0 mm) is the most robust. A 20% larger ring (6.0/2.4 mm) is equally robust and ~20% more accurate, and works from further away, but leaves only 1 mm of black around it on the 8 mm link. A solid 5 mm **dot** comes close (86/92 vs 87/92, same median accuracy) once its detector checks for the dark link around each dot; it gives up some worst-case accuracy and range. Designs with 0.8 mm features (bullseye, checker-corner centre, ArUco tags) print, but fall apart with blur, distance or a bad print; ArUco tags don't fit an 8 mm round-ended link at all.
 - **Print defects, not the camera, set the remaining error.** Seam blobs and edge wobble move the printed ring off its pin by a few hundredths of a millimetre. Lens distortion, perspective bias of ellipse centres and the relief of the black layer each matter less.
 
 ![Simulated photos](img/environments.jpg)
@@ -100,25 +100,25 @@ All designs are windows cut into the black top layer over white, centred on the 
 |---|---|---|---|
 | **ring** 5.0/2.0 mm (current) | 1.5 mm band (3.5 lines), 2.0 mm centre | 1.5 mm | |
 | ring-6 6.0/2.4 mm | 1.8 mm band, 2.4 mm centre | 1.0 mm | |
-| dot, 5.0 mm | 5.0 mm disc | 1.5 mm | no hole: any bright blob is a candidate |
+| dot, 5.0 mm | 5.0 mm disc | 1.5 mm | no hole: told from other bright blobs by the dark link around it |
 | bullseye 6.0 mm | 0.8 mm bands, 1.2 mm centre dot | 1.0 mm | four edges to fit |
 | ring-x 6.2 mm | 0.8 mm band and gap, checker corner in a 3.0 mm disc | 0.9 mm | centre from the checker's saddle point (`cv2.cornerSubPix`), exact under perspective |
 | ArUco 4×4, 5.6 mm | 0.93 mm cells | 0.04 mm at a round chain end | printed inverted (white border); ids give the order |
 | ArUco 4×4, 4.8 mm | 0.8 mm cells | 0.4 mm | |
 
-Each design went through the same renderer and a detector suited to it (the production ring detector; blobs for the dot; all four edges for the bullseye; ring then saddle point for ring-x; OpenCV ArUco with id ordering), then the same ordering and deskewing.
+Each design went through the same renderer and a detector suited to it (the production ring detector; for the dot, blobs checked for a uniformly bright inside and a steadily darker margin all round (§5.1); all four edges for the bullseye; ring then saddle point for ring-x; OpenCV ArUco with id ordering), then the same ordering and deskewing.
 
 **Environments** (26 presets × 2 photos + 40 random, 92 photos): chain recovered / worst-pin error of recovered photos, median · 95th percentile.
 
 | ring | ring-6 | dot | bullseye | ring-x | ArUco 5.6 | ArUco 4.8 |
 |---|---|---|---|---|---|---|
-| **87/92**<br>0.026 · 0.069 mm | **87/92**<br>0.020 · 0.062 mm | 71/92<br>0.025 · 0.071 mm | 77/92<br>0.023 · 0.053 mm | 76/92<br>0.024 · 0.126 mm | 2/92<br>0.087 mm | 16/92<br>0.049 · 0.172 mm |
+| **87/92**<br>0.026 · 0.069 mm | **87/92**<br>0.020 · 0.062 mm | 86/92<br>0.025 · 0.076 mm | 77/92<br>0.023 · 0.053 mm | 76/92<br>0.024 · 0.126 mm | 2/92<br>0.087 mm | 16/92<br>0.049 · 0.172 mm |
 
 **Resolution** (typical conditions, 3 photos each): the lowest px/mm at which every photo worked.
 
 | ring | ring-6 | dot | bullseye | ring-x | ArUco 5.6 | ArUco 4.8 |
 |---|---|---|---|---|---|---|
-| 2.5 | **2.0** | 2.5 | 4.0 | 4.0 | never (≤6.5) | none of 3 at ≤5, 2/3 at 6.5 |
+| 2.5 | **2.0** | 3.5 (one dot missed at 3.0) | 4.0 | 4.0 | never (≤6.5) | none of 3 at ≤5, 2/3 at 6.5 |
 
 **Hand shake** at 8 px/mm: the rings and the dot work up to a 16 px (2 mm) streak; bullseye and ring-x fail from 12 px.
 
@@ -126,11 +126,31 @@ What it shows:
 
 - **Plain rings are the most robust**, and their accuracy is far better than needed. Their 1.5–1.8 mm bands survive blur, distance and bad prints (see the figure), and the hole makes them hard to mistake for clutter.
 - **ring-6 vs ring**: equally robust here, ~20% more accurate and usable from further away, because print defects move a larger circle's centre less and it has more edge pixels. The cost is the black margin: 1.0 mm instead of 1.5 mm. With less margin, sheen and blur bridge the ring to its surroundings more easily, and the reading of what surrounds each ring (used to reject a ring-sized washer) picks up the rim: on the plaque it read 185 instead of ~95 at two pins.
-- **The dot** has no hole to tell it from anything bright and round: ~100 false detections per photo, and it failed every terrazzo and bare-chain photo. A solid disc wider than a threshold window also gets hollowed out, so it has to be caught at a coarser pyramid level.
+- **The dot** is nearly as good as the ring once its detector is as careful (§5.1): 86/92 photos against 87/92, and the same median accuracy. What it gives up: a slightly longer error tail (95th percentile 0.076 vs 0.069 mm, worst 0.16 vs 0.08 mm, with one edge instead of two to average), a little range (3.5 vs 2.5 px/mm), and ~40 false detections per photo on busy tables that ordering then has to sort out.
 - **Bullseye and ring-x** have the most precise centres when they are found (ring-x's saddle point is good to ~0.01 mm on a clean print), but their 0.8 mm features need 4 px/mm, fail with shake, and distort visibly in a bad print. The saddle point also follows print defects near the pin, so its worst case (0.34 mm) is the worst of any ring-type design.
 - **ArUco** cannot work here. Square markers big enough for 0.4 mm-nozzle cells don't leave a dark quiet zone inside a round-ended 8 mm link (the 5.6 mm marker loses both end pins every time), corner localisation is 2–5× worse than an ellipse fit, and the cells need ≥6.5 px/mm. Ids would solve ordering and mirror detection, but ordering is already reliable.
 
-**Recommendation.** Keep the plain ring, 5.0/2.0 mm, printed as windows in a two-layer black top over white, in **matte** black. If the real chain's links can be ~9 mm wide, a 6 mm ring (keeping a 1.5 mm black margin) buys the ring-6 gains without its cost. Rules of thumb for any size: band ≥1.5 mm (≥3.5 lines), centre ≥2 mm, inner/outer ≈ 0.4, ≥1.5 mm of black around it.
+### 5.1 The dot, looked at more closely
+
+A first-pass dot detector recovered only 71/92 photos. The dot's accuracy was never the problem: on photos both designs recovered, the worst pin was 0.0235 mm for the dot against 0.0238 mm for the ring. What failed was telling dots from everything else. A ring has to be a bright band with exactly one dark hole, which almost nothing on a table is; a dot only has to be a bright ellipse, which terrazzo chips, wood-grain highlights, specks, sheen and the counters of printed letters all are (up to 1,800 false detections in one photo). The fixes, in `experiments/fiducial_study.py` (`_detect_dot`):
+
+- **The dark link around it.** Along each of up to 180 rays, the margin just outside the dot (1.15–1.45 radii, inside the link's edge) must be darker than the dot's inside by a steady fraction: the median ratio under 0.92, and 60% of rays within ±0.15 of it. The ratio rather than the difference, because a shadow edge darkens dot and margin alike. Terrazzo went from ~300 false detections per photo to ~100, and the chain was recovered in every terrazzo and bare-chain photo.
+- **Outline only.** A dot wider than the threshold window comes out hollow at full resolution; candidates use the outer outline and ignore holes.
+- **Shape in ordering** (production `order.py`, helps the ring too): neighbouring pins must have about the same ellipse shape, since all lie on one plane. The white counter inside a printed "O" is a narrower oval; two had joined a chain.
+
+| | ring | dot, first pass | dot |
+|---|---|---|---|
+| chain recovered | 87/92 | 71/92 | 86/92 |
+| worst pin: median · 95th pct · max | 0.026 · 0.069 · 0.081 mm | 0.025 · 0.071 · 0.090 mm | 0.025 · 0.076 · 0.159 mm |
+| false detections per photo | 14 | 104 | 43 |
+| lowest px/mm, all photos | 2.5 | 2.5 | 3.5 |
+| hand shake (8 px/mm) | 16 px | 16 px | 16 px |
+
+The dot loses six photos the ring recovers and wins three the ring loses. Its losses are one to three dots missed where the lamp's sheen lifts the black margin to within ~10% of the dot (the ring still has its hole's second edge there), a defocused or shaken dot whose outline starts out distorted, and one terrazzo photo where a chip joined the chain. Its largest error (0.16 mm, a shaken photo of a printed page) is twice the ring's worst.
+
+**If you use the dot:** 5 mm is right for the 8 mm link (1.5 mm of black margin, which the detector relies on); print it matte, as for the ring; and the pipeline needs the dot detector moved from the study into `detect.py`, as it stands it only finds rings.
+
+**Recommendation.** The plain ring, 5.0/2.0 mm, is still the most robust choice, printed as windows in a two-layer black top over white, in **matte** black. The 5 mm dot is a reasonable alternative if it is easier to make, at the cost above. If the real chain's links can be ~9 mm wide, a 6 mm ring (keeping a 1.5 mm black margin) buys the ring-6 gains without its cost. Rules of thumb for any size: band ≥1.5 mm (≥3.5 lines), centre ≥2 mm, inner/outer ≈ 0.4, ≥1.5 mm of black around it.
 
 For the real chain, print the ring in one piece with the link so its centre is the pin hole's centre to within print accuracy, and keep the pin out of the ring's centre: an edge formed by a pin head would shift the centre by the hole's clearance.
 

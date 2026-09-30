@@ -89,8 +89,12 @@ class _Sizes:
                 1.3 * pitches * self.k * self.major[i] + 0.5 * self.minor[i])
 
     def similar(self, i: int, j: int) -> bool:
+        """Neighbouring pins look alike: about the same size, and about the
+        same ellipse shape, since all lie on one plane seen from nearly the
+        same direction (the counter of a printed "O" is a narrower oval)."""
         r = self.major[i] / self.major[j]
-        return 1 / 1.35 < r < 1.35
+        aspect = abs(self.minor[i] / self.major[i] - self.minor[j] / self.major[j])
+        return 1 / 1.35 < r < 1.35 and aspect < 0.15 + 2.0 / min(self.minor[i], self.minor[j])
 
 
 def _walk(start, pts, dist, nn_pitch, max_turn, sizes: _Sizes | None):
