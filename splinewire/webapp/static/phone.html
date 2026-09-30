@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Spline Wire</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2024; --muted: #636b75; --line: #dde1e6;
+  --accent: #1f6feb; --accent-ink: #ffffff; --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --chip: #eef1f4;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1216; --panel: #171b21; --ink: #e6e9ed; --muted: #9aa4af; --line: #2a313a;
+    --accent: #4c8dff; --accent-ink: #0b1220; --ok: #3fb950; --warn: #d29922; --bad: #f85149; --chip: #222932;
+    color-scheme: dark; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.45 -apple-system, system-ui, sans-serif;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+h1 { font-size: 20px; margin: 4px 0 2px; }
+.version { color: var(--muted); font-size: 12px; }
+.buttons { display: grid; gap: 12px; margin: 18px 0; }
+.big { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px; border-radius: 14px;
+  font-size: 18px; font-weight: 600; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.big.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.big svg { width: 24px; height: 24px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.upload { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: start; }
+.upload img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; background: var(--chip); }
+.upload .name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { font-size: 15px; margin-top: 2px; }
+.status.ok { color: var(--ok); } .status.warn { color: var(--warn); } .status.bad { color: var(--bad); }
+.meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.bar { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+.bar div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.tips { color: var(--muted); font-size: 14px; }
+.tips li { margin: 3px 0; }
+.problem { background: color-mix(in srgb, var(--bad) 12%, var(--panel)); border-color: var(--bad); }
+</style>
+</head>
+<body>
+<h1>Spline Wire</h1>
+<div class="version">{{VERSION}}</div>
+
+<div id="problem" class="card problem" hidden></div>
+
+<div class="buttons">
+  <label class="big primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    Take photo
+    <input type="file" accept="image/*" capture="environment" hidden id="take">
+  </label>
+  <label class="big">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 5 5 3-3 5 5"/></svg>
+    Choose from library
+    <input type="file" accept="image/*" multiple hidden id="choose">
+  </label>
+</div>
+
+<div id="uploads"></div>
+
+<div class="card tips">
+  <b style="color:var(--ink)">For a good measurement</b>
+  <ul style="margin:6px 0 0; padding-left: 18px">
+    <li>Lay the chain flat on a plain surface, rings facing up.</li>
+    <li>Get the whole chain in the frame and fill most of it.</li>
+    <li>Shoot at 1× (no zoom). A slight angle is fine.</li>
+    <li>Avoid glare and hard shadows on the rings.</li>
+  </ul>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+let TOKEN = null;
+const m = location.hash.match(/t=([^&]+)/);
+if (m) { TOKEN = decodeURIComponent(m[1]); try { localStorage.setItem("sw-token", TOKEN); } catch (e) {} }
+if (!TOKEN) { try { TOKEN = localStorage.getItem("sw-token"); } catch (e) {} }
+if (!TOKEN) showProblem("This page needs the link from the QR code. Scan the QR code on your computer's Spline Wire page again.");
+
+function showProblem(html) { const p = $("#problem"); p.innerHTML = html; p.hidden = false; }
+
+function card(file) {
+  const div = document.createElement("div");
+  div.className = "card upload";
+  div.innerHTML = `<img alt=""><div style="min-width:0"><div class="name"></div>
+    <div class="status">Uploading…</div><div class="bar"><div></div></div><div class="meta"></div></div>`;
+  div.querySelector(".name").textContent = file.name;
+  try { div.querySelector("img").src = URL.createObjectURL(file); } catch (e) {}
+  $("#uploads").prepend(div);
+  return div;
+}
+
+function setStatus(div, cls, text, meta) {
+  const s = div.querySelector(".status");
+  s.className = "status " + cls; s.textContent = text;
+  if (meta !== undefined) div.querySelector(".meta").innerHTML = meta;
+}
+
+function upload(file) {
+  const div = card(file);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", `/api/upload?name=${encodeURIComponent(file.name || "photo.jpg")}`);
+  xhr.setRequestHeader("X-Token", TOKEN);
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) div.querySelector(".bar div").style.width = `${100 * e.loaded / e.total}%`; };
+  xhr.onload = () => {
+    div.querySelector(".bar").remove();
+    if (xhr.status !== 200) {
+      let msg = xhr.statusText;
+      try { msg = JSON.parse(xhr.responseText).error; } catch (e) {}
+      setStatus(div, "bad", xhr.status === 403 ? "Not allowed. Scan the QR code on your computer again." : `Upload failed: ${msg}`);
+      return;
+    }
+    setStatus(div, "", "Measuring…", `Sent ${(file.size / 1e6).toFixed(1)} MB`);
+    watch(div, JSON.parse(xhr.responseText).id);
+  };
+  xhr.onerror = () => {
+    setStatus(div, "bad", "Can't reach your computer.");
+    showProblem(`<b>Can't reach Spline Wire on your computer.</b><br>Check that it's running, that this phone and the computer
+      are on the same Wi-Fi (or the computer is on this phone's hotspot), and that Windows Firewall allowed Spline Wire.
+      Then scan the QR code again.`);
+  };
+  xhr.send(file);
+}
+
+function describe(p) {
+  const info = p.info || {};
+  const src = p.result && p.result.focal_source;
+  const focal = info.focal_35mm ? `focal length ${info.focal_35mm} mm ✓`
+    : "no focal length in the photo" + (src === "default" ? " (using your iPhone setting)"
+      : src === "estimated" ? ". Estimated it; for better accuracy set your iPhone's focal length in Settings on the computer" : "");
+  return esc(`${info.format || ""} ${info.width || ""}×${info.height || ""} · ${focal}`);
+}
+
+async function watch(div, id) {
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 700));
+    let p;
+    try {
+      const res = await fetch(`/api/photo/${id}`, {headers: {"X-Token": TOKEN}});
+      if (!res.ok) throw new Error(res.statusText);
+      p = await res.json();
+    } catch (e) { setStatus(div, "bad", "Lost contact with your computer."); return; }
+    if (p.status === "done") {
+      const r = p.result;
+      const warn = r.warnings.length > 0;
+      setStatus(div, warn ? "warn" : "ok",
+        `${warn ? "Measured, with warnings" : "Measured"}: ${r.pins} pins, ${r.curve_points} curve points. It's on your computer now.`,
+        describe(p) + (warn ? `<br>${r.warnings.map(esc).join("<br>")}` : ""));
+      return;
+    }
+    if (p.status === "error") {
+      setStatus(div, "bad", "Couldn't find the chain in this photo.",
+        esc((p.error || "").split("\n").pop()) + "<br>Try again: whole chain in frame, rings facing up, no glare.");
+      return;
+    }
+  }
+}
+
+for (const id of ["take", "choose"]) {
+  $("#" + id).addEventListener("change", (e) => { [...e.target.files].forEach(upload); e.target.value = ""; });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion",
+  "type": "addin",
+  "id": "289dec98-32c8-4a36-8bde-fca909fd50eb",
+  "author": "Spline Wire",
+  "description": {
+    "": "Paste points measured with Spline Wire into a sketch, with a spline through them."
+  },
+  "version": "0.1.0",
+  "runOnStartup": true,
+  "supportedOS": "windows|mac",
+  "editEnabled": true
+}

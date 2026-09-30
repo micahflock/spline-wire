@@ -1,32 +1,43 @@
 [project]
-name = "spline-wire-validation"
-version = "0.1.0"
-description = "LLM-based computer vision validation for spline wire fiducial capture"
+name = "spline-wire"
+dynamic = ["version"]
+description = "Measure real-world curves with a fiducial chain and a phone photo"
 authors = [
     { name = "micah", email = "mookerish@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=0.96.0",
-    "numpy>=2.4.4",
-    "opencv-python>=4.13.0.92",
-    "pillow>=12.2.0",
-    "pyyaml>=6.0.3",
-    "shapely>=2.0",
+    "ezdxf>=1.3",
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "pillow>=11.0",
+    "pillow-heif>=0.18",
+    "pyyaml>=6.0",
+    "scipy>=1.14",
+    "segno>=1.6.6",
 ]
 
 [project.scripts]
-run-validation = "validation.cli:main"
+splinewire = "splinewire.cli:main"
+splinewire-app = "splinewire.webapp.app:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "splinewire/__init__.py"
+
 [tool.hatch.build.targets.wheel]
-packages = ["validation"]
+packages = ["splinewire"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
-    "pytest-mock>=3.15.1",
+    "mapbox-earcut>=2.1.0",
+    "pytest>=8.0",
+    "shapely>=2.1.2",
+    "trimesh>=5.1.0",
+]
+build = [
+    "pyinstaller>=6.10",
 ]
