@@ -15,7 +15,10 @@ never granted, so other websites can't drive the app (CSRF). Images and
 downloads, which the browser fetches without custom headers, take the token
 as ?t= instead. The Host header must name this computer, which defeats DNS
 rebinding. Settings, file downloads, installing the Fusion add-in, opening
-folders and quitting are further limited to this computer.
+folders, firewall changes and quitting are further limited to this computer.
+
+Phones connect over the local network, which Windows Firewall blocks for a
+new program until it is allowed; see firewall.py.
 """
 from __future__ import annotations
 
@@ -49,6 +52,7 @@ from splinewire.fusion_addin import install_addin
 from splinewire.output import crop_to_rings, points_tsv
 from splinewire.process import PHOTO_SUFFIXES, PhotoResult, process_photo
 from splinewire.settings import load_settings, save_settings
+from splinewire.webapp.firewall import Firewall
 
 DEFAULT_PORT = 8765
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
@@ -391,6 +395,8 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if not self._host_ok():
                 return self._error(HTTPStatus.MISDIRECTED_REQUEST, "unexpected Host header")
+            if not self._local():
+                self.server.phone_seen = time.time()   # proof the network path works
             url = urlsplit(self.path)
             path, query = url.path, parse_qs(url.query)
             if method == "GET" and path == "/api/ping":
@@ -420,7 +426,11 @@ class _Handler(BaseHTTPRequestHandler):
         parts = path.strip("/").split("/")[1:]          # after "api"
 
         if method == "GET" and parts == ["state"]:
-            return self._json(app.state(local, self.server.phone_urls()))
+            out = app.state(local, self.server.phone_urls())
+            if local:
+                out["network"] = {"phone_seen": self.server.phone_seen,
+                                  "firewall": self.server.firewall.snapshot()}
+            return self._json(out)
         if method == "POST" and parts == ["upload"]:
             name = unquote((query.get("name") or ["photo.jpg"])[0])
             data = self._body()
@@ -474,6 +484,15 @@ class _Handler(BaseHTTPRequestHandler):
         if method == "POST" and parts == ["reprocess"]:
             app.reprocess_all()
             return self._json({"ok": True})
+        if method == "POST" and parts == ["firewall", "check"]:
+            self.server.firewall.refresh()
+            return self._json({"ok": True})
+        if method == "POST" and parts == ["firewall", "allow"]:
+            # Shows the Windows admin (UAC) prompt; returns once it's answered.
+            if not self.server.firewall.request_allow():
+                return self._error(HTTPStatus.CONFLICT, "Windows didn't run the firewall change "
+                                   "(the admin prompt was declined, or this isn't Windows).")
+            return self._json({"ok": True})
         if method == "POST" and parts == ["install-addin"]:
             try:
                 return self._json({"path": str(install_addin())})
@@ -498,6 +517,8 @@ class SplineWireServer(ThreadingHTTPServer):
 
     def __init__(self, app: AppState, port: int = DEFAULT_PORT, host: str = "0.0.0.0") -> None:
         self.app = app
+        self.firewall = Firewall()
+        self.phone_seen: float | None = None   # last request from another device
         self._ips: list[str] = []
         self._ips_at = 0.0
         super().__init__((host, port), _Handler)
@@ -565,6 +586,7 @@ def start_server(app: AppState, port: int = DEFAULT_PORT, tries: int = 10) -> Sp
             continue
         server.thread = threading.Thread(target=server.serve_forever, daemon=True, name="splinewire-http")
         server.thread.start()
+        server.firewall.refresh()
         return server
     raise OSError(f"no free port from {port} to {port + tries - 1}: {last}")
 

@@ -45,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  From your phone:   scan the QR code on that page (same Wi-Fi), or open")
         print(f"                     {url}")
     print(f"  Photos and results: {app.workspace}")
+    print("  Phone times out? Click \"Allow phone connections\" on the page (Windows Firewall).")
     print()
     print("Keep this window open while you use Spline Wire. Close it, or press Ctrl+C, to quit.")
     if not args.no_browser:
