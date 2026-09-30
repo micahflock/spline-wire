@@ -42,6 +42,7 @@ class Ring:
     residual_px: float = 0.0            # RMS distance of edge points from the fitted ellipses
     contrast: float = 0.0               # bright band minus dark levels, gray levels
     polarity: int = 1                   # +1: light ring on dark, -1: dark ring on light
+    surround: float = 0.0               # gray level just outside the ring (the link, for a pin)
 
 
 @dataclass(frozen=True)
@@ -120,21 +121,35 @@ def _ring_candidates(
 ) -> list[_Candidate]:
     ratio_lo = 0.5 * target_ratio
     ratio_hi = target_ratio + 0.75 * (1.0 - target_ratio)
-    contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
-    if hierarchy is None:
-        return []
-    hierarchy = hierarchy[0]
+    # Components first, contours only for those that could be a ring: ring-scale
+    # thresholds turn fine texture (woven fabric, wood grain) into hundreds of
+    # thousands of specks, and tracing every one of them took 20 s on a 12 MP
+    # photo of a chain on fabric.
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    x, y, w, h, area = (stats[:, i] for i in range(5))
+    lo, hi = np.minimum(w, h), np.maximum(w, h)
+    maybe = ((lo >= min_diameter_px) & (hi <= max(mask.shape) / 3) & (hi <= 8 * lo)
+             & (area <= 0.85 * w * h))
+    maybe[0] = False                                     # label 0 is the black background
     found = []
-    for i, (_next, _prev, child, parent) in enumerate(hierarchy):
-        if parent != -1 or child == -1:
-            continue  # need a top-level blob with a hole
-        outer = contours[i]
+    for k in np.flatnonzero(maybe):
+        x0, y0 = max(0, x[k] - 1), max(0, y[k] - 1)
+        roi = (labels[y0:y[k] + h[k] + 1, x0:x[k] + w[k] + 1] == k).astype(np.uint8)
+        contours, hierarchy = cv2.findContours(roi, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE,
+                                               offset=(int(x0), int(y0)))
+        if hierarchy is None:
+            continue
+        hierarchy = hierarchy[0]
+        top = [i for i, hh in enumerate(hierarchy) if hh[3] == -1]
+        if len(top) != 1 or hierarchy[top[0]][2] == -1:
+            continue                                     # need one blob with a hole
+        outer = contours[top[0]]
         if len(outer) < 12:
             continue
         # Exactly one real hole. Specks of noise inside the ring make extra
         # tiny holes, so holes far smaller than a ring's hole are ignored.
         min_hole = max(4.0, 0.02 * cv2.contourArea(outer))
-        holes = [contours[c] for c in _children(hierarchy, child)
+        holes = [contours[c] for c in _children(hierarchy, hierarchy[top[0]][2])
                  if cv2.contourArea(contours[c]) >= min_hole]
         if len(holes) != 1:
             continue
@@ -272,6 +287,7 @@ def _fit_once(gray, ellipse, inner_ratio, polarity) -> dict | None:
         "inner_ratio": math.sqrt(ei[1][0] * ei[1][1] / (eo[1][0] * eo[1][1])),
         "residual": math.sqrt((n_o * res_o ** 2 + n_i * res_i ** 2) / (n_o + n_i)),
         "contrast": float(np.median(contrast)),
+        "surround": float(np.median(lv_out) if polarity > 0 else 255.0 - np.median(lv_out)),
         "coverage": min(n_o, n_i) / n_rays,
     }
 
@@ -352,6 +368,7 @@ def _accept(fit: dict, target_ratio: float, polarity: int) -> Ring | None:
         angle_deg=float(eo[2]),
         residual_px=float(fit["residual"]),
         contrast=float(fit["contrast"]),
+        surround=fit["surround"],
         polarity=polarity,
     )
 

@@ -80,7 +80,8 @@ def measure(
     if n_on_chain != expected:
         warnings.append(
             f"found {n_on_chain} pins on the chain but the spec has {spec.n_pins} "
-            f"({len(order.gaps)} gap(s)); is the whole chain in the photo?"
+            f"({len(order.gaps)} gap(s)); is the whole chain in the photo, and free of glare "
+            "(a lamp's reflection on the links)?"
         )
     if focal_px is None:
         warnings.append(
@@ -137,6 +138,8 @@ def _misfits(rings: list[Ring], order: ChainOrder, rect: Rectification, spec: Ch
       pitch from the end of the chain.
     - An end pin whose link is far from one pitch: a stray ring next to the
       end. One bad link would otherwise bend the whole solution.
+    - With more pins than the spec's chain has, whichever end looks least
+      like the rest of the chain.
     """
     idx = order.indices
     if len(idx) < 6:
@@ -148,6 +151,22 @@ def _misfits(rings: list[Ring], order: ChainOrder, rect: Rectification, spec: Ch
         nb = [j for j in range(max(0, k - 2), min(len(idx), k + 3)) if j != k]
         if abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) > 0.12:
             bad.add(idx[k])
+    if not bad and len(idx) + len(order.gaps) > spec.n_pins:
+        # More pins than the chain has, so something ring-like lies about one
+        # pitch past an end, the same size as a ring (a small washer). A real
+        # pin's ring sits on its link; a look-alike sits on the table. Drop
+        # the end that stands out more by what surrounds it, and by size.
+        # Compared with its neighbours only: light changes along the chain.
+        surround = np.array([rings[i].surround for i in idx])
+        spread = max(5.0, 1.4826 * float(np.median(np.abs(np.diff(surround)))))
+
+        def oddness(k: int) -> float:
+            nb = [1, 2] if k == 0 else [len(idx) - 2, len(idx) - 3]
+            return (abs(surround[k] - np.median(surround[nb])) / spread
+                    + abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) / 0.03)
+
+        bad.add(idx[0] if oddness(0) > oddness(len(idx) - 1) else idx[-1])
+        return bad
     res = rect.link_residuals_mm
     links = order.links
     if links and len(links) >= 6:

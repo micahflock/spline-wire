@@ -10,6 +10,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [x] Contact offset from the pin line to the target curve (convex and concave), matching circular targets to 0.05 mm.
 - [x] CLI: `measure`, `synth`, `test-part`; JSON/CSV/SVG output and a preview image.
 - [x] Windows app (`SplineWire.exe`, built by GitHub Actions): browser UI on the computer plus a phone upload page.
+- [x] Realistic photo simulator (`scene.py`: FDM print defects, tables, clutter, glare, shadows, defocus, shake, distortion, noise, JPEG) and a detection benchmark over 29 environments plus random ones. The detector was reworked against it: the whole chain is recovered in 155/167 simulated photos, up from 77/167, and the failures left are a lamp reflected in shiny filament. Fiducial designs compared for a 0.4 mm nozzle: the plain ring stays. See `docs/cv-robustness.md`.
 
 ## 1. Real-photo accuracy with a printed test part  ← next
 
@@ -20,6 +21,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - Send them from the phone page to `SplineWire.exe` with the matching truth file set in Settings (any photo over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-plaque/<shape>-truth.json --out results/`. Look at both the plain and the scale-fit error: a gap between them is print scale, not measurement.
 - **Exit criterion:** worst pin error under **1 mm** on every photo, and under 0.5 mm on most.
 - Things to watch for: EXIF focal accuracy (compare `focal_px` to an estimated-f run), lens distortion on wide lenses, glare on glossy prints, printer scale error (the scale bar check).
+- Print the plaque in matte black if possible, and include some deliberately hard photos (a lamp reflected in the part, a shadow across it, a busy table): the simulator predicts matte survives the reflection and standard PLA may not. Where a real photo fails or measures worse than simulated, reproduce the condition in `scene.py` and add it to the benchmark.
 
 ## 2. Chain hardware
 

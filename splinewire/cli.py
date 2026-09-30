@@ -1,7 +1,7 @@
 """Command-line interface.
 
     splinewire measure PHOTO           photo of the chain -> curve points + SVG
-    splinewire synth                   synthetic chain photo with known shape
+    splinewire synth [--env PRESET]    synthetic chain photo with known shape
     splinewire test-part               printable chain drawing with known shape
     splinewire test-plaque             3D-printable chain plaque (STL) with known shape
 """
@@ -15,7 +15,7 @@ import numpy as np
 
 from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec
 from splinewire.process import process_photo
-from splinewire.synthetic import circle_wrap_pins, s_curve_pins, write_synthetic_photo, write_truth
+from splinewire.synthetic import circle_wrap_pins, s_curve_pins, save_photo, write_synthetic_photo, write_truth
 from splinewire.testpart import test_part_svg
 
 DEFAULT_CHAIN = default_chain_path()
@@ -46,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--focal-35mm", type=float, default=26.0)
     p.add_argument("--size", default="4000x3000", help="image size WxH")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--env", choices=sorted(_presets()), metavar="PRESET",
+                   help="realistic photo instead: a printed plaque in one of the simulated "
+                        "environments (e.g. shadow, glare, clutter; see splinewire/scene.py). "
+                        "Sets camera, light and print itself; --tilt/--distance/--size are ignored")
 
     p = sub.add_parser("test-part", help="write a printable chain drawing with known geometry")
     p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
@@ -61,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     spec = load_chain_spec(args.chain)
     commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque}
     return commands[args.command](args, spec)
+
+
+def _presets() -> dict:
+    from splinewire.scene import PRESETS
+    return PRESETS
 
 
 def _add_shape_args(p: argparse.ArgumentParser) -> None:
@@ -96,10 +105,17 @@ def _measure(args, spec: ChainSpec) -> int:
 def _synth(args, spec: ChainSpec) -> int:
     w, h = (int(v) for v in args.size.lower().split("x"))
     pins = _shape(args, spec)
-    photo = args.out / f"{args.shape}.jpg"
     truth = args.out / f"{args.shape}-truth.json"
-    write_synthetic_photo(photo, pins, spec, (w, h), focal_35mm=args.focal_35mm,
-                          distance_mm=args.distance, tilt_deg=args.tilt, seed=args.seed)
+    if args.env:
+        from splinewire.scene import render_scene
+        env = _presets()[args.env]
+        scene = render_scene(pins, spec, env, seed=args.seed)
+        photo = args.out / f"{args.shape}-{args.env}.jpg"
+        save_photo(photo, scene.image, env.focal_35mm, quality=97)   # the scene already went through JPEG
+    else:
+        photo = args.out / f"{args.shape}.jpg"
+        write_synthetic_photo(photo, pins, spec, (w, h), focal_35mm=args.focal_35mm,
+                              distance_mm=args.distance, tilt_deg=args.tilt, seed=args.seed)
     write_truth(truth, pins)
     print(f"wrote {photo} and {truth.name}")
     print(f"try: splinewire measure {photo} --truth {truth}")

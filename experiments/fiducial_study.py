@@ -33,6 +33,7 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
+from types import SimpleNamespace
 from pathlib import Path
 
 import cv2
@@ -44,8 +45,8 @@ sys.path.insert(0, str(REPO))
 from splinewire import detect as D  # noqa: E402
 from splinewire.chain import load_chain_spec  # noqa: E402
 from splinewire.fiducials import ARUCO, ARUCO_SMALL, BULLSEYE, DOT, RING6, RING_X, Design, ring_design  # noqa: E402
-from splinewire.order import order_chain  # noqa: E402
-from splinewire.pipeline import compare_to_truth  # noqa: E402
+from splinewire.order import ChainOrder, order_chain  # noqa: E402
+from splinewire.pipeline import _misfits, compare_to_truth  # noqa: E402
 from splinewire.rectify import rectify_chain  # noqa: E402
 from splinewire.scene import BASE, PRESETS, random_environment, render_scene  # noqa: E402
 
@@ -91,7 +92,7 @@ def detect(design: str, img: np.ndarray):
     if not found:
         return np.zeros((0, 2)), np.zeros((0, 2)), None, []
     return (np.array([f["center"] for f in found]), np.array([f["axes"] for f in found]), None,
-            [f.get("polarity", 1) for f in found])
+            [(f["polarity"], f["surround"]) for f in found])
 
 
 def _candidates(img, ratio):
@@ -220,8 +221,10 @@ def _refine_multi(gray, cand, edges: list[float], design: str, passes: int = 2):
     res = math.sqrt(sum(n * r * r for _, r, n in fits) / sum(n for _, r, n in fits))
     if res > max(0.6, 0.04 * min(eo[1])):
         return None
+    surround = float(np.median(levels[0]))
     return {"center": tuple(centre), "axes": (max(eo[1]), min(eo[1])), "outer": eo,
-            "polarity": cand.polarity, "residual": res}
+            "polarity": cand.polarity, "residual": res,
+            "surround": surround if cand.polarity > 0 else 255.0 - surround}
 
 
 def _saddle_centre(gray, r):
@@ -267,7 +270,7 @@ def _detect_aruco(img):
         side = np.linalg.norm(np.roll(c, -1, axis=0) - c, axis=1)
         sizes.append((side.max(), side.min()))
         keep.append(int(i))
-    return np.array(centres), np.array(sizes), np.array(keep), [1] * len(keep)
+    return np.array(centres), np.array(sizes), np.array(keep), [(1, 0.0)] * len(keep)
 
 
 def _diagonal_intersection(c):
@@ -285,37 +288,50 @@ def _diagonal_intersection(c):
 # ---------------------------------------------------------------------------
 
 def measure_design(design: str, img, focal_px, image_size):
+    """Detect, order and deskew, like splinewire.pipeline.measure does for the ring."""
     centres, sizes, ids, pols = detect(design, img)
     out = {"centres": centres}
     if len(centres) < 3:
         return out, None
+    excluded: set[int] = set()
+    for _ in range(4):
+        chain_idx, links = _order(design, centres, sizes, ids, pols, excluded)
+        if chain_idx is None or len(links) < 5:
+            return out, None
+        rect = rectify_chain(centres[chain_idx], links, SPEC.pitch_mm, image_size, focal_px)
+        if ids is not None:
+            break                                        # ids leave nothing to second-guess
+        rings = [SimpleNamespace(outer_axes_px=tuple(s), surround=p[1]) for s, p in zip(sizes, pols)]
+        order = ChainOrder(indices=chain_idx, links=links, gaps=[], rejected=[])
+        misfits = _misfits(rings, order, rect, SPEC)
+        if not misfits:
+            break
+        excluded |= misfits
+    out["chain_idx"] = chain_idx
+    return out, rect
+
+
+def _order(design, centres, sizes, ids, pols, excluded):
     if ids is not None:                                  # ArUco: order by id
         valid = ids < SPEC.n_pins
         order = np.argsort(ids[valid])
         idx = np.flatnonzero(valid)[order]
         pin_ids = ids[idx]
         links = [(k, k + 1) for k in range(len(idx) - 1) if pin_ids[k + 1] == pin_ids[k] + 1]
-        chain_idx = list(idx)
-    else:
-        best = None
-        for p in (1, -1):
-            sel = [i for i, q in enumerate(pols) if q == p]
-            if len(sel) < 3:
-                continue
-            o = order_chain(centres[sel], axes_px=sizes[sel],
-                            pitch_per_diameter=SPEC.pitch_mm / DESIGNS[design].outer_mm)
-            if best is None or len(o.indices) > len(best[1].indices):
-                best = (sel, o)
-        if best is None:
-            return out, None
-        sel, o = best
-        chain_idx = [sel[i] for i in o.indices]
-        links = o.links
-    if len(links) < 5:
-        return out, None
-    rect = rectify_chain(centres[chain_idx], links, SPEC.pitch_mm, image_size, focal_px)
-    out["chain_idx"] = chain_idx
-    return out, rect
+        return list(idx), links
+    best = None
+    for p in (1, -1):
+        sel = [i for i, q in enumerate(pols) if q[0] == p and i not in excluded]
+        if len(sel) < 3:
+            continue
+        o = order_chain(centres[sel], axes_px=sizes[sel],
+                        pitch_per_diameter=SPEC.pitch_mm / DESIGNS[design].outer_mm)
+        if best is None or len(o.indices) > len(best[1].indices):
+            best = (sel, o)
+    if best is None:
+        return None, []
+    sel, o = best
+    return [sel[i] for i in o.indices], o.links
 
 
 def evaluate_one(args):
@@ -430,14 +446,43 @@ def summarize(records, title):
     return "\n".join(lines)
 
 
+def printability_figure(path: Path, tile_px: int = 180) -> None:
+    """Each design as drawn, as a typical 0.4 mm-nozzle print, and as a bad
+    print, straight down (black = black filament)."""
+    from splinewire.scene import BAD_PRINT, PERFECT_PRINT, PrintQuality, printed_fiducial
+
+    rows = [("design", PERFECT_PRINT), ("typical print", replace(PrintQuality(), relief_mm=0.0)),
+            ("bad print", replace(BAD_PRINT, relief_mm=0.0))]
+    label_w = 150
+    header = 28
+    out = np.full((header + len(rows) * tile_px, label_w + len(DESIGNS) * tile_px), 255, np.uint8)
+    for j, name in enumerate(DESIGNS):
+        cv2.putText(out, name, (label_w + j * tile_px + 8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 0, 1, cv2.LINE_AA)
+    for i, (label, pq) in enumerate(rows):
+        y = header + i * tile_px
+        cv2.putText(out, label, (8, y + tile_px // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.55, 0, 1, cv2.LINE_AA)
+        for j, d in enumerate(DESIGNS.values()):
+            cover, _ = printed_fiducial(SPEC, d, pq, seed=j, half_size_mm=4.5)
+            tile = np.round(255 * (0.93 - 0.85 * cover)).astype(np.uint8)
+            tile = cv2.resize(tile, (tile_px - 6, tile_px - 6), interpolation=cv2.INTER_AREA)
+            x = label_w + j * tile_px
+            out[y + 3:y + tile_px - 3, x + 3:x + tile_px - 3] = tile
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(path), out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--figure", type=Path, help="only write the printability figure (PNG) here")
     ap.add_argument("--part", choices=["environments", "resolution", "blur", "all"], default="all")
     ap.add_argument("--random", type=int, default=40)
     ap.add_argument("--designs", nargs="*", default=list(DESIGNS))
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 2)
     ap.add_argument("--json", type=Path)
     args = ap.parse_args()
+    if args.figure:
+        printability_figure(args.figure)
+        return
     parts = ["environments", "resolution", "blur"] if args.part == "all" else [args.part]
     all_recs = {}
     for part in parts:
