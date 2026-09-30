@@ -115,10 +115,15 @@ def write_synthetic_photo(
     cam = look_at_plane(focal, image_size, distance_mm, tilt_deg=tilt_deg,
                         tilt_direction_deg=35.0, roll_deg=10.0, target_mm=tuple(pins_mm.mean(axis=0)))
     img = render_photo(pins_mm, spec, cam, rng=np.random.default_rng(seed))
+    save_photo(path, img, focal_35mm)
+
+
+def save_photo(path: Path, image: np.ndarray, focal_35mm: float, quality: int = 92) -> None:
+    """Save as JPEG with the 35 mm-equivalent focal length in EXIF, like a phone."""
     exif = Image.Exif()
     exif.get_ifd(_EXIF_IFD)[_TAG_FOCAL_LENGTH_35MM] = int(round(focal_35mm))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(img).save(path, quality=92, exif=exif)
+    Image.fromarray(image).save(path, quality=quality, exif=exif)
 
 
 def write_truth(path: Path, pins_mm: np.ndarray) -> None:

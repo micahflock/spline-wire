@@ -31,9 +31,9 @@ class Rectification:
     tilt_deg: float          # angle between the optical axis and the plane normal
     residual_rms_mm: float   # how far link lengths deviate from the pitch
     residual_max_mm: float
-    link_residuals_mm: np.ndarray = None   # per link: length minus pitch
-    depth_mm: np.ndarray = None            # per pin: distance along the optical axis
-    distortion_k1: float = 0.0             # radial distortion solved for (0 unless asked)
+    link_residuals_mm: np.ndarray | None = None   # per link: length minus pitch
+    depth_mm: np.ndarray | None = None            # per pin: distance along the optical axis
+    distortion_k1: float = 0.0                    # radial distortion solved for (0 unless asked)
 
 
 def rectify_chain(

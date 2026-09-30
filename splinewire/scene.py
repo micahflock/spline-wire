@@ -537,6 +537,11 @@ def _near_layer(pins_mm, spec: ChainSpec, env: Environment, rng) -> _Layer | Non
         layer.gloss[:] = layer.gloss * (1 - a) + gloss * a
         layer.alpha[:] = np.maximum(layer.alpha, a)
 
+    def cut_hole(p, r):
+        hole = np.zeros(shape, np.uint8)
+        cv2.circle(hole, fixed(p), int(r * tau * ONE), 255, -1, cv2.LINE_AA, 4)
+        layer.alpha[:] = layer.alpha * (1 - hole.astype(np.float32) / 255.0)
+
     keep_out = spec.half_width_mm + 4.0
 
     def free_spot(radius):
@@ -585,10 +590,7 @@ def _near_layer(pins_mm, spec: ChainSpec, env: Environment, rng) -> _Layer | Non
             alb, gl = (0.45, 0.5) if kind == "washer" else (0.8, 0.05)   # steel, or a white nylon washer
             paint(lambda m, p=p, r=od / 2: cv2.circle(m, fixed(p), int(r * tau * ONE), 255, -1, cv2.LINE_AA, 4),
                   alb, gl)
-            layer_hole = np.zeros(shape, np.uint8)
-            cv2.circle(layer_hole, fixed(p), int(idia / 2 * tau * ONE), 255, -1, cv2.LINE_AA, 4)
-            a = layer_hole.astype(np.float32) / 255.0
-            layer.alpha[:] = layer.alpha * (1 - a)
+            cut_hole(p, idia / 2)
         elif kind == "nut":
             p = free_spot(5.0)
             if p is None:
@@ -597,9 +599,7 @@ def _near_layer(pins_mm, spec: ChainSpec, env: Environment, rng) -> _Layer | Non
             hexagon = p + 4.0 * np.c_[np.cos(ang + np.arange(6) * math.pi / 3), np.sin(ang + np.arange(6) * math.pi / 3)]
             pts = np.round(layer.to_px(hexagon) * ONE).astype(np.int32)
             paint(lambda m, pts=pts: cv2.fillPoly(m, [pts], 255, cv2.LINE_AA, 4), 0.35, 0.4)
-            hole = np.zeros(shape, np.uint8)
-            cv2.circle(hole, fixed(p), int(2.5 * tau * ONE), 255, -1, cv2.LINE_AA, 4)
-            layer.alpha[:] = layer.alpha * (1 - hole.astype(np.float32) / 255.0)
+            cut_hole(p, 2.5)
         else:
             r = float(rng.uniform(8.0, 12.5))
             p = free_spot(r)

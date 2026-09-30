@@ -113,7 +113,11 @@ Single extruder, manual filament swap (black + white PLA):
      PrusaSlicer/Orca/Bambu Studio: right-click the "+" on the layer
      slider at that height -> Add color change. Cura: "Filament Change"
      post-processing script at that layer.
-  4. Matte filament photographs best. Avoid silk.
+  4. Use MATTE black filament if you can ("PLA Matte" and the like). A lamp
+     reflected in ordinary PLA can wash the black out until the rings
+     vanish; in simulated photos matte never failed, standard PLA failed
+     in about 1 in 10 setups and glossy/silk in about 1 in 4
+     (docs/cv-robustness.md). Avoid silk.
   5. Solid infill (100%), or 4+ top/bottom layers: the part is thin, and
      sparse infill can show through the white under the rings.
 
@@ -128,6 +132,9 @@ Before testing:
   - Photograph the plaque on a plain, even surface (any colour), whole
     chain in view, and process the photos with the truth file
     {name}-truth.json.
+  - Keep lamps out of the reflection: if the black looks grey or shiny on
+    the phone screen, move the light or tilt the phone a little until it
+    looks black again.
 """
 
 
