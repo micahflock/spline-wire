@@ -74,6 +74,8 @@ _FLOOR = {"ring-x": 1.5 / 3.1}
 def detect(design: str, img: np.ndarray):
     if design.startswith("aruco"):
         return _detect_aruco(img)
+    if design == "dot":
+        return _detect_dot(img)
     edges = _EDGES[design]
     ratio = edges[1] if len(edges) > 1 else None
     cands = _candidates(img, ratio)
@@ -93,6 +95,122 @@ def detect(design: str, img: np.ndarray):
         return np.zeros((0, 2)), np.zeros((0, 2)), None, []
     return (np.array([f["center"] for f in found]), np.array([f["axes"] for f in found]), None,
             [(f["polarity"], f["surround"]) for f in found])
+
+
+# ---------------------------------------------------------------------------
+# Dot: a solid light disc on the dark link. It has no hole to tell it from any
+# other bright blob, so it is validated by what surrounds it instead: a real
+# dot is uniformly bright inside and has a uniformly dark margin all round
+# (the link, 1.5 mm wide around a 5 mm dot). Chips, grain highlights, specks
+# and letters fail one or the other.
+
+_DOT_OUT = (1.15, 1.45)        # margin sampled, in dot radii (link edge at 1.6)
+
+
+def _detect_dot(img):
+    grayf = img.astype(np.float32)
+    found = []
+    for c in _dot_candidates(img):
+        r = _refine_dot(grayf, c)
+        if r is not None:
+            found.append(r)
+    found = _dedupe(found)
+    if not found:
+        return np.zeros((0, 2)), np.zeros((0, 2)), None, []
+    return (np.array([f["center"] for f in found]), np.array([f["axes"] for f in found]), None,
+            [(1, f["surround"]) for f in found])
+
+
+def _dot_candidates(img):
+    out = []
+    level, scale = img, 1.0
+    while True:
+        g = cv2.GaussianBlur(level, (0, 0), 0.8 if scale == 1 else 1.0)
+        for mask, pol in D._masks(g):
+            if pol > 0:                                   # light dots only
+                out += _solid_candidates(mask, 8.0 if scale == 1 else 10.0, scale)
+        if min(level.shape) < 2 * D._MIN_LEVEL_SIDE or scale >= D._MAX_SCALE:
+            break
+        level = cv2.resize(level, (level.shape[1] // 2, level.shape[0] // 2), interpolation=cv2.INTER_AREA)
+        scale *= 2
+    return D._dedupe_candidates(out)
+
+
+def _solid_candidates(mask, min_d, scale):
+    """Blobs by their outer outline only: a dot wider than the threshold window
+    is hollowed out at full size, and that hole must not disqualify it."""
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    x, y, w, h, area = (stats[:, i] for i in range(5))
+    lo, hi = np.minimum(w, h), np.maximum(w, h)
+    maybe = (lo >= min_d) & (hi <= max(mask.shape) / 4) & (hi <= 4 * lo)
+    maybe[0] = False
+    off = (scale - 1) / 2
+    out = []
+    for k in np.flatnonzero(maybe):
+        x0, y0 = max(0, x[k] - 1), max(0, y[k] - 1)
+        roi = (labels[y0:y[k] + h[k] + 1, x0:x[k] + w[k] + 1] == k).astype(np.uint8)
+        contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE, offset=(int(x0), int(y0)))
+        if len(contours) != 1 or len(contours[0]) < 12:
+            continue
+        e = cv2.fitEllipse(contours[0])
+        (cx, cy), (a, b), ang = e
+        if min(a, b) < min_d or not D._ellipse_like(contours[0], e):
+            continue
+        out.append(D._Candidate(center=(cx * scale + off, cy * scale + off),
+                                outer=((cx * scale + off, cy * scale + off), (a * scale, b * scale), ang),
+                                inner_ratio=0.0, polarity=1))
+    return out
+
+
+def _refine_dot(gray, cand, passes: int = 2):
+    (cx, cy), (A, B), ang = cand.outer
+    for k in range(passes):
+        need = 0.55 if k < passes - 1 else 0.7     # a rough first outline misses some edges
+        R = max(A, B) / 2
+        if not np.isfinite(R) or R < 3 or R > 0.25 * max(gray.shape):
+            return None
+        n_rays = int(np.clip(math.pi * R, 32, 180))
+        phi = np.arange(n_rays) * (2 * math.pi / n_rays)
+        t = math.radians(ang)
+        ex = (A / 2) * np.cos(phi) * math.cos(t) - (B / 2) * np.sin(phi) * math.sin(t)
+        ey = (A / 2) * np.cos(phi) * math.sin(t) + (B / 2) * np.sin(phi) * math.cos(t)
+        n_s = int(math.ceil(1.5 * R / 0.25)) + 1
+        s = np.linspace(0.0, 1.5, n_s, dtype=np.float32)
+        ds = float(s[1] - s[0])
+        mx = (cx + s[None, :] * ex[:, None]).astype(np.float32)
+        my = (cy + s[None, :] * ey[:, None]).astype(np.float32)
+        q = cv2.remap(gray, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+        def idx(v):
+            return int(np.clip(round(v / ds), 0, n_s - 1))
+
+        inside = np.median(q[:, idx(0.1):idx(0.7) + 1], axis=1)
+        outside = np.median(q[:, idx(_DOT_OUT[0]):idx(_DOT_OUT[1]) + 1], axis=1)
+        contrast = inside - outside
+        med = float(np.median(contrast))
+        # Uniformly bright inside, uniformly dark around, on nearly every ray.
+        if med < 15 or np.mean(contrast > 6.0) < 0.85:
+            return None
+        # Light falls on dot and margin alike (a shadow edge darkens both), so
+        # compare them ray by ray: the margin is a steady fraction of the dot.
+        # Most rays must agree (a shadow band's edges crossing the dot spoil a few).
+        ratio = (outside + 4.0) / (inside + 4.0)
+        mr = float(np.median(ratio))
+        if mr > 0.92 or np.mean(np.abs(ratio - mr) < 0.15) < 0.6:
+            return None
+        sc = D._crossings(q, (inside + outside) / 2, idx(0.7), idx(1.3), 1.0 / ds, ds, rising=False)
+        good = np.isfinite(sc)
+        if good.sum() < need * n_rays:
+            return None
+        f = D._robust_ellipse(np.c_[cx + sc * ex, cy + sc * ey][good])
+        if f is None or f[2] < need * n_rays:
+            return None
+        e, res, _ = f
+        (cx, cy), (A, B), ang = e
+    if res > max(0.6, 0.04 * min(A, B)):
+        return None
+    return {"center": (cx, cy), "axes": (max(A, B), min(A, B)), "polarity": 1, "residual": res,
+            "surround": float(np.median(outside))}
 
 
 def _candidates(img, ratio):
