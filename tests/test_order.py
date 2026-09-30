@@ -37,6 +37,35 @@ def test_stray_detection_is_rejected():
     assert len(order.indices) == len(pins)
 
 
+def _axes(n, d=20.0):
+    return np.tile([d, d], (n, 1))                        # 20 px rings, pitch 40 px = 2 diameters
+
+
+def test_ring_sizes_keep_a_bigger_look_alike_off_the_chain_end():
+    """A washer one pitch past the end, in line with the chain: by position
+    alone it extends the chain; its size gives it away."""
+    pins = pins_from_turns(40.0, np.radians(np.full(11, 10.0)))
+    end_dir = (pins[-1] - pins[-2]) / np.linalg.norm(pins[-1] - pins[-2])
+    pts = np.vstack([pins, pins[-1] + 40.0 * end_dir])
+    assert len(order_chain(pts).indices) == len(pins) + 1          # fooled without sizes
+    axes = np.vstack([_axes(len(pins)), [[30.0, 30.0]]])            # 1.5x the ring size
+    order = order_chain(pts, axes_px=axes, pitch_per_diameter=2.0)
+    assert len(order.indices) == len(pins) and order.rejected == [len(pins)]
+
+
+def test_ring_sizes_set_the_pitch_among_dense_clutter():
+    """Many small look-alikes (printed letters) make the median neighbour
+    distance useless as a pitch estimate; each ring's size still predicts it."""
+    pins = pins_from_turns(40.0, np.radians(np.full(11, 12.0)))
+    rng = np.random.default_rng(1)
+    letters = rng.uniform(pins.min(axis=0) - 100, pins.max(axis=0) + 100, (80, 2))
+    letters = letters[np.min(np.linalg.norm(letters[:, None] - pins[None], axis=2), axis=1) > 25]
+    pts = np.vstack([pins, letters])
+    axes = np.vstack([_axes(len(pins)), rng.uniform(6.0, 12.0, (len(letters), 2))])
+    order = order_chain(pts, axes_px=axes, pitch_per_diameter=2.0)
+    assert sorted(order.indices) == list(range(len(pins)))
+
+
 def test_missing_pin_becomes_a_gap():
     pins = pins_from_turns(40.0, np.radians(np.full(11, 10.0)))
     kept = [i for i in range(len(pins)) if i != 5]
