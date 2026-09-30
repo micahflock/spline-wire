@@ -1,0 +1,74 @@
+name: Windows app
+
+# Builds SplineWire.exe (desktop GUI) on Windows, smoke-tests it, and
+# uploads it as a workflow artifact. Download it from the run's summary page.
+
+on:
+  push:
+    paths:
+      - "splinewire/**"
+      - "data/**"
+      - "fusion/**"
+      - "packaging/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/windows-exe.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON_DOWNLOADS: never   # use the python.org build below; its Tk bundles cleanly
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv sync --group build --python "${{ steps.python.outputs.python-path }}"
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Stamp the build number
+        # Shown in the app's title bar, e.g. "Spline Wire 0.5.0 (build 12, 8bdccf7)".
+        run: uv run python packaging/stamp_build.py
+
+      - name: Build SplineWire.exe
+        run: uv run python packaging/build_exe.py
+
+      - name: Smoke-test the exe
+        shell: pwsh
+        run: |
+          $log = Join-Path $PWD "selftest.log"
+          $p = Start-Process -FilePath "dist\SplineWire.exe" -ArgumentList "--selftest", "`"$log`"" -Wait -PassThru
+          Get-Content $log
+          if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
+
+      - name: Generate test plaques
+        shell: pwsh
+        run: |
+          foreach ($shape in "s-curve", "pipe", "cove") {
+            uv run splinewire test-plaque --shape $shape --out dist/test-plaques
+            if ($LASTEXITCODE -ne 0) { throw "test-plaque $shape failed" }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SplineWire-test-plaques
+          path: dist/test-plaques/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SplineWire-windows
+          path: dist/SplineWire.exe
+          if-no-files-found: error

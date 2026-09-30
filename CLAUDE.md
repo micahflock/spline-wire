@@ -2,25 +2,51 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-# Curve Capture
+# Curve Capture (spline-wire)
 
 ## Overview
 
-Capture arbitrary real-world curves — pipe profiles, molding, doorknob silhouettes, anything awkward for a ruler or calipers — and drop them into CAD as reference geometry. The user wraps a stiff, self-holding planar chain around the target curve, removes it (the chain retains its shape), photographs it with a phone, and the software stack converts the photo into XY points (and ideally an approximating curve) inside CAD.
+Capture arbitrary real-world curves — pipe profiles, molding, doorknob silhouettes, anything awkward for a ruler or calipers — and drop them into CAD as reference geometry. The user wraps a stiff, self-holding planar chain around the target curve, lifts it off (the chain keeps its shape), lays it flat and photographs it with a phone. Software turns the photo into points on the target curve for a CAD sketch.
 
-Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "measure with chain" and "points in CAD." Scope boundaries, deferred work, and explicit non-goals live in `docs/architecture.md` and `docs/next-steps.md`.
+Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "measure with chain" and "points in CAD."
 
-## Hardware concept
+## How it works
 
-Think of a bike chain, roughly a hand span long (~5 in / ~125 mm), with enough friction at every pin that each link holds its angle when posed by hand. Wrap it around a curve, lift it off, carry it to the camera — the shape stays. Each link carries a fiducial; at least one end carries a distinct **skew fiducial** so the vision step can rectify the photo.
+- **Hardware:** a chain of rigid links of fixed pitch (pin-to-pin distance, ~10 mm), with enough joint friction to hold a pose. One unlabeled ring fiducial sits on every pin, on one face only.
+- **Detection:** classical CV (OpenCV) finds ring centers to ~0.1–0.2 px. No LLM, no labels.
+- **Ordering:** pins are put in chain order geometrically (walk ~one pitch at a time, turning as little as possible).
+- **Deskew:** all pins lie on one plane and consecutive pins are exactly one pitch apart. With the camera focal length from EXIF, that fixes the plane's tilt and distance, so perspective is removed without any reference object in the photo.
+- **Contact offset:** the target touches the chain's edge, not its pin line. Offset by the link half-width at link midpoints (convex bends) or at pins (concave bends).
+- **Output:** curve points (JSON/CSV), a mm DXF and a 1:1 SVG, plus Copy points → Fusion add-in Paste points for a two-click path into a sketch.
 
 ## Repo layout
 
-- `CLAUDE.md` — this file. Project overview and pointers.
-- `docs/architecture.md` — first-pass system architecture (hardware → capture → CV → CAD).
-- `docs/open-questions.md` — tracked gaps and unresolved design decisions.
-- `docs/next-steps.md` — concrete, near-term tasks to validate feasibility before building the full stack, in risk order. Also the de facto status doc — items get checked off as they're validated.
+- `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`; `process` measures one photo and writes its files, shared by `cli` and the app in `webapp/` (a local web server with browser UI and phone upload over Wi-Fi; `settings` holds its per-user settings). `synthetic` renders test photos; `testpart` renders a paper test chain and `plaque` a 3D-printable one (black/white, one filament swap); `selftest` checks a packaged build.
+- `fusion/SplineWire/` — Fusion add-in: a Paste points button that reads the table SplineWire.exe's Copy points puts on the clipboard (mm) and adds sketch points plus a fitted spline (API units are cm). `splinewire/fusion_addin.py` installs it. Feasibility notes: `docs/fusion-import.md`.
+- `packaging/` — PyInstaller build of the app (`SplineWire.exe`, a console program that serves the web app); `.github/workflows/windows-exe.yml` builds, tests and uploads it on Windows.
+- `data/chain.yaml` — the chain's physical parameters (pitch, half-width, ring size, pin count).
+- `tests/` — pytest suite; end-to-end tests run on synthetic photos with known geometry.
+- `experiments/` — standalone studies (e.g. how accurate pitch-only deskewing is).
+- `docs/architecture.md` — design and rationale.
+- `docs/next-steps.md` — status and near-term tasks, in risk order.
+- `docs/open-questions.md` — unresolved design questions.
+
+## Commands
+
+```bash
+uv sync                                   # install
+uv run pytest                             # tests (~5 s)
+uv run splinewire synth --shape pipe      # synthetic photo + truth -> out/synth/
+uv run splinewire measure out/synth/pipe.jpg --truth out/synth/pipe-truth.json
+uv run splinewire test-part               # printable paper SVG + truth -> out/test-part/
+uv run splinewire test-plaque             # 3D-printable plaque STLs + truth -> out/test-plaque/
+uv run splinewire-app                     # the app: opens http://localhost:8765/ (phone page via its QR code)
+uv run splinewire-app --selftest log.txt  # headless check over HTTP, also run on the packaged .exe
+uv sync --group build && uv run python packaging/build_exe.py   # dist/SplineWire(.exe)
+```
+
+PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` GitHub Actions workflow (artifact `SplineWire-windows`). The web pages in `splinewire/webapp/static` are bundled as data files; the selftest fetches them from the packaged build. The title and pages show the version and CI build (`packaging/stamp_build.py`).
 
 ## Priority
 
-The computer vision step is the riskiest. Building a stiff chain is mechanical work with known solutions; moving points into CAD is an integration problem with known APIs. Fiducial design + LLM vision accuracy is the unknown that gates everything else. **Validate it first** — see `docs/next-steps.md`, item 1.
+Everything so far is validated only on synthetic photos. The riskiest open item is real-world accuracy: real phone photos (lighting, glare, lens distortion, EXIF focal accuracy) of the printed test plaque. See `docs/next-steps.md`, item 1.

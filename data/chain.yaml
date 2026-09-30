@@ -1,0 +1,22 @@
+# Physical description of the measuring chain. All lengths in mm.
+#
+# Each link is a rigid bar between two pins, with semicircular ends
+# centered on the pins. A ring fiducial is centered on every pin.
+
+# Pin-to-pin distance. The only length the solver relies on to deskew the
+# photo, so it should be as accurate as the chain can be made.
+pitch_mm: 10.0
+
+# Distance from the pin line to the edge of a link that touches the target
+# curve (half the link width). Used to offset the measured pin line onto
+# the target curve.
+half_width_mm: 4.0
+
+# Ring fiducial on each pin: outer and inner diameter.
+# A wide ring band (1.5 mm) survives blur, defocus and slightly undersized
+# printed windows better than a thin one.
+ring_outer_mm: 5.0
+ring_inner_mm: 2.0
+
+# Number of pins (links + 1).
+n_pins: 13

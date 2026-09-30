@@ -1,53 +1,63 @@
-# Next steps — feasibility validation
+# Next steps
 
-Goal: before building the full stack, verify the highest-risk transitions. Each item below should produce a concrete yes/no answer with a measurable exit criterion. Tackle them in order; the order reflects risk (highest risk first) and dependency (each step unblocks the next).
+Status doc: items are in risk order and get checked off as they are validated.
 
-## 1. Fiducial + LLM vision accuracy test
+## Done (synthetic only)
 
-**Question:** can an LLM-based vision pipeline read fiducial positions off a phone photo accurately enough to be useful?
+- [x] Label-free ring fiducial on every pin; classical detection at 0.05–0.2 px on synthetic photos.
+- [x] Geometric chain ordering with gap and stray handling.
+- [x] Deskew from the pin pitch and EXIF focal length: ≤0.02 mm on clean synthetic photos, ~0.3 mm worst-case with 1 px center noise (`experiments/self_rectification.py`).
+- [x] Contact offset from the pin line to the target curve (convex and concave), matching circular targets to 0.05 mm.
+- [x] CLI: `measure`, `synth`, `test-part`; JSON/CSV/SVG output and a preview image.
+- [x] Windows app (`SplineWire.exe`, built by GitHub Actions): browser UI on the computer plus a phone upload page.
 
-- Design 2–3 candidate fiducial schemes (e.g., small ArUco, custom glyph, numbered squares).
-- 3D print a flat test part: a rigid strip with fiducials spaced at known positions (say every 10 mm) and one skew fiducial at one end. This removes the chain variable entirely for now.
-- Photograph the strip with a phone from several angles and lighting conditions.
-- Feed the photos to an LLM vision model with a prompt requesting structured JSON output of each fiducial's XY position.
-- Compare returned coordinates to ground truth.
-- **Exit criterion:** mean positional error under **1 mm** across the test set, measured after homography rectification.
+## 1. Real-photo accuracy with a printed test part  ← next
 
-## 2. Phone → computer handoff
+**Question:** do real phone photos keep pin-center error near 1 px or below?
 
-**Question:** can we move a photo from phone to desktop with minimal friction and no custom app?
+- Print the test plaque: `uv run splinewire test-plaque --shape s-curve` (also `pipe`, `cove`), white then black PLA with one filament swap; see the generated `*-PRINTING.txt`. Check the 50 mm bar with calipers. (Paper alternative: `splinewire test-part`, printed at 100% and glued flat.)
+- Photograph each shape: 3 tilts (straight-on, ~20°, ~40°) × 2 lighting setups (daylight, indoor bulb) × 2 phones if available.
+- Send them from the phone page to `SplineWire.exe` with the matching truth file set in Settings (any photo over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-plaque/<shape>-truth.json --out results/`. Look at both the plain and the scale-fit error: a gap between them is print scale, not measurement.
+- **Exit criterion:** worst pin error under **1 mm** on every photo, and under 0.5 mm on most.
+- Things to watch for: EXIF focal accuracy (compare `focal_px` to an estimated-f run), lens distortion on wide lenses, glare on glossy prints, printer scale error (the scale bar check).
 
-- Prototype the least-custom path first: mobile browser upload to a small local web app, or a cloud folder that the desktop side polls.
-- Measure friction in seconds and taps from "photo taken" to "photo on laptop and processed."
-- **Exit criterion:** under **15 seconds** of user-visible wait, with no custom iOS/Android app installation required.
+## 2. Chain hardware
+
+**Only after item 1 passes.** Pitch accuracy is now the critical dimension.
+
+- Build or adapt a chain matching `data/chain.yaml` (or update the YAML to match what's built), with rings on the pins. Options: a printed ring on each pin boss, or a contrasting hollow rivet as the pin, which is a ring for free.
+- Tune joint friction.
+- Measure the actual pitch with calipers across many links and put the mean in the YAML.
+- **Exit criterion:** wrap a pipe or gauge of known radius, photograph, and recover the radius within 0.5 mm.
 
 ## 3. Points → Fusion
 
-**Question:** can we reliably place a list of XY points into a Fusion sketch?
+**Question:** can measured points get into a Fusion sketch with minimal friction?
 
-- Write a minimal Fusion add-in (or standalone script) that reads a JSON or CSV file of XY points from a known location and creates sketch points in the active sketch.
-- Test with hand-authored input, bypassing steps 1 and 2 entirely.
-- **Exit criterion:** points appear in the active sketch, correctly scaled in millimeters, within **5 seconds** of triggering.
+- Feasibility study and test protocol: `docs/fusion-import.md`. Fusion can't paste coordinates natively, so the low-friction route is a small add-in.
+- [x] Built: **Copy points** / **Install Fusion add-in…** in SplineWire.exe, the `fusion/SplineWire` add-in (**Paste points** into the sketch being edited, with a spline through the points), plus DXF (mm) and ImportSplineCSV (cm) fallbacks.
+- [ ] Run the test protocol in Fusion. Nothing has been run inside Fusion yet.
+- **Exit criterion:** points appear in the active sketch, correctly scaled in millimeters, within **5 seconds** of clicking Copy points.
 
-## 4. End-to-end static POC
+## 4. Phone → computer
 
-**Question:** do the three pieces compose?
+**Decision (2026-09):** direct upload from the phone's browser to the app over the local network (same Wi-Fi, or the computer on the phone's hotspot). No phone app, no cloud, nothing watching the photo library.
 
-- Combine items 1, 2, and 3 using a *printed* test part (not a posed chain) so the chain-hardware problem is still deferred.
-- **Exit criterion:** take a phone photo of a printed curve-shaped strip with fiducials, and see the corresponding points show up in Fusion within ~30 seconds end-to-end.
+- [x] Built: phone page (Take photo / Choose from library) reached through a QR code on the desktop page; uploads saved byte-for-byte; results appear on the computer within seconds.
+- [ ] Test with the iPhone:
+  - Does the focal length survive the upload? Try both buttons. The phone page and the desktop details show "Focal length in file". If it's missing, set the iPhone focal length in Settings (24 mm for iPhone 14 Pro and iPhone 15 or later, 26 mm for earlier models).
+  - Time from shutter to the photo appearing on the computer.
+  - Home Wi-Fi and the phone's hotspot. First try (0.5.0) timed out: Windows Firewall. 0.5.1 detects it and adds **Allow phone connections**; confirm it fixes the timeout.
+- **Exit criterion:** under 15 s from photo to points, no custom phone app.
 
-## 5. Real chain
+## 5. End-to-end
 
-**Only after 1–4 succeed.**
+- Real chain, real object (a pipe or doorknob profile), photo to curve in Fusion.
+- **Exit criterion:** curve tracks the object within item 2's tolerance in under 30 s.
 
-- Fabricate or adapt a stiff planar chain with printed fiducials on each link and a skew fiducial at one end.
-- Repeat the end-to-end test with the real chain posed around a real curve (e.g., a pipe or doorknob).
-- **Exit criterion:** measured points in Fusion track the real curve within the tolerance established in item 1.
+## Deferred
 
-## Deferred (explicitly not blocking MVP)
-
-- Curve fitting (spline through the points).
-- Support for CAD packages beyond Fusion.
 - Custom mobile app with live capture and preview.
+- CAD packages beyond Fusion (the SVG output is a partial universal fallback).
 - 3D / non-planar curves.
-- Fine-grained UX polish.
+- Using the ring ellipse shapes as extra tilt information (not needed with EXIF so far).
