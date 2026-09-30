@@ -2,8 +2,11 @@
 
 Designed for one manual filament swap with black and white filament:
 
-- White base plate, printed first. White PLA is translucent, so it goes
-  underneath where its thickness doesn't matter.
+- White base, printed first, trimmed to the chain's outline plus a narrow
+  rim, with a short bridge to the scale bar. A full rectangular plate used
+  about three times the material for nothing: only the white under the
+  ring windows is ever measured. White PLA is translucent, so the base is
+  thick enough (8 layers) to look white on any table.
 - One swap to black at z = plate thickness.
 - A thin black layer shaped like the chain (8 mm wide links with round
   ends), with a ring-shaped window over every pin that shows the white
@@ -22,10 +25,12 @@ import numpy as np
 
 from splinewire.chain import ChainSpec
 
-PLATE_MM = 2.4          # white base; a multiple of 0.2, 0.16 and 0.12 mm layers
+PLATE_MM = 1.6          # white base; a multiple of 0.2 and 0.16 mm layers
 BLACK_MM = 0.4          # black pattern on top (two 0.2 mm layers)
-MARGIN_MM = 8.0         # plate border around the chain
+RIM_MM = 1.5            # white rim around the black pattern
 SCALE_BAR_MM = (50.0, 2.0)
+BAR_GAP_MM = 5.0        # black chain to black scale bar
+BRIDGE_MM = 6.0         # width of the white strip joining the bar to the chain
 _ARC = 32               # segments per quarter circle
 
 
@@ -38,7 +43,7 @@ class Plaque:
 
 def plaque_geometry(pins_mm: np.ndarray, spec: ChainSpec) -> Plaque:
     from shapely.geometry import LineString, Point, box
-    from shapely.ops import unary_union
+    from shapely.ops import nearest_points, unary_union
 
     body = LineString(pins_mm).buffer(spec.half_width_mm, quad_segs=_ARC)  # round ends and joints
     windows = unary_union([
@@ -46,15 +51,16 @@ def plaque_geometry(pins_mm: np.ndarray, spec: ChainSpec) -> Plaque:
         .difference(Point(p).buffer(spec.ring_inner_mm / 2, quad_segs=_ARC))
         for p in pins_mm
     ])
+    # Scale bar under the chain's lowest point, kept within the chain's width.
     x0, y0, x1, _ = body.bounds
     bar_w, bar_h = SCALE_BAR_MM
-    bar = box(x0, y0 - 6.0 - bar_h, x0 + bar_w, y0 - 6.0)
+    lowest = min(body.exterior.coords, key=lambda c: c[1])[0]
+    bx0 = float(np.clip(lowest - bar_w / 2, x0, max(x0, x1 - bar_w)))
+    bar = box(bx0, y0 - BAR_GAP_MM - bar_h, bx0 + bar_w, y0 - BAR_GAP_MM)
     pattern = unary_union([body.difference(windows), bar])
 
-    px0, py0, px1, py1 = pattern.bounds
-    r = 4.0
-    plate = box(px0 - MARGIN_MM + r, py0 - MARGIN_MM + r, px1 + MARGIN_MM - r, py1 + MARGIN_MM - r) \
-        .buffer(r, quad_segs=_ARC)
+    bridge = LineString(nearest_points(body, bar)).buffer(BRIDGE_MM / 2, quad_segs=_ARC)
+    plate = unary_union([body.buffer(RIM_MM, quad_segs=_ARC), bar.buffer(RIM_MM, quad_segs=_ARC), bridge])
     return Plaque(plate=plate, pattern=pattern, pins_mm=np.asarray(pins_mm, dtype=float))
 
 
@@ -95,7 +101,7 @@ def write_plaque(out_dir: Path, name: str, pins_mm: np.ndarray, spec: ChainSpec)
 def print_instructions(name: str, plaque: Plaque) -> str:
     x0, y0, x1, y1 = plaque.plate.bounds
     return f"""Spline Wire test plaque: {name}
-Size {x1 - x0:.0f} x {y1 - y0:.0f} mm, {PLATE_MM + BLACK_MM:.1f} mm thick.
+Size {x1 - x0:.0f} x {y1 - y0:.0f} mm, {PLATE_MM + BLACK_MM:.1f} mm thick, about {plaque_volume_cm3(plaque):.1f} cm3.
 
 Single extruder, manual filament swap (black + white PLA):
   1. Load {name}-plaque.stl. Print flat, pattern side up. 0.2 mm layers
@@ -108,6 +114,8 @@ Single extruder, manual filament swap (black + white PLA):
      slider at that height -> Add color change. Cura: "Filament Change"
      post-processing script at that layer.
   4. Matte filament photographs best. Avoid silk.
+  5. Solid infill (100%), or 4+ top/bottom layers: the part is thin, and
+     sparse infill can show through the white under the rings.
 
 Multi-material printer instead: load {name}-plaque-white.stl and
 {name}-plaque-black.stl together as one object with two parts, and
@@ -117,9 +125,14 @@ Before testing:
   - Measure the black 50.0 mm bar with calipers. More than ~0.2 mm off
     means the printer's XY scale is off; the app's "after scale fit"
     error removes that effect.
-  - Photograph the plaque on a plain surface, whole chain in view, and
-    process the photos with the truth file {name}-truth.json.
+  - Photograph the plaque on a plain, even surface (any colour), whole
+    chain in view, and process the photos with the truth file
+    {name}-truth.json.
 """
+
+
+def plaque_volume_cm3(plaque: Plaque) -> float:
+    return (plaque.plate.area * PLATE_MM + plaque.pattern.area * BLACK_MM) / 1000.0
 
 
 def _extrude(geom, height: float):
