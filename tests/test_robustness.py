@@ -53,7 +53,7 @@ def test_printed_letters_are_not_pins(spec):
     env = replace(PRESETS["text"], **SIZE, px_per_mm=7.0)
     pins = circle_wrap_pins(spec, 30.0)
     scene, m = _measure(spec, env, pins, seed=1)
-    assert len(m.rings) > 30                      # plenty of look-alikes were detected...
+    assert len(m.fiducials) > 30                   # plenty of look-alikes were detected...
     _assert_whole_chain(m, scene, pins)           # ...and none made it into the chain
 
 

@@ -16,14 +16,14 @@ except ImportError:  # pragma: no cover
 from splinewire.camera import focal_px_from_exif
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side, contact_points, object_sign
-from splinewire.detect import Ring, detect_rings
+from splinewire.detect import Fiducial, detect_fiducials
 from splinewire.order import ChainOrder, order_chain
 from splinewire.rectify import Rectification, rectify_chain
 
 
 @dataclass(frozen=True)
 class Measurement:
-    rings: list[Ring]            # every ring detected in the photo
+    fiducials: list[Fiducial]            # every fiducial detected in the photo
     order: ChainOrder
     rectification: Rectification
     object_side: Side
@@ -36,7 +36,7 @@ class Measurement:
 
     @property
     def pins_px(self) -> np.ndarray:
-        return np.array([self.rings[i].center_px for i in self.order.indices])
+        return np.array([self.fiducials[i].center_px for i in self.order.indices])
 
 
 def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
@@ -57,23 +57,23 @@ def measure(
     side: Side = "inside",
 ) -> Measurement:
     warnings: list[str] = []
-    rings = detect_rings(image, spec.ring_inner_mm / spec.ring_outer_mm)
-    if len(rings) < 3:
-        raise ValueError(f"found {len(rings)} ring fiducials; need the whole chain in view")
+    fiducials = detect_fiducials(image, spec)
+    if len(fiducials) < 3:
+        raise ValueError(f"found {len(fiducials)} fiducials; need the whole chain in view")
 
     h, w = image.shape[:2]
-    centers = np.array([r.center_px for r in rings])
+    centers = np.array([r.center_px for r in fiducials])
     excluded: set[int] = set()
     for _ in range(4):
-        order = _order(rings, spec, excluded)
+        order = _order(fiducials, spec, excluded)
         rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
-        misfits = _misfits(rings, order, rect, spec)
+        misfits = _misfits(fiducials, order, rect, spec)
         if not misfits:
             break
         excluded |= misfits
     n_on_chain = len(order.indices)
     if order.rejected:
-        warnings.append(f"ignored {len(order.rejected)} ring-like detection(s) not on the chain")
+        warnings.append(f"ignored {len(order.rejected)} look-alike detection(s) not on the chain")
     if order.gaps:
         warnings.append(f"{len(order.gaps)} pin(s) not detected; the curve bridges those gaps")
     expected = spec.n_pins - len(order.gaps)
@@ -97,46 +97,48 @@ def measure(
     sign = object_sign(rect.pins_mm, side)
     contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign)
     return Measurement(
-        rings=rings, order=order, rectification=rect, object_side=side,
+        fiducials=fiducials, order=order, rectification=rect, object_side=side,
         contacts_mm=contacts, warnings=warnings,
     )
 
 
-def _order(rings: list[Ring], spec: ChainSpec, excluded: set[int]) -> ChainOrder:
-    """Chain order over the rings, trying each polarity on its own.
+def _order(fiducials: list[Fiducial], spec: ChainSpec, excluded: set[int]) -> ChainOrder:
+    """Chain order over the fiducials, trying each polarity on its own.
 
-    Every ring on the chain has the same polarity (light ring on dark link),
+    Every fiducial on the chain has the same polarity (light on the dark link),
     while look-alikes often have the other one (printed letters are dark on
     light), so the polarities are never mixed. The longer chain wins.
     """
     best = None
     for polarity in (1, -1):
-        idx = [i for i, r in enumerate(rings) if r.polarity == polarity and i not in excluded]
+        idx = [i for i, r in enumerate(fiducials) if r.polarity == polarity and i not in excluded]
         if len(idx) < 3:
             continue
         o = order_chain(
-            np.array([rings[i].center_px for i in idx]),
-            axes_px=np.array([rings[i].outer_axes_px for i in idx]),
-            pitch_per_diameter=spec.pitch_mm / spec.ring_outer_mm,
+            np.array([fiducials[i].center_px for i in idx]),
+            axes_px=np.array([fiducials[i].outer_axes_px for i in idx]),
+            pitch_per_diameter=spec.pitch_mm / spec.fiducial_mm,
+            n_pins=spec.n_pins,
+            strength=np.array([fiducials[i].contrast for i in idx]),
         )
         mapped = ChainOrder(
             indices=[idx[i] for i in o.indices], links=o.links, gaps=o.gaps,
-            rejected=sorted(set(range(len(rings))) - {idx[i] for i in o.indices}),
+            rejected=sorted(set(range(len(fiducials))) - {idx[i] for i in o.indices}),
         )
         if best is None or len(mapped.indices) > len(best.indices):
             best = mapped
     if best is None:
-        raise ValueError(f"found {len(rings)} ring fiducials; need the whole chain in view")
+        raise ValueError(f"found {len(fiducials)} fiducials; need the whole chain in view")
     return best
 
 
-def _misfits(rings: list[Ring], order: ChainOrder, rect: Rectification, spec: ChainSpec) -> set[int]:
+def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, spec: ChainSpec) -> set[int]:
     """Pins that do not belong on the chain, judged after deskewing.
 
-    - A ring whose physical size differs from its chain neighbours' by more
+    - A fiducial whose physical size differs from its chain neighbours' by more
       than 12%: a washer or other look-alike that happened to sit about one
       pitch from the end of the chain.
-    - An end pin whose link is far from one pitch: a stray ring next to the
+    - An end pin whose link is far from one pitch: a stray look-alike next to the
       end. One bad link would otherwise bend the whole solution.
     - With more pins than the spec's chain has, whichever end looks least
       like the rest of the chain.
@@ -144,7 +146,7 @@ def _misfits(rings: list[Ring], order: ChainOrder, rect: Rectification, spec: Ch
     idx = order.indices
     if len(idx) < 6:
         return set()
-    major = np.array([rings[i].outer_axes_px[0] for i in idx])
+    major = np.array([fiducials[i].outer_axes_px[0] for i in idx])
     size_mm = major * rect.depth_mm / rect.focal_px
     bad = set()
     for k in range(len(idx)):
@@ -152,12 +154,12 @@ def _misfits(rings: list[Ring], order: ChainOrder, rect: Rectification, spec: Ch
         if abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) > 0.12:
             bad.add(idx[k])
     if not bad and len(idx) + len(order.gaps) > spec.n_pins:
-        # More pins than the chain has, so something ring-like lies about one
-        # pitch past an end, the same size as a ring (a small washer). A real
-        # pin's ring sits on its link; a look-alike sits on the table. Drop
+        # More pins than the chain has, so a look-alike lies about one
+        # pitch past an end, the same size as a pin's (a small washer). A real
+        # pin's fiducial sits on its link; a look-alike sits on the table. Drop
         # the end that stands out more by what surrounds it, and by size.
         # Compared with its neighbours only: light changes along the chain.
-        surround = np.array([rings[i].surround for i in idx])
+        surround = np.array([fiducials[i].surround for i in idx])
         spread = max(5.0, 1.4826 * float(np.median(np.abs(np.diff(surround)))))
 
         def oddness(k: int) -> float:

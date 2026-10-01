@@ -65,10 +65,10 @@ h1 { font-size: 20px; margin: 4px 0 2px; }
 <div class="card tips">
   <b style="color:var(--ink)">For a good measurement</b>
   <ul style="margin:6px 0 0; padding-left: 18px">
-    <li>Lay the chain flat on a plain surface, rings facing up.</li>
+    <li>Lay the chain flat on a plain surface, dots facing up.</li>
     <li>Get the whole chain in the frame and fill most of it.</li>
     <li>Shoot at 1× (no zoom). A slight angle is fine.</li>
-    <li>Avoid glare and hard shadows on the rings.</li>
+    <li>Avoid glare and hard shadows on the chain.</li>
   </ul>
 </div>
 
@@ -155,7 +155,7 @@ async function watch(div, id) {
     }
     if (p.status === "error") {
       setStatus(div, "bad", "Couldn't find the chain in this photo.",
-        esc((p.error || "").split("\n").pop()) + "<br>Try again: whole chain in frame, rings facing up, no glare.");
+        esc((p.error || "").split("\n").pop()) + "<br>Try again: whole chain in frame, dots facing up, no glare.");
       return;
     }
   }

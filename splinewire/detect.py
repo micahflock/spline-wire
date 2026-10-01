@@ -1,6 +1,9 @@
-"""Find ring fiducials in a photo with sub-pixel accuracy.
+"""Find the fiducials on the pins, light dots or rings, with sub-pixel accuracy.
 
-Two stages:
+`detect_fiducials(image, spec)` picks the detector for the chain's kind of
+fiducial. Rings (`detect_rings`) are told from other bright blobs by their
+hole; dots (`detect_dots`), which have none, by the dark link around them:
+see detect_dots. Both work in two stages, described here for rings:
 
 1. Candidates. Binarize and look for blobs with exactly one hole whose
    outer and inner edges are roughly concentric ellipses, both polarities.
@@ -34,15 +37,15 @@ import numpy as np
 
 
 @dataclass(frozen=True)
-class Ring:
+class Fiducial:
     center_px: tuple[float, float]
     outer_axes_px: tuple[float, float]  # ellipse (major, minor) diameters
-    inner_axes_px: tuple[float, float]
+    inner_axes_px: tuple[float, float]  # a ring's hole; (0, 0) for a dot
     angle_deg: float                    # outer ellipse orientation
     residual_px: float = 0.0            # RMS distance of edge points from the fitted ellipses
-    contrast: float = 0.0               # bright band minus dark levels, gray levels
-    polarity: int = 1                   # +1: light ring on dark, -1: dark ring on light
-    surround: float = 0.0               # gray level just outside the ring (the link, for a pin)
+    contrast: float = 0.0               # bright minus dark levels, gray levels
+    polarity: int = 1                   # +1: light on dark, -1: dark on light
+    surround: float = 0.0               # gray level just outside (the link, for a pin)
 
 
 @dataclass(frozen=True)
@@ -58,11 +61,30 @@ _MIN_LEVEL_SIDE = 360   # smallest pyramid level, px
 _MAX_SCALE = 8          # coarsest level: 1/8 resolution
 
 
+def detect_fiducials(image: np.ndarray, spec) -> list[Fiducial]:
+    """The fiducials a ChainSpec describes: dots or rings."""
+    if spec.fiducial == "dot":
+        return detect_dots(image)
+    return detect_rings(image, spec.ring_inner_mm / spec.fiducial_mm)
+
+
+def _pyramid(gray: np.ndarray):
+    """(blurred level, scale) from full size down to about 1/8."""
+    level_img, scale = gray, 1.0
+    while True:
+        yield cv2.GaussianBlur(level_img, (0, 0), 0.8 if scale == 1 else 1.0), scale
+        if min(level_img.shape) < 2 * _MIN_LEVEL_SIDE or scale >= _MAX_SCALE:
+            return
+        level_img = cv2.resize(level_img, (level_img.shape[1] // 2, level_img.shape[0] // 2),
+                               interpolation=cv2.INTER_AREA)
+        scale *= 2
+
+
 def detect_rings(
     image: np.ndarray,
     inner_outer_ratio: float,
     min_diameter_px: float = 8.0,
-) -> list[Ring]:
+) -> list[Fiducial]:
     """Detect ring fiducials.
 
     inner_outer_ratio is the ring's inner/outer diameter ratio from the chain
@@ -74,21 +96,14 @@ def detect_rings(
     """
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     candidates: list[_Candidate] = []
-    level_img, scale = gray, 1.0
-    while True:
-        g = cv2.GaussianBlur(level_img, (0, 0), 0.8 if scale == 1 else 1.0)
+    for g, scale in _pyramid(gray):
         for mask, polarity in _masks(g):
             candidates.extend(_ring_candidates(mask, polarity, inner_outer_ratio,
                                                min_diameter_px if scale == 1 else 14.0, scale))
-        if min(level_img.shape) < 2 * _MIN_LEVEL_SIDE or scale >= _MAX_SCALE:
-            break
-        level_img = cv2.resize(level_img, (level_img.shape[1] // 2, level_img.shape[0] // 2),
-                               interpolation=cv2.INTER_AREA)
-        scale *= 2
 
     grayf = gray.astype(np.float32)
     rings = []
-    for c in _dedupe_candidates(candidates):
+    for c in _dedupe_candidates(candidates, same_size=True):
         r = _refine(grayf, c, inner_outer_ratio)
         if r is not None:
             rings.append(r)
@@ -202,14 +217,17 @@ def _ellipse_like(contour: np.ndarray, ellipse) -> bool:
     return float(np.percentile(deviation_px, 90)) < tol and float(deviation_px.max()) < 3 * tol
 
 
-def _dedupe_candidates(cands: list[_Candidate]) -> list[_Candidate]:
+def _dedupe_candidates(cands: list[_Candidate], same_size: bool = False) -> list[_Candidate]:
     """One candidate per ring: the same ring is found at several pyramid
-    levels and in several binarizations."""
+    levels and in several binarizations. With same_size, only candidates of
+    about the same size merge: a larger blob sharing a dot's centre (a halo
+    of table around a dark patch) must not stand in for the dot."""
     kept: list[_Candidate] = []
     for c in sorted(cands, key=lambda c: -min(c.outer[1])):
         size = min(c.outer[1])
         if all(math.hypot(c.center[0] - k.center[0], c.center[1] - k.center[1])
-               > 0.25 * min(size, min(k.outer[1])) or c.polarity != k.polarity for k in kept):
+               > 0.25 * min(size, min(k.outer[1])) or c.polarity != k.polarity
+               or (same_size and min(k.outer[1]) > 1.3 * size) for k in kept):
             kept.append(c)
     return kept
 
@@ -220,7 +238,7 @@ def _dedupe_candidates(cands: list[_Candidate]) -> list[_Candidate]:
 _STEP_PX = 0.25          # sample spacing along each ray
 
 
-def _refine(gray: np.ndarray, cand: _Candidate, target_ratio: float, passes: int = 2) -> Ring | None:
+def _refine(gray: np.ndarray, cand: _Candidate, target_ratio: float, passes: int = 2) -> Fiducial | None:
     ellipse, inner_ratio = cand.outer, cand.inner_ratio
     fit = None
     for _ in range(passes):
@@ -343,7 +361,7 @@ def _ellipse_distance(pts: np.ndarray, ellipse) -> np.ndarray:
     return (r - 1.0) * np.hypot(u, v) / np.maximum(r, 1e-9)
 
 
-def _accept(fit: dict, target_ratio: float, polarity: int) -> Ring | None:
+def _accept(fit: dict, target_ratio: float, polarity: int) -> Fiducial | None:
     eo, ei = fit["outer"], fit["inner"]
     ao, bo = max(eo[1]), min(eo[1])
     ai, bi = max(ei[1]), min(ei[1])
@@ -361,7 +379,7 @@ def _accept(fit: dict, target_ratio: float, polarity: int) -> Ring | None:
         return None
     if fit["residual"] > max(0.6, 0.04 * bo):
         return None
-    return Ring(
+    return Fiducial(
         center_px=(float(fit["center"][0]), float(fit["center"][1])),
         outer_axes_px=(float(ao), float(bo)),
         inner_axes_px=(float(ai), float(bi)),
@@ -373,10 +391,129 @@ def _accept(fit: dict, target_ratio: float, polarity: int) -> Ring | None:
     )
 
 
-def _dedupe(rings: list[Ring]) -> list[Ring]:
-    kept: list[Ring] = []
+def _dedupe(rings: list[Fiducial]) -> list[Fiducial]:
+    kept: list[Fiducial] = []
     for r in sorted(rings, key=lambda r: -r.outer_axes_px[1]):
         if all(np.hypot(r.center_px[0] - k.center_px[0], r.center_px[1] - k.center_px[1])
                > 0.5 * k.outer_axes_px[1] or r.polarity != k.polarity for k in kept):
             kept.append(r)
     return kept
+
+
+# ---------------------------------------------------------------------------
+# Dots
+
+# The dark margin sampled around a dot, in dot radii: outside the dot's own
+# edge blur, inside the link's edge (a 5 mm dot on an 8 mm link leaves 1.5
+# mm, reaching 1.6 radii).
+_DOT_MARGIN = (1.15, 1.45)
+
+
+def detect_dots(image: np.ndarray, min_diameter_px: float = 8.0) -> list[Fiducial]:
+    """Detect light dot fiducials on a dark link.
+
+    A dot has no hole to tell it from any other bright blob (terrazzo chips,
+    grain highlights, specks, the counters of printed letters), so each one
+    must look like a dot on a link all the way round: along every ray the
+    margin just outside it is darker than its inside by a steady fraction.
+    The fraction rather than the difference, because a shadow edge darkens
+    dot and margin alike. Candidates use their outer outline only: a dot
+    wider than the threshold window comes out hollow at full size.
+    Look-alikes that pass (the odd chip) are left to ordering, which knows
+    the pitch and each pin's size and shape.
+    """
+    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    candidates: list[_Candidate] = []
+    for g, scale in _pyramid(gray):
+        for mask, polarity in _masks(g):
+            if polarity > 0:
+                candidates.extend(_dot_candidates(mask, min_diameter_px if scale == 1 else 10.0, scale))
+    grayf = gray.astype(np.float32)
+    dots = []
+    for c in _dedupe_candidates(candidates, same_size=True):
+        d = _refine_dot(grayf, c)
+        if d is not None:
+            dots.append(d)
+    return _dedupe(dots)
+
+
+def _dot_candidates(mask: np.ndarray, min_diameter_px: float, scale: float) -> list[_Candidate]:
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    x, y, w, h, _area = (stats[:, i] for i in range(5))
+    lo, hi = np.minimum(w, h), np.maximum(w, h)
+    maybe = (lo >= min_diameter_px) & (hi <= max(mask.shape) / 4) & (hi <= 4 * lo)
+    maybe[0] = False                                     # label 0 is the dark background
+    off = (scale - 1) / 2
+    found = []
+    for k in np.flatnonzero(maybe):
+        x0, y0 = max(0, x[k] - 1), max(0, y[k] - 1)
+        roi = (labels[y0:y[k] + h[k] + 1, x0:x[k] + w[k] + 1] == k).astype(np.uint8)
+        contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE,
+                                       offset=(int(x0), int(y0)))
+        if len(contours) != 1 or len(contours[0]) < 12:
+            continue
+        e = cv2.fitEllipse(contours[0])
+        (cx, cy), (a, b), angle = e
+        if min(a, b) < min_diameter_px or not _ellipse_like(contours[0], e):
+            continue
+        found.append(_Candidate(center=(cx * scale + off, cy * scale + off),
+                                outer=((cx * scale + off, cy * scale + off), (a * scale, b * scale), angle),
+                                inner_ratio=0.0, polarity=1))
+    return found
+
+
+def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2) -> Fiducial | None:
+    (cx, cy), (A, B), ang = cand.outer
+    for k in range(passes):
+        need = 0.55 if k < passes - 1 else 0.7          # a rough first outline misses some edges
+        R = max(A, B) / 2
+        if not np.isfinite(R) or R < 3 or R > 0.25 * max(gray.shape):
+            return None
+        n_rays = int(np.clip(math.pi * R, 32, 180))
+        phi = np.arange(n_rays) * (2 * math.pi / n_rays)
+        t = math.radians(ang)
+        ex = (A / 2) * np.cos(phi) * math.cos(t) - (B / 2) * np.sin(phi) * math.sin(t)
+        ey = (A / 2) * np.cos(phi) * math.sin(t) + (B / 2) * np.sin(phi) * math.cos(t)
+        n_s = int(math.ceil(1.5 * R / _STEP_PX)) + 1
+        s = np.linspace(0.0, 1.5, n_s, dtype=np.float32)
+        ds = float(s[1] - s[0])
+        mx = (cx + s[None, :] * ex[:, None]).astype(np.float32)
+        my = (cy + s[None, :] * ey[:, None]).astype(np.float32)
+        q = cv2.remap(gray, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+        def idx(v):
+            return int(np.clip(round(v / ds), 0, n_s - 1))
+
+        inside = np.median(q[:, idx(0.1):idx(0.7) + 1], axis=1)
+        outside = np.median(q[:, idx(_DOT_MARGIN[0]):idx(_DOT_MARGIN[1]) + 1], axis=1)
+        contrast = inside - outside
+        if float(np.median(contrast)) < 15 or np.mean(contrast > 6.0) < 0.85:
+            return None
+        # Margin a steady fraction of the dot on most rays (a shadow band's
+        # edges crossing the dot spoil a few; sheen can lift the margin to
+        # ~90% of the dot and it is still one).
+        ratio = (outside + 4.0) / (inside + 4.0)
+        mr = float(np.median(ratio))
+        if mr > 0.92 or np.mean(np.abs(ratio - mr) < 0.15) < 0.6:
+            return None
+        edge = _crossings(q, (inside + outside) / 2, idx(0.7), idx(1.3), 1.0 / ds, ds, rising=False)
+        good = np.isfinite(edge)
+        if good.sum() < need * n_rays:
+            return None
+        fit = _robust_ellipse(np.c_[cx + edge * ex, cy + edge * ey][good])
+        if fit is None or fit[2] < need * n_rays:
+            return None
+        e, res, _ = fit
+        (cx, cy), (A, B), ang = e
+    if res > max(0.6, 0.04 * min(A, B)):
+        return None
+    return Fiducial(
+        center_px=(float(cx), float(cy)),
+        outer_axes_px=(float(max(A, B)), float(min(A, B))),
+        inner_axes_px=(0.0, 0.0),
+        angle_deg=float(ang),
+        residual_px=float(res),
+        contrast=float(np.median(contrast)),
+        polarity=1,
+        surround=float(np.median(outside)),
+    )

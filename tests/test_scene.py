@@ -5,8 +5,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from splinewire.detect import detect_rings
-from splinewire.fiducials import ARUCO, BULLSEYE, RING_X, marker_cells, ring_design
+from splinewire.detect import detect_fiducials
+from splinewire.fiducials import ARUCO, BULLSEYE, RING_X, chain_design, marker_cells
 from splinewire.scene import (
     BASE, PERFECT_PRINT, PRESETS, PrintQuality, printed_fiducial, random_environment, render_scene,
 )
@@ -18,7 +18,7 @@ SMALL = dict(image_size=(1600, 1200), px_per_mm=6.0)
 
 
 def _centres_error(scene, spec):
-    rings = detect_rings(scene.image, spec.ring_inner_mm / spec.ring_outer_mm)
+    rings = detect_fiducials(scene.image, spec)
     c = np.array([r.center_px for r in rings]).reshape(-1, 2)
     d = np.linalg.norm(scene.pins_px[:, None] - c[None], axis=2).min(axis=1)
     return d
@@ -30,13 +30,15 @@ def test_perfect_print_rings_sit_on_the_true_pins(spec):
     assert _centres_error(scene, spec).max() < 0.15
 
 
-def test_relief_makes_rings_appear_at_half_its_height(spec):
+def test_relief_makes_fiducials_appear_at_half_its_height(spec):
     """Walls hide the same share of every window edge: the pattern looks as if
-    it lay at half the relief height, which is where pins_px is projected."""
+    it lay at half the relief height, which is where pins_px is projected.
+    (The tolerance includes the perspective bias of ellipse centres at this
+    close, steep view: ~0.2 px for a dot, which has only its 5 mm edge.)"""
     pq = replace(PERFECT_PRINT, relief_mm=0.8)
     env = replace(PRESETS["ideal"], **SMALL, tilt_deg=35.0, print_quality=pq)
     scene = render_scene(s_curve_pins(spec), spec, env, seed=2)
-    assert _centres_error(scene, spec).max() < 0.2
+    assert _centres_error(scene, spec).max() < 0.25
 
 
 def test_lens_distortion_moves_the_truth_with_the_image(spec):
@@ -103,7 +105,7 @@ def test_aruco_marker_is_printed_inverted_and_unmirrored(spec):
             assert (cover[row, col] < 0.5) == expect[i, j]
 
 
-@pytest.mark.parametrize("design", [ring_design, lambda s: BULLSEYE])
+@pytest.mark.parametrize("design", [chain_design, lambda s: BULLSEYE])
 def test_designs_fit_inside_the_link(spec, design):
     d = design(spec)
     assert d.outer_mm / 2 < spec.half_width_mm - 0.5

@@ -21,7 +21,7 @@ def test_part_svg(pins_mm: np.ndarray, spec: ChainSpec, margin_mm: float = 12.0)
         return float(p[0] - lo[0]), float(hi[1] - p[1])
 
     chain_d = "M " + " L ".join(f"{x:.4f} {y:.4f}" for x, y in map(xy, pins_mm))
-    ro, ri = spec.ring_outer_mm / 2, spec.ring_inner_mm / 2
+    ro, ri = spec.fiducial_mm / 2, spec.ring_inner_mm / 2
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.3f}mm" height="{h:.3f}mm" '
         f'viewBox="0 0 {w:.3f} {h:.3f}">',
@@ -32,7 +32,8 @@ def test_part_svg(pins_mm: np.ndarray, spec: ChainSpec, margin_mm: float = 12.0)
     ]
     for x, y in map(xy, pins_mm):
         parts.append(f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{ro}" fill="#fff"/>')
-        parts.append(f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{ri}" fill="#222"/>')
+        if spec.fiducial == "ring":
+            parts.append(f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{ri}" fill="#222"/>')
     parts += [
         '<path d="M 6 6 L 56 6" stroke="#000" stroke-width="0.5"/>',
         '<path d="M 6 4 L 6 8 M 56 4 L 56 8" stroke="#000" stroke-width="0.3"/>',
