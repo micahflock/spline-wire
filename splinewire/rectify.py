@@ -31,6 +31,9 @@ class Rectification:
     tilt_deg: float          # angle between the optical axis and the plane normal
     residual_rms_mm: float   # how far link lengths deviate from the pitch
     residual_max_mm: float
+    link_residuals_mm: np.ndarray | None = None   # per link: length minus pitch
+    depth_mm: np.ndarray | None = None            # per pin: distance along the optical axis
+    distortion_k1: float = 0.0                    # radial distortion solved for (0 unless asked)
 
 
 def rectify_chain(
@@ -39,15 +42,19 @@ def rectify_chain(
     pitch_mm: float,
     image_size: tuple[int, int],
     focal_px: float | None = None,
+    estimate_distortion: bool = False,
 ) -> Rectification:
     """Place detected pins on the chain plane.
 
     points_px: (N, 2) pin centers in pixel coordinates.
     links: index pairs of pins known to be exactly one pitch apart.
+    estimate_distortion: also solve for residual radial lens distortion k1
+    (see experiments/lens_distortion.py for when it helps).
     """
     points_px = np.asarray(points_px, dtype=float)
     links_arr = np.asarray(links, dtype=int).reshape(-1, 2)
-    n_unknowns = 3 if focal_px is not None else 4
+    solve_f = focal_px is None
+    n_unknowns = 3 + solve_f + estimate_distortion
     if len(links_arr) < n_unknowns + 2:
         raise ValueError(
             f"need at least {n_unknowns + 2} links to rectify, got {len(links_arr)}"
@@ -57,21 +64,25 @@ def rectify_chain(
     diag = math.hypot(w, h)
     focal_guesses = [focal_px] if focal_px is not None else [0.6 * diag, 0.85 * diag, 1.2 * diag]
 
+    def unpack(p: np.ndarray, f0: float) -> tuple[float, float]:
+        f = _focal(f0, p[3]) if solve_f else f0
+        k1 = float(np.clip(p[-1], -30.0, 30.0)) / _K1_SCALE if estimate_distortion else 0.0
+        return f, k1
+
     best = None
     for f0 in focal_guesses:
-        rays0 = _rays(points_px, f0, image_size)
         px_pitch = np.median(np.linalg.norm(
             points_px[links_arr[:, 1]] - points_px[links_arr[:, 0]], axis=1))
         d0 = f0 * pitch_mm / px_pitch   # distance if the photo were straight-on
 
-        def residuals(p: np.ndarray, f0=f0, rays0=rays0, d0=d0) -> np.ndarray:
+        def residuals(p: np.ndarray, f0=f0, d0=d0) -> np.ndarray:
             m = p[:3] / d0
-            rays = rays0 if focal_px is not None else _rays(points_px, _focal(f0, p[3]), image_size)
-            X = _lift(m, rays)
+            f, k1 = unpack(p, f0)
+            X = _lift(m, _rays(points_px, f, image_size, k1))
             return np.linalg.norm(X[links_arr[:, 1]] - X[links_arr[:, 0]], axis=1) - pitch_mm
 
         for q0 in _plane_starts():
-            p0 = q0 if focal_px is not None else np.r_[q0, 0.0]
+            p0 = np.r_[q0, [0.0] * (n_unknowns - 3)]
             try:
                 sol = least_squares(residuals, p0, method="lm", max_nfev=400)
             except ValueError:
@@ -81,8 +92,8 @@ def rectify_chain(
 
     sol, f0, d0 = best
     m = sol.x[:3] / d0
-    f = f0 if focal_px is not None else _focal(f0, sol.x[3])
-    X = _lift(m, _rays(points_px, f, image_size))
+    f, k1 = unpack(sol.x, f0)
+    X = _lift(m, _rays(points_px, f, image_size, k1))
     if np.any(X[:, 2] <= 0):   # m and -m fit equally; keep the plane in front of the camera
         m, X = -m, -X
 
@@ -101,7 +112,13 @@ def rectify_chain(
         tilt_deg=float(math.degrees(math.acos(min(1.0, abs(n[2]))))),
         residual_rms_mm=float(np.sqrt(np.mean(res ** 2))),
         residual_max_mm=float(np.max(np.abs(res))),
+        link_residuals_mm=res,
+        depth_mm=X[:, 2].copy(),
+        distortion_k1=k1,
     )
+
+
+_K1_SCALE = 100.0    # solver works on 100 * k1, which is of order 1
 
 
 def _focal(f0: float, log_ratio: float) -> float:
@@ -109,9 +126,14 @@ def _focal(f0: float, log_ratio: float) -> float:
     return f0 * math.exp(float(np.clip(log_ratio, -1.0, 1.0)))
 
 
-def _rays(points_px: np.ndarray, focal_px: float, image_size: tuple[int, int]) -> np.ndarray:
+def _rays(points_px: np.ndarray, focal_px: float, image_size: tuple[int, int], k1: float = 0.0) -> np.ndarray:
+    """Viewing rays (z = 1) of pixels; k1 undoes radial distortion,
+    x_ideal = x_image * (1 + k1 r^2) with r in focal lengths."""
     K = intrinsics(focal_px, image_size)
-    return np.c_[(points_px - K[:2, 2]) / focal_px, np.ones(len(points_px))]
+    xy = (points_px - K[:2, 2]) / focal_px
+    if k1:
+        xy = xy * (1.0 + k1 * np.sum(xy ** 2, axis=1, keepdims=True))
+    return np.c_[xy, np.ones(len(points_px))]
 
 
 def _lift(m: np.ndarray, rays: np.ndarray) -> np.ndarray:

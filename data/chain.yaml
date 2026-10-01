@@ -1,7 +1,7 @@
 # Physical description of the measuring chain. All lengths in mm.
 #
 # Each link is a rigid bar between two pins, with semicircular ends
-# centered on the pins. A ring fiducial is centered on every pin.
+# centered on the pins. A fiducial is centered on every pin.
 
 # Pin-to-pin distance. The only length the solver relies on to deskew the
 # photo, so it should be as accurate as the chain can be made.
@@ -12,11 +12,13 @@ pitch_mm: 10.0
 # the target curve.
 half_width_mm: 4.0
 
-# Ring fiducial on each pin: outer and inner diameter.
-# A wide ring band (1.5 mm) survives blur, defocus and slightly undersized
-# printed windows better than a thin one.
-ring_outer_mm: 5.0
-ring_inner_mm: 2.0
+# Fiducial on each pin, light on the dark link: "dot" (a solid disc) or
+# "ring" (an annulus; also set ring_inner_mm, its hole's diameter).
+# fiducial_mm is the outer diameter. Keep at least 1.5 mm of dark link
+# around it: detection tells a dot from other bright blobs by that margin.
+# Dot vs ring for a 0.4 mm nozzle: docs/cv-robustness.md, section 5.
+fiducial: dot
+fiducial_mm: 5.0
 
 # Number of pins (links + 1).
 n_pins: 13

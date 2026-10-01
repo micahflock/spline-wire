@@ -7,7 +7,7 @@ from splinewire.synthetic import circle_wrap_pins, s_curve_pins
 
 
 def _spec(**kw):
-    base = dict(pitch_mm=10.0, half_width_mm=4.0, ring_outer_mm=5.0, ring_inner_mm=2.5, n_pins=13)
+    base = dict(pitch_mm=10.0, half_width_mm=4.0, fiducial_mm=5.0, n_pins=13)
     return ChainSpec(**{**base, **kw})
 
 

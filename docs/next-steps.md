@@ -4,12 +4,13 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 ## Done (synthetic only)
 
-- [x] Label-free ring fiducial on every pin; classical detection at 0.05–0.2 px on synthetic photos.
+- [x] Label-free fiducial on every pin (a dot; a ring also supported); classical detection at 0.05–0.2 px on synthetic photos.
 - [x] Geometric chain ordering with gap and stray handling.
 - [x] Deskew from the pin pitch and EXIF focal length: ≤0.02 mm on clean synthetic photos, ~0.3 mm worst-case with 1 px center noise (`experiments/self_rectification.py`).
 - [x] Contact offset from the pin line to the target curve (convex and concave), matching circular targets to 0.05 mm.
 - [x] CLI: `measure`, `synth`, `test-part`; JSON/CSV/SVG output and a preview image.
 - [x] Windows app (`SplineWire.exe`, built by GitHub Actions): browser UI on the computer plus a phone upload page.
+- [x] Realistic photo simulator (`scene.py`: FDM print defects, tables, clutter, glare, shadows, defocus, shake, distortion, noise, JPEG) and a detection benchmark over 29 environments plus random ones. The detector was reworked against it: the whole chain is recovered in 155/167 simulated photos, up from 77/167, and the failures left are a lamp reflected in shiny filament. Fiducial designs compared for a 0.4 mm nozzle: a plain dot or ring; the chain uses the 5 mm dot (easiest to make, 86/92 vs the ring's 87/92 in the study). See `docs/cv-robustness.md`.
 
 ## 1. Real-photo accuracy with a printed test part  ← next
 
@@ -20,12 +21,13 @@ Status doc: items are in risk order and get checked off as they are validated.
 - Send them from the phone page to `SplineWire.exe` with the matching truth file set in Settings (any photo over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-plaque/<shape>-truth.json --out results/`. Look at both the plain and the scale-fit error: a gap between them is print scale, not measurement.
 - **Exit criterion:** worst pin error under **1 mm** on every photo, and under 0.5 mm on most.
 - Things to watch for: EXIF focal accuracy (compare `focal_px` to an estimated-f run), lens distortion on wide lenses, glare on glossy prints, printer scale error (the scale bar check).
+- Print the plaque in matte black if possible, and include some deliberately hard photos (a lamp reflected in the part, a shadow across it, a busy table): the simulator predicts matte survives the reflection and standard PLA may not. Where a real photo fails or measures worse than simulated, reproduce the condition in `scene.py` and add it to the benchmark.
 
 ## 2. Chain hardware
 
 **Only after item 1 passes.** Pitch accuracy is now the critical dimension.
 
-- Build or adapt a chain matching `data/chain.yaml` (or update the YAML to match what's built), with rings on the pins. Options: a printed ring on each pin boss, or a contrasting hollow rivet as the pin, which is a ring for free.
+- Build or adapt a chain matching `data/chain.yaml` (or update the YAML to match what's built), with a light dot on each pin (keep ≥1.5 mm of dark link around it). Options: a printed dot on each pin boss, or a light pin head; a pin head's centre is only as good as its fit in the hole. A contrasting hollow rivet is a ring for free (`fiducial: ring`).
 - Tune joint friction.
 - Measure the actual pitch with calipers across many links and put the mean in the YAML.
 - **Exit criterion:** wrap a pipe or gauge of known radius, photograph, and recover the radius within 0.5 mm.
@@ -60,4 +62,4 @@ Status doc: items are in risk order and get checked off as they are validated.
 - Custom mobile app with live capture and preview.
 - CAD packages beyond Fusion (the SVG output is a partial universal fallback).
 - 3D / non-planar curves.
-- Using the ring ellipse shapes as extra tilt information (not needed with EXIF so far).
+- Using the fiducials' ellipse shapes as extra tilt information (not needed with EXIF so far).
