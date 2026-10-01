@@ -52,4 +52,4 @@ PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` G
 
 ## Priority
 
-Everything so far is validated only on synthetic photos. The riskiest open item is real-world accuracy: real phone photos (lighting, glare, lens distortion, EXIF focal accuracy) of the printed test plaque. See `docs/next-steps.md`, item 1.
+Almost everything is validated only on synthetic photos. The riskiest open item is real-world accuracy: real phone photos (lighting, glare, lens distortion, EXIF focal accuracy) of the printed test plaque. The first real photo (s-curve plaque, ~25° tilt) measured 0.098 mm worst pin; the rest of the test matrix is still to do. See `docs/next-steps.md`, item 1.

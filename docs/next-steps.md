@@ -21,6 +21,13 @@ Status doc: items are in risk order and get checked off as they are validated.
 - Photograph each shape: 3 tilts (straight-on, ~20°, ~40°) × 2 lighting setups (daylight, indoor bulb) × 2 phones if available.
 - Send them from the phone page to `SplineWire.exe` with the matching truth file set in Settings (any photo over 1 mm is flagged), or with `uv run splinewire measure photo.jpg --truth out/test-plaque/<shape>-truth.json --out results/`. Look at both the plain and the scale-fit error: a gap between them is print scale, not measurement.
 - **Exit criterion:** worst pin error under **1 mm** on every photo, and under 0.5 mm on most.
+- **Results so far** (SplineWire 0.5.1, iPhone, uploaded from the phone page):
+
+  | Date | Shape | Tilt | Lighting, background | Focal | Pins | Worst pin | RMS | After scale fit | Size vs design |
+  |---|---|---|---|---|---|---|---|---|---|
+  | 2026-10-01 | s-curve | 24.9° | indoor, dotted mousepad with keyboard and clutter (329 look-alikes ignored) | 24 mm set in Settings (none in file) | 13/13 | 0.098 mm | 0.063 mm | 0.099 mm | −0.12 % |
+
+  The first photo passes by about 10×. At ~22 px/mm that rms is 1–1.5 px, close to the plaque's own print tolerance, so this plaque can't show much better than this. Estimating the focal length from the chain instead gave 26.2 mm and a 26.6° tilt; that run has not been scored against the truth file yet. Still to do: straight-on and ~40°, a second lighting setup, the `pipe` and `cove` plaques, and a second phone.
 - Things to watch for: EXIF focal accuracy (compare `focal_px` to an estimated-f run), lens distortion on wide lenses, glare on glossy prints, printer scale error (the scale bar check).
 - Print the plaque in matte black if possible, and include some deliberately hard photos (a lamp reflected in the part, a shadow across it, a busy table): the simulator predicts matte survives the reflection and standard PLA may not. Where a real photo fails or measures worse than simulated, reproduce the condition in `scene.py` and add it to the benchmark.
 
@@ -49,6 +56,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [x] Built: phone page (Take photo / Choose from library) reached through a QR code on the desktop page; uploads saved byte-for-byte; results appear on the computer within seconds.
 - [ ] Test with the iPhone:
   - Does the focal length survive the upload? Try both buttons. The phone page and the desktop details show "Focal length in file". If it's missing, set the iPhone focal length in Settings (24 mm for iPhone 14 Pro and iPhone 15 or later, 26 mm for earlier models).
+    - First try (2026-10-01): no. The photo arrived as a 4032 × 3024 JPEG with all EXIF gone ("Camera: not recorded", "Focal length in file: missing"). Which button was used is not recorded; try the other one.
   - Time from shutter to the photo appearing on the computer.
   - Home Wi-Fi and the phone's hotspot. First try (0.5.0) timed out: Windows Firewall. 0.5.1 detects it and adds **Allow phone connections**; confirm it fixes the timeout.
 - **Exit criterion:** under 15 s from photo to points, no custom phone app.
