@@ -21,18 +21,32 @@ def test_meshes_are_printable(spec, shape):
     assert np.all(meshes["black"].bounds[1, :2] < meshes["white"].bounds[1, :2])
 
 
-def test_each_pin_has_a_white_ring_window_with_a_black_center(spec):
+def test_each_pin_has_a_white_dot_window(dot_spec):
     from shapely.geometry import Point
 
+    spec = dot_spec
     pins = s_curve_pins(spec)
     pattern = plaque_geometry(pins, spec).pattern
-    band = (spec.ring_outer_mm + spec.ring_inner_mm) / 4     # middle of the ring band
+    for p in pins:
+        for r in (0.0, 0.45 * spec.fiducial_mm):
+            for angle in np.linspace(0, 2 * np.pi, 8, endpoint=False):
+                assert not pattern.contains(Point(p + r * np.array([np.cos(angle), np.sin(angle)])))
+        assert pattern.contains(Point(p + [spec.fiducial_mm / 2 + 0.3, 0]))  # black link around it
+
+
+def test_each_pin_has_a_white_ring_window_with_a_black_center(ring_spec):
+    from shapely.geometry import Point
+
+    spec = ring_spec
+    pins = s_curve_pins(spec)
+    pattern = plaque_geometry(pins, spec).pattern
+    band = (spec.fiducial_mm + spec.ring_inner_mm) / 4     # middle of the ring band
     for p in pins:
         assert pattern.contains(Point(p))                     # black center disc
         for angle in np.linspace(0, 2 * np.pi, 8, endpoint=False):
             q = p + band * np.array([np.cos(angle), np.sin(angle)])
             assert not pattern.contains(Point(q))             # white window
-        assert pattern.contains(Point(p + [spec.ring_outer_mm / 2 + 0.3, 0]))  # black link around it
+        assert pattern.contains(Point(p + [spec.fiducial_mm / 2 + 0.3, 0]))  # black link around it
 
 
 def test_scale_bar_is_50_mm(spec):

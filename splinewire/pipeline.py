@@ -16,14 +16,14 @@ except ImportError:  # pragma: no cover
 from splinewire.camera import focal_px_from_exif
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side, contact_points, object_sign
-from splinewire.detect import Ring, detect_rings
+from splinewire.detect import Fiducial, detect_fiducials
 from splinewire.order import ChainOrder, order_chain
 from splinewire.rectify import Rectification, rectify_chain
 
 
 @dataclass(frozen=True)
 class Measurement:
-    rings: list[Ring]            # every ring detected in the photo
+    fiducials: list[Fiducial]            # every fiducial detected in the photo
     order: ChainOrder
     rectification: Rectification
     object_side: Side
@@ -36,7 +36,7 @@ class Measurement:
 
     @property
     def pins_px(self) -> np.ndarray:
-        return np.array([self.rings[i].center_px for i in self.order.indices])
+        return np.array([self.fiducials[i].center_px for i in self.order.indices])
 
 
 def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
@@ -57,31 +57,37 @@ def measure(
     side: Side = "inside",
 ) -> Measurement:
     warnings: list[str] = []
-    rings = detect_rings(image, spec.ring_inner_mm / spec.ring_outer_mm)
-    if len(rings) < 3:
-        raise ValueError(f"found {len(rings)} ring fiducials; need the whole chain in view")
+    fiducials = detect_fiducials(image, spec)
+    if len(fiducials) < 3:
+        raise ValueError(f"found {len(fiducials)} fiducials; need the whole chain in view")
 
-    centers = np.array([r.center_px for r in rings])
-    order = order_chain(centers)
+    h, w = image.shape[:2]
+    centers = np.array([r.center_px for r in fiducials])
+    excluded: set[int] = set()
+    for _ in range(4):
+        order = _order(fiducials, spec, excluded)
+        rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
+        misfits = _misfits(fiducials, order, rect, spec)
+        if not misfits:
+            break
+        excluded |= misfits
     n_on_chain = len(order.indices)
     if order.rejected:
-        warnings.append(f"ignored {len(order.rejected)} ring-like detection(s) not on the chain")
+        warnings.append(f"ignored {len(order.rejected)} look-alike detection(s) not on the chain")
     if order.gaps:
         warnings.append(f"{len(order.gaps)} pin(s) not detected; the curve bridges those gaps")
     expected = spec.n_pins - len(order.gaps)
     if n_on_chain != expected:
         warnings.append(
             f"found {n_on_chain} pins on the chain but the spec has {spec.n_pins} "
-            f"({len(order.gaps)} gap(s)); is the whole chain in the photo?"
+            f"({len(order.gaps)} gap(s)); is the whole chain in the photo, and free of glare "
+            "(a lamp's reflection on the links)?"
         )
     if focal_px is None:
         warnings.append(
             "no focal length (EXIF or --focal-35mm); estimating it from the chain, "
             "which is unreliable for nearly straight chains"
         )
-
-    h, w = image.shape[:2]
-    rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
     if rect.residual_max_mm > 0.05 * spec.pitch_mm:
         warnings.append(
             f"link lengths deviate from the pitch by up to {rect.residual_max_mm:.2f} mm; "
@@ -91,9 +97,89 @@ def measure(
     sign = object_sign(rect.pins_mm, side)
     contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign)
     return Measurement(
-        rings=rings, order=order, rectification=rect, object_side=side,
+        fiducials=fiducials, order=order, rectification=rect, object_side=side,
         contacts_mm=contacts, warnings=warnings,
     )
+
+
+def _order(fiducials: list[Fiducial], spec: ChainSpec, excluded: set[int]) -> ChainOrder:
+    """Chain order over the fiducials, trying each polarity on its own.
+
+    Every fiducial on the chain has the same polarity (light on the dark link),
+    while look-alikes often have the other one (printed letters are dark on
+    light), so the polarities are never mixed. The longer chain wins.
+    """
+    best = None
+    for polarity in (1, -1):
+        idx = [i for i, r in enumerate(fiducials) if r.polarity == polarity and i not in excluded]
+        if len(idx) < 3:
+            continue
+        o = order_chain(
+            np.array([fiducials[i].center_px for i in idx]),
+            axes_px=np.array([fiducials[i].outer_axes_px for i in idx]),
+            pitch_per_diameter=spec.pitch_mm / spec.fiducial_mm,
+            n_pins=spec.n_pins,
+            strength=np.array([fiducials[i].contrast for i in idx]),
+        )
+        mapped = ChainOrder(
+            indices=[idx[i] for i in o.indices], links=o.links, gaps=o.gaps,
+            rejected=sorted(set(range(len(fiducials))) - {idx[i] for i in o.indices}),
+        )
+        if best is None or len(mapped.indices) > len(best.indices):
+            best = mapped
+    if best is None:
+        raise ValueError(f"found {len(fiducials)} fiducials; need the whole chain in view")
+    return best
+
+
+def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, spec: ChainSpec) -> set[int]:
+    """Pins that do not belong on the chain, judged after deskewing.
+
+    - A fiducial whose physical size differs from its chain neighbours' by more
+      than 12%: a washer or other look-alike that happened to sit about one
+      pitch from the end of the chain.
+    - An end pin whose link is far from one pitch: a stray look-alike next to the
+      end. One bad link would otherwise bend the whole solution.
+    - With more pins than the spec's chain has, whichever end looks least
+      like the rest of the chain.
+    """
+    idx = order.indices
+    if len(idx) < 6:
+        return set()
+    major = np.array([fiducials[i].outer_axes_px[0] for i in idx])
+    size_mm = major * rect.depth_mm / rect.focal_px
+    bad = set()
+    for k in range(len(idx)):
+        nb = [j for j in range(max(0, k - 2), min(len(idx), k + 3)) if j != k]
+        if abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) > 0.12:
+            bad.add(idx[k])
+    if not bad and len(idx) + len(order.gaps) > spec.n_pins:
+        # More pins than the chain has, so a look-alike lies about one
+        # pitch past an end, the same size as a pin's (a small washer). A real
+        # pin's fiducial sits on its link; a look-alike sits on the table. Drop
+        # the end that stands out more by what surrounds it, and by size.
+        # Compared with its neighbours only: light changes along the chain.
+        surround = np.array([fiducials[i].surround for i in idx])
+        spread = max(5.0, 1.4826 * float(np.median(np.abs(np.diff(surround)))))
+
+        def oddness(k: int) -> float:
+            nb = [1, 2] if k == 0 else [len(idx) - 2, len(idx) - 3]
+            return (abs(surround[k] - np.median(surround[nb])) / spread
+                    + abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) / 0.03)
+
+        bad.add(idx[0] if oddness(0) > oddness(len(idx) - 1) else idx[-1])
+        return bad
+    res = rect.link_residuals_mm
+    links = order.links
+    if links and len(links) >= 6:
+        worst = float(np.max(np.abs(res)))
+        for end_link, end_pin in ((0, 0), (len(links) - 1, len(idx) - 1)):
+            a, b = links[end_link]
+            if end_pin not in (a, b):
+                continue            # the end is across a gap; leave it
+            if abs(res[end_link]) > 0.08 * spec.pitch_mm and abs(res[end_link]) >= 0.999 * worst:
+                bad.add(idx[end_pin])
+    return bad
 
 
 def compare_to_truth(pins_mm: np.ndarray, truth_mm: np.ndarray) -> dict[str, float]:

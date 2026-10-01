@@ -21,6 +21,22 @@ def test_synth_then_measure_round_trip(tmp_path, capsys):
         assert (tmp_path / "res" / f"pipe{suffix}").exists()
 
 
+def test_synth_realistic_environment_round_trip(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from splinewire import scene
+    small = {k: replace(v, image_size=(1600, 1200), px_per_mm=6.0) for k, v in scene.PRESETS.items()}
+    monkeypatch.setattr(scene, "PRESETS", small)
+    chain = "data/chain.yaml"
+    assert main(["synth", "--chain", chain, "--out", str(tmp_path / "syn"), "--env", "shadow"]) == 0
+    photo = tmp_path / "syn" / "s-curve-shadow.jpg"
+    assert main(["measure", str(photo), "--chain", chain, "--out", str(tmp_path / "res"),
+                 "--truth", str(tmp_path / "syn" / "s-curve-truth.json")]) == 0
+    doc = json.loads((tmp_path / "res" / "s-curve-shadow.json").read_text())
+    assert doc["diagnostics"]["focal_estimated"] is False
+    assert doc["truth_comparison"]["max_error_mm"] < 0.1
+
+
 def test_test_part_writes_svg_and_truth(tmp_path):
     assert main(["test-part", "--chain", "data/chain.yaml", "--out", str(tmp_path)]) == 0
     svg = (tmp_path / "s-curve.svg").read_text()

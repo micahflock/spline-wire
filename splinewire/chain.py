@@ -9,28 +9,36 @@ import numpy as np
 import yaml
 
 
+FIDUCIALS = ("dot", "ring")
+
+
 @dataclass(frozen=True)
 class ChainSpec:
     pitch_mm: float       # pin-to-pin distance
     half_width_mm: float  # pin line to the contact edge of a link
-    ring_outer_mm: float  # ring fiducial centered on each pin
-    ring_inner_mm: float
+    fiducial_mm: float    # outer diameter of the fiducial centred on each pin
     n_pins: int
+    fiducial: str = "dot"         # "dot" (solid light disc) or "ring" (light annulus)
+    ring_inner_mm: float = 0.0    # a ring's hole diameter; 0 for a dot
 
     def __post_init__(self) -> None:
         if self.pitch_mm <= 0:
             raise ValueError(f"pitch_mm must be positive, got {self.pitch_mm}")
         if self.half_width_mm < 0:
             raise ValueError(f"half_width_mm must be >= 0, got {self.half_width_mm}")
-        if not 0 < self.ring_inner_mm < self.ring_outer_mm:
+        if self.fiducial not in FIDUCIALS:
+            raise ValueError(f"fiducial must be one of {FIDUCIALS}, got {self.fiducial!r}")
+        if self.fiducial_mm <= 0:
+            raise ValueError(f"fiducial_mm must be positive, got {self.fiducial_mm}")
+        if self.fiducial == "ring" and not 0 < self.ring_inner_mm < self.fiducial_mm:
             raise ValueError(
                 f"need 0 < ring_inner_mm ({self.ring_inner_mm}) "
-                f"< ring_outer_mm ({self.ring_outer_mm})"
+                f"< fiducial_mm ({self.fiducial_mm}) for a ring"
             )
-        if self.ring_outer_mm >= self.pitch_mm:
+        if self.fiducial_mm >= self.pitch_mm:
             raise ValueError(
-                f"ring_outer_mm ({self.ring_outer_mm}) must be smaller than "
-                f"pitch_mm ({self.pitch_mm}) or neighbouring rings touch"
+                f"fiducial_mm ({self.fiducial_mm}) must be smaller than "
+                f"pitch_mm ({self.pitch_mm}) or neighbouring fiducials touch"
             )
         if self.n_pins < 3:
             raise ValueError(f"n_pins must be >= 3, got {self.n_pins}")
@@ -45,12 +53,23 @@ def default_chain_path() -> Path:
 def load_chain_spec(path: Path) -> ChainSpec:
     with Path(path).open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
+    return spec_from_dict(raw)
+
+
+def spec_from_dict(raw: dict) -> ChainSpec:
+    """ChainSpec from chain.yaml or saved settings. Older files describe a
+    ring as ring_outer_mm + ring_inner_mm, with no `fiducial` key."""
+    if "fiducial_mm" in raw:
+        size, kind = raw["fiducial_mm"], raw.get("fiducial", "dot")
+    else:
+        size, kind = raw["ring_outer_mm"], raw.get("fiducial", "ring")
     return ChainSpec(
         pitch_mm=float(raw["pitch_mm"]),
         half_width_mm=float(raw["half_width_mm"]),
-        ring_outer_mm=float(raw["ring_outer_mm"]),
-        ring_inner_mm=float(raw["ring_inner_mm"]),
+        fiducial_mm=float(size),
         n_pins=int(raw["n_pins"]),
+        fiducial=str(kind),
+        ring_inner_mm=float(raw.get("ring_inner_mm") or 0.0) if kind == "ring" else 0.0,
     )
 
 

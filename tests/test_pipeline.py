@@ -40,13 +40,34 @@ def test_missing_pin_and_stray_ring(spec):
     img, cam = _photo(spec, pins)
     hidden = cam.project(pins[[6]])[0]
     cv2.circle(img, tuple(int(v) for v in hidden), 30, LINK_GRAY, -1)       # smudged ring
-    cv2.circle(img, (150, 150), 22, 235, -1, cv2.LINE_AA)                   # stray ring on the table
-    cv2.circle(img, (150, 150), 11, LINK_GRAY, -1, cv2.LINE_AA)
+    cv2.circle(img, (150, 150), 34, LINK_GRAY, -1, cv2.LINE_AA)             # a stray fiducial on
+    cv2.circle(img, (150, 150), 21, 235, -1, cv2.LINE_AA)                   # a scrap of link
+    if spec.fiducial == "ring":
+        cv2.circle(img, (150, 150), 8, LINK_GRAY, -1, cv2.LINE_AA)
     m = measure(img, spec, FOCAL)
     assert len(m.order.gaps) == 1 and len(m.order.rejected) == 1
     assert len(m.warnings) == 2
     kept = np.delete(pins, 6, axis=0)
     assert compare_to_truth(m.pins_mm, kept)["max_error_mm"] < 0.05
+
+
+def test_ring_sized_look_alike_one_pitch_past_the_end(spec):
+    """A washer (or white disc) the size of a pin's fiducial, in line with the
+    chain one pitch past its end: position and size can't tell, but the chain
+    has one pin too many and the look-alike sits on the table, not on a link."""
+    pins = s_curve_pins(spec)
+    img, cam = _photo(spec, pins, tilt=20.0)
+    d = (pins[-1] - pins[-2]) / np.linalg.norm(pins[-1] - pins[-2])
+    extra = pins[-1] + spec.pitch_mm * d
+    c = cam.project(extra[None])[0]
+    r_px = np.linalg.norm(cam.project((extra + [spec.fiducial_mm / 2, 0])[None])[0] - c)
+    ci = tuple(int(round(v * 16)) for v in c)
+    cv2.circle(img, ci, int(round(r_px * 16)), 235, -1, cv2.LINE_AA, 4)
+    if spec.fiducial == "ring":
+        cv2.circle(img, ci, int(round(r_px * 0.4 * 16)), 205, -1, cv2.LINE_AA, 4)
+    m = measure(img, spec, FOCAL)
+    assert len(m.order.indices) == len(pins)
+    assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.05
 
 
 def test_without_focal_length_warns_but_measures(spec):

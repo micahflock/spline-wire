@@ -8,13 +8,13 @@ The system is a pipeline: physical curve → posed chain → phone photo → pin
 - Links are bars of **half-width** `w` (pin line to contact edge; default 4 mm) with semicircular ends centered on the pins. This shape is what the contact model in stage 5 assumes.
 - Joint friction holds the pose under gravity and handling but allows posing by hand.
 - Planar: no out-of-plane twist.
-- **One ring fiducial centered on every pin**, on one face only. There are no labels or IDs, and no separate skew/end marker.
+- **One fiducial centered on every pin**, on one face only: a light 5 mm dot on the dark link (`fiducial: dot` in `data/chain.yaml`), chosen because it is the simplest to make; a ring (`fiducial: ring`) is also supported and slightly more robust (`docs/cv-robustness.md` §5). There are no labels or IDs, and no separate skew/end marker.
 
-The pitch is the only dimension the software relies on to deskew the photo, so it must be accurate and consistent. Ring size only needs to be roughly right: it helps reject non-ring shapes.
+The pitch is the only dimension the software relies on to deskew the photo, so it must be accurate and consistent. The fiducial size only needs to be roughly right: it predicts the pitch in the image and helps reject look-alikes.
 
 Fiducials go on the pins because pin-to-pin distance is fixed. The distance between link *centers* shrinks as a joint bends (`p·cos(θ/2)`), which would break the deskew constraint.
 
-Fiducials go on one face only because a chain photographed from the other side is a mirror image, and nothing in an unlabeled ring pattern can reveal that.
+Fiducials go on one face only because a chain photographed from the other side is a mirror image, and nothing in an unlabeled dot or ring pattern can reveal that.
 
 ## 2. Photo
 
@@ -24,11 +24,18 @@ Fiducials go on one face only because a chain photographed from the other side i
 
 ## 3. Detection and ordering — `detect.py`, `order.py`
 
-- **Rings:** two binarizations, a local mean threshold (both polarities) and the midpoint between the local darkest and brightest levels. The second keeps working where one shade fills the window, e.g. a black chain on a dark table, where the mean sits at the black level and noise speckles the links. Then contours with exactly one hole (specks of noise smaller than 2% of the ring are ignored) whose outer and inner edges both fit concentric ellipses. The inner/outer diameter ratio must be roughly the spec's; the accepted range is lopsided upward because thresholding, defocus, undersized printed windows and recess walls all thin the ring band. Both polarities are tried. The center is the mean of the two ellipse centers. On synthetic photos the error is 0.05–0.2 px.
-- **Order:** the rings carry no IDs, so order comes from geometry. Walk from ring to ring stepping about one pitch, preferring the smallest turn, with joints limited to 80°. A ~2-pitch step counts as one missing ring (a *gap*). Every ring is tried as the start and the longest walk wins. Rings off the walk are rejected as strays.
+Detection is stress-tested on simulated phone photos of printed chains under 29 environments plus random ones; see `docs/cv-robustness.md` for the results and what each step below fixed.
+
+`detect_fiducials` dispatches on the chain's fiducial. Rings are described first; dots reuse the same pyramid, thresholds and edge fitting.
+
+- **Ring candidates:** on an image pyramid (full, ½, ¼, ⅛ size), so every ring is also seen where it is a few dozen pixels across. There, area downsampling erases the extrusion lines of a 3D print, which catch a lamp as stripes 0.4 mm apart and can bridge a ring to its surroundings. Each level is binarized with 25 px windows, about one to two rings wide, so the threshold stays on the link instead of being dragged by the table beside it, a shadow edge or a glare hotspot: above/below the local mean (both polarities), and "well above" (mean + 0.8 local standard deviations, where there is contrast), which covers a black chain on a black table and a link that sheen has made lighter than the table. Connected components that could be a ring by size and fill are traced; a candidate has exactly one hole (noise specks under 2% of the ring are ignored) and roughly concentric elliptical edges, with the inner/outer ratio roughly the spec's (the accepted range is lopsided upward because thresholding, defocus, undersized printed windows and recess walls all thin the band).
+- **Ring refinement:** on the full-resolution gray image, 32–180 rays through each candidate. On each ray the inner and outer edges are where the profile crosses halfway between that ray's own dark and bright levels, so a shadow or glare gradient across a ring does not shift them. Ellipses are fitted to the sub-pixel edge points with outlier rejection (seam blobs, dust). The center is the mean of the two ellipse centers weighted by fit quality and area: a print defect pulls a small circle's fitted center further than a large one's. On simulated prints the error is ~0.1 px median.
+- **Dots** have no hole to tell them from other bright blobs, so each candidate (outer outline only: a dot wider than the threshold window comes out hollow) must show a dark margin all round, as a dot on a link does: along every ray, the margin 1.15–1.45 radii out must be a steady fraction of the dot's brightness (a ratio, so a shadow edge darkens both alike). The edge is fitted as for a ring. Candidates of different sizes on the same centre are all refined: a halo of table around a dark patch must not stand in for the dot.
+- **Order:** the rings carry no IDs, so order comes from geometry. Walk from ring to ring stepping about one pitch, preferring the smallest turn, with joints limited to 80°. A ~2-pitch step counts as one missing ring (a *gap*). Each ring's ellipse predicts the step length (pitch = 2 ring diameters, foreshortened at most by the ellipse's own axis ratio), and neighbours must be within 35% of each other's size and have about the same ellipse shape (all pins lie on one plane), which keeps printed letters, washers and speckle off the chain. Light-on-dark and dark-on-light fiducials are never mixed (letters are dark on light). Every ring is tried as the start and the longest walk wins. Rings off the walk are rejected as strays.
+- **Misfits:** after deskewing, a pin whose ring is more than 12% bigger or smaller (in mm) than its neighbours, or an end pin whose link is far from one pitch, is dropped and the chain re-solved: a washer that happened to sit one pitch past the end.
 - Direction along the chain is arbitrary and doesn't matter for the curve.
 
-Known limits: joints bending more than 80°, or two parts of the chain lying within about half a pitch of each other, can confuse ordering. The preview image shows the chosen order for checking.
+Known limits: joints bending more than 80°, or two parts of the chain lying within about half a pitch of each other, can confuse ordering. A lamp reflected in shiny filament can wash out the fiducials entirely (matte filament avoids it; see `docs/cv-robustness.md`). The preview image shows the chosen order for checking.
 
 ## 4. Deskew — `rectify.py`
 
@@ -47,7 +54,7 @@ Accuracy from `experiments/self_rectification.py` (worst pin error, mm, 12-link 
 | 1 px | 2.3–5.7 | 0.28–0.38 | 0.32–0.90 |
 | 3 px | 2.3–5.9 | 0.84–1.03 | 1.06–1.35 |
 
-Error grows roughly linearly with pin-center noise. Classical ring detection (~0.2 px) is far inside the 1 mm target; LLM-style estimates (several px) are not. That is why an LLM does not do localization.
+Error grows roughly linearly with pin-center noise. Classical dot or ring detection (~0.2 px) is far inside the 1 mm target; LLM-style estimates (several px) are not. That is why an LLM does not do localization.
 
 ## 5. Contact offset and curve — `contact.py`
 
@@ -99,8 +106,8 @@ The app is a small local web server (standard library `http.server`) with its UI
 
 ## Testing without hardware
 
-- `splinewire synth` renders a photo of a posed chain through a simulated tilted phone camera (with EXIF), plus a truth file.
+- `splinewire synth` renders a photo of a posed chain through a simulated tilted phone camera (with EXIF), plus a truth file. `--env PRESET` renders a realistic photo instead (`scene.py`): a printed plaque with FDM defects for a 0.4 mm nozzle, on one of several tables, under lamp light with glare and shadows, through a phone camera with defocus, shake, residual lens distortion, noise, sharpening and JPEG. `experiments/cv_benchmark.py` runs the pipeline over all presets and random environments; `experiments/fiducial_study.py` compares fiducial designs the same way (`docs/cv-robustness.md`).
 - `splinewire test-part` writes a paper-printable SVG of a chain with exactly known pins, plus a truth file.
-- `splinewire test-plaque` writes a 3D-printable version (STLs plus printing notes and truth): a 1.6 mm white base trimmed to the chain's outline plus a 1.5 mm rim (the caliper bar hangs off it on a short bridge), one manual filament swap, then a 0.4 mm black chain layer with a ring-shaped window over each pin and a 50 mm caliper bar. About 3 cm³ of plastic; the earlier full rectangular plate took 14–25 cm³. The table shows around the part, so detection is tested on dark, grey and white tables. White goes underneath because white PLA is translucent; black is opaque in two layers, which keeps the window walls shallow.
+- `splinewire test-plaque` writes a 3D-printable version (STLs plus printing notes and truth): a 1.6 mm white base trimmed to the chain's outline plus a 1.5 mm rim (the caliper bar hangs off it on a short bridge), one manual filament swap, then a 0.4 mm black chain layer with a window over each pin (a dot, or a ring, as `chain.yaml` says) and a 50 mm caliper bar. About 3 cm³ of plastic; the earlier full rectangular plate took 14–25 cm³. The table shows around the part, so detection is tested on dark, grey and white tables. White goes underneath because white PLA is translucent; black is opaque in two layers, which keeps the window walls shallow.
 - Truth comparisons report the error after a rigid fit and after a scale fit. The scale fit removes the test part's own print or paper scale error, and the fitted scale shows how far off-size the part (or the pitch setting) is.
 - `experiments/relief_bias.py` ray-casts tilted photos of the plaque with its real window walls. At 0.4 mm depth all pins are found up to 40° tilt and the error matches a flat print (≈0.01–0.02 mm), because the walls shift every ring about the same way. At 0.8 mm, rings start being lost at 40°.
