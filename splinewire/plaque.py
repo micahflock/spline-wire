@@ -9,8 +9,9 @@ Designed for one manual filament swap with black and white filament:
   thick enough (8 layers) to look white on any table.
 - One swap to black at z = plate thickness.
 - A thin black layer shaped like the chain (8 mm wide links with round
-  ends), with a window over every pin, dot- or ring-shaped as
-  data/chain.yaml says, that shows the white plate through it. Black is opaque, so two layers are enough, which
+  ends), with a window over every pin that shows the white plate through
+  it: a solid 5 mm disc for the dot fiducial, an annulus for a ring, as
+  data/chain.yaml says. Black is opaque, so two layers are enough, which
   keeps the window walls shallow (see experiments/relief_bias.py).
 - A black 50.0 mm bar to check the printer's XY scale with calipers.
 
