@@ -1,14 +1,15 @@
 """Does the printed plaque's relief bias the measurement?
 
-On the printed plaque the white rings are windows in a black layer, so
-they sit at the bottom of a shallow recess. At a tilt, a recess wall hides
-part of each ring. This ray-casts tilted photos of the plaque with its real
-3D relief (black top at height h, white floor at 0, black walls between),
-runs the normal pipeline, and compares the error with a flat print (h = 0).
+On the printed plaque the white fiducials (dots, or rings as chain.yaml
+says) are windows in a black layer, so they sit at the bottom of a shallow
+recess. At a tilt, a recess wall hides part of each one. This ray-casts
+tilted photos of the plaque with its real 3D relief (black top at height h,
+white floor at 0, black walls between), runs the normal pipeline, and
+compares the error with a flat print (h = 0).
 
-Most of the shift is the same for every ring (all rings are seen from
-about the same direction), so it moves the whole chain rather than
-distorting it; only the variation across the photo matters.
+Most of the shift is the same for every fiducial (all are seen from about
+the same direction), so it moves the whole chain rather than distorting
+it; only the variation across the photo matters.
 
     uv run python experiments/relief_bias.py
 """
