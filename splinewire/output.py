@@ -129,18 +129,20 @@ def write_image(path: Path, bgr: np.ndarray) -> None:
 
 def render_preview(image: np.ndarray, m: Measurement) -> np.ndarray:
     """BGR copy of the photo with detections drawn on: green = chain pins
-    (numbered in chain order), red = rejected detections, yellow line =
-    chain order (red across a missing pin)."""
+    (numbered in chain order), blue = pins added by hand, red = rejected
+    detections, yellow line = chain order (red across a missing pin)."""
     vis = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim == 2 else image.copy()
     scale = max(1, int(round(max(vis.shape[:2]) / 1500)))
     pts = m.pins_px
     for k in range(len(pts) - 1):
         color = (0, 200, 255) if k not in m.order.gaps else (0, 0, 255)
         cv2.line(vis, _ip(pts[k]), _ip(pts[k + 1]), color, scale, cv2.LINE_AA)
+    by_hand = {mp.fiducial for mp in m.manual}
     for k, i in enumerate(m.order.indices):
         fid = m.fiducials[i]
         c = _ip(fid.center_px)
-        cv2.circle(vis, c, int(fid.outer_axes_px[0] / 2) + 2 * scale, (0, 200, 0), scale, cv2.LINE_AA)
+        cv2.circle(vis, c, int(fid.outer_axes_px[0] / 2) + 2 * scale,
+                   (255, 120, 0) if i in by_hand else (0, 200, 0), scale, cv2.LINE_AA)
         cv2.putText(vis, str(k), (c[0] + int(fid.outer_axes_px[0] / 2) + 3 * scale, c[1]),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5 * scale, (0, 160, 0), scale, cv2.LINE_AA)
     for i in m.order.rejected:
