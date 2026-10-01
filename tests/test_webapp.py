@@ -67,7 +67,7 @@ def test_bad_photo_reports_a_readable_error(served, tmp_path):
     pid = json.loads(call(server, "/api/upload?name=blank.jpg", blank.read_bytes(), app.token)[1])["id"]
     assert app.wait_idle(30)
     detail = json.loads(call(server, f"/api/photo/{pid}", token=app.token)[1])
-    assert detail["status"] == "error" and detail["error"].startswith("found 0 ring")
+    assert detail["status"] == "error" and detail["error"].startswith("found 0 fiducials")
 
 
 def test_token_and_host_are_required(served):

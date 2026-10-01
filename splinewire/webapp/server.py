@@ -46,10 +46,10 @@ import numpy as np
 from PIL import Image
 
 from splinewire import __version__, version_string
-from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec
+from splinewire.chain import spec_from_dict, ChainSpec, default_chain_path, load_chain_spec
 from splinewire.contact import spline_samples
 from splinewire.fusion_addin import install_addin
-from splinewire.output import crop_to_rings, points_tsv
+from splinewire.output import crop_to_chain, points_tsv
 from splinewire.process import PHOTO_SUFFIXES, PhotoResult, process_photo
 from splinewire.settings import load_settings, save_settings
 from splinewire.webapp.firewall import Firewall
@@ -57,9 +57,26 @@ from splinewire.webapp.firewall import Firewall
 DEFAULT_PORT = 8765
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 STATIC = Path(__file__).resolve().parent / "static"
-CHAIN_KEYS = ("pitch_mm", "half_width_mm", "ring_outer_mm", "ring_inner_mm", "n_pins")
+CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins")
+# The chain every earlier version shipped (rings); saved unchanged, it follows the new default.
+OLD_DEFAULT_CHAIN = {"ring_outer_mm": 5.0, "ring_inner_mm": 2.0}
 FULL_FRAME_DIAGONAL_MM = 43.2666
 DOWNLOADS = {"dxf": "dxf", "csv": "csv", "svg": "svg", "json": "json", "fusion_csv": "fusion-cm.csv"}
+
+
+def _migrate_chain(saved: dict) -> dict:
+    """Saved chain settings from before fiducials had a type (all rings).
+    Left at the old default ring, they follow today's default instead; a
+    ring someone set up on purpose stays a ring."""
+    saved = dict(saved)
+    if "ring_outer_mm" in saved and "fiducial_mm" not in saved:
+        outer = saved.pop("ring_outer_mm")
+        if {"ring_outer_mm": float(outer), "ring_inner_mm": float(saved.get("ring_inner_mm", 0))} \
+                == OLD_DEFAULT_CHAIN:
+            saved.pop("ring_inner_mm", None)
+        else:
+            saved.update(fiducial="ring", fiducial_mm=float(outer))
+    return saved
 
 
 @dataclass
@@ -105,9 +122,9 @@ class AppState:
             base = load_chain_spec(default_chain_path())
             chain = {k: getattr(base, k) for k in CHAIN_KEYS}
         except (OSError, KeyError, ValueError):
-            chain = {"pitch_mm": 10.0, "half_width_mm": 4.0, "ring_outer_mm": 5.0,
-                     "ring_inner_mm": 2.0, "n_pins": 13}
-        s["chain"] = {**chain, **s.get("chain", {})}
+            chain = {"pitch_mm": 10.0, "half_width_mm": 4.0, "fiducial": "dot", "fiducial_mm": 5.0,
+                     "ring_inner_mm": 0.0, "n_pins": 13}
+        s["chain"] = {**chain, **_migrate_chain(s.get("chain", {}))}
         s.setdefault("side", "inside")
         s.setdefault("focal_override_35mm", None)
         s.setdefault("phone_focal_35mm", None)
@@ -119,18 +136,17 @@ class AppState:
             save_settings(self.settings, self.settings_file)
 
     def spec(self) -> ChainSpec:
-        c = self.settings["chain"]
-        return ChainSpec(pitch_mm=float(c["pitch_mm"]), half_width_mm=float(c["half_width_mm"]),
-                         ring_outer_mm=float(c["ring_outer_mm"]), ring_inner_mm=float(c["ring_inner_mm"]),
-                         n_pins=int(c["n_pins"]))
+        return spec_from_dict(self.settings["chain"])
 
     def update_settings(self, changes: dict) -> None:
         """Validate and apply settings from the page, then re-measure every photo."""
         with self.lock:
             new = json.loads(json.dumps(self.settings))
             if "chain" in changes:
-                new["chain"] = {k: float(changes["chain"][k]) for k in CHAIN_KEYS}
+                c = changes["chain"]
+                new["chain"] = {k: float(c.get(k) or 0.0) for k in CHAIN_KEYS if k != "fiducial"}
                 new["chain"]["n_pins"] = int(new["chain"]["n_pins"])
+                new["chain"]["fiducial"] = str(c.get("fiducial", "dot"))
             if "side" in changes:
                 if changes["side"] not in ("inside", "outside"):
                     raise ValueError("side must be inside or outside")
@@ -236,8 +252,8 @@ class AppState:
                     truth_path=Path(truth) if truth and Path(truth).is_file() else None,
                     default_focal_35mm=settings["phone_focal_35mm"],
                 )
-                preview = _jpeg(crop_to_rings(result.preview, result.measurement)[:, :, ::-1], 1600)
-                thumb = _jpeg(crop_to_rings(result.preview, result.measurement)[:, :, ::-1], 240)
+                preview = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 1600)
+                thumb = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 240)
                 with self.lock:
                     photo.result, photo.error, photo.status = result, None, "done"
                     photo.preview_jpeg, photo.thumb_jpeg = preview, thumb

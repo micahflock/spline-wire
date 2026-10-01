@@ -33,11 +33,20 @@ def order_chain(
     max_turn_deg: float = 80.0,
     axes_px: np.ndarray | None = None,
     pitch_per_diameter: float | None = None,
+    n_pins: int | None = None,
+    strength: np.ndarray | None = None,
 ) -> ChainOrder:
     """Order detections along the chain.
 
     axes_px: optional (N, 2) outer ellipse (major, minor) diameter of each
-    ring; pitch_per_diameter: pitch / ring outer diameter from the spec.
+    fiducial; pitch_per_diameter: pitch / fiducial outer diameter from the
+    spec. n_pins: how many pins the chain has; strength: optional (N,) how
+    clearly each detection stands out (its contrast).
+
+    The walk that visits the most pins wins, but with n_pins given no walk
+    counts as longer than the chain (a regular texture can string together
+    more look-alikes than the chain has pins); among those, the one whose
+    detections stand out most.
     """
     pts = np.asarray(points_px, dtype=float)
     n = len(pts)
@@ -56,7 +65,8 @@ def order_chain(
     best_path, best_key = None, None
     for start in range(n):
         path, turn_total = _walk(start, pts, dist, nn_pitch, max_turn, sizes)
-        key = (len(path), -turn_total)
+        length = min(len(path), n_pins) if n_pins else len(path)
+        key = (length, float(np.sum(strength[path])) if strength is not None else 0.0, -turn_total)
         if best_key is None or key > best_key:
             best_path, best_key = path, key
 
@@ -98,6 +108,10 @@ class _Sizes:
 
 
 def _walk(start, pts, dist, nn_pitch, max_turn, sizes: _Sizes | None):
+    """Greedy walk from `start`. With sizes, every pin also stays within 1.6x
+    of the walk's median size: perspective changes size along a real chain
+    by ~1.3x at most, but a walk judging only neighbours could drift from
+    pin to ever smaller specks."""
     path = [start]
     visited = {start}
     pitch = nn_pitch if sizes is None else sizes.k * 0.5 * (sizes.major[start] + sizes.minor[start])
@@ -119,6 +133,9 @@ def _walk(start, pts, dist, nn_pitch, max_turn, sizes: _Sizes | None):
             if sizes is not None:
                 lo, hi = sizes.step_range(cur, 2 if is_gap else 1)
                 if not (lo <= dist[cur, j] <= hi and sizes.similar(cur, j)):
+                    continue
+                band = float(np.median(sizes.major[path]))
+                if not band / 1.6 < sizes.major[j] < band * 1.6:
                     continue
             score = turn + 2.0 * abs(ratio - (2.0 if is_gap else 1.0)) + (1.0 if is_gap else 0.0)
             if score < best_score:

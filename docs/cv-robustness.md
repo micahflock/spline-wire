@@ -6,7 +6,7 @@ How the detector holds up in realistic phone photos of a 3D-printed chain, what 
 
 - **The whole chain is now recovered in 155 of 167 simulated photos, up from 77**, over 29 named environments plus 80 random ones. When the chain is recovered, the worst pin is off by 0.023 mm (median), 0.056 mm (95th percentile), 0.13 mm at most: far inside the 1 mm target.
 - **The one failure left is glare on shiny filament.** A lamp reflected in the black layer washes it out until it is as light as the white rings. With **matte** black filament every simulated photo worked (32/32 random setups, including 5 with the lamp reflected on the chain). Standard PLA: 32/34. Glossy or silk: 10/14, and 0/3 with a reflection.
-- **Keep the plain ring.** Of seven fiducial designs printed through the same 0.4 mm-nozzle model, the plain ring (as now, 5.0/2.0 mm) is the most robust. A 20% larger ring (6.0/2.4 mm) is equally robust and ~20% more accurate, and works from further away, but leaves only 1 mm of black around it on the 8 mm link. A solid 5 mm **dot** comes close (86/92 vs 87/92, same median accuracy) once its detector checks for the dark link around each dot; it gives up some worst-case accuracy and range. Designs with 0.8 mm features (bullseye, checker-corner centre, ArUco tags) print, but fall apart with blur, distance or a bad print; ArUco tags don't fit an 8 mm round-ended link at all.
+- **The chain now uses a 5 mm dot** (easiest to make); the plain ring stays supported (`fiducial: ring` in `data/chain.yaml`) and is the most robust design. Of seven fiducial designs printed through the same 0.4 mm-nozzle model, the plain ring (5.0/2.0 mm) is the most robust. A 20% larger ring (6.0/2.4 mm) is equally robust and ~20% more accurate, and works from further away, but leaves only 1 mm of black around it on the 8 mm link. A solid 5 mm **dot** comes close in the fiducial study (86/92 vs 87/92, same median accuracy) once its detector checks for the dark link around each dot; on the full benchmark it recovers the chain in 142/167 photos against the ring's 155/167, losing mostly where lamp sheen on standard PLA lifts the black link toward the dot. Designs with 0.8 mm features (bullseye, checker-corner centre, ArUco tags) print, but fall apart with blur, distance or a bad print; ArUco tags don't fit an 8 mm round-ended link at all.
 - **Print defects, not the camera, set the remaining error.** Seam blobs and edge wobble move the printed ring off its pin by a few hundredths of a millimetre. Lens distortion, perspective bias of ellipse centres and the relief of the black layer each matter less.
 
 ![Simulated photos](img/environments.jpg)
@@ -148,9 +148,19 @@ A first-pass dot detector recovered only 71/92 photos. The dot's accuracy was ne
 
 The dot loses six photos the ring recovers and wins three the ring loses. Its losses are one to three dots missed where the lamp's sheen lifts the black margin to within ~10% of the dot (the ring still has its hole's second edge there), a defocused or shaken dot whose outline starts out distorted, and one terrazzo photo where a chip joined the chain. Its largest error (0.16 mm, a shaken photo of a printed page) is twice the ring's worst.
 
-**If you use the dot:** 5 mm is right for the 8 mm link (1.5 mm of black margin, which the detector relies on); print it matte, as for the ring; and the pipeline needs the dot detector moved from the study into `detect.py`, as it stands it only finds rings.
+**The dot on the full benchmark** (§2's 167 photos, rendered with dots; `cv_benchmark.py`, `--fiducial ring` for the ring):
 
-**Recommendation.** The plain ring, 5.0/2.0 mm, is still the most robust choice, printed as windows in a two-layer black top over white, in **matte** black. The 5 mm dot is a reasonable alternative if it is easier to make, at the cost above. If the real chain's links can be ~9 mm wide, a 6 mm ring (keeping a 1.5 mm black margin) buys the ring-6 gains without its cost. Rules of thumb for any size: band ≥1.5 mm (≥3.5 lines), centre ≥2 mm, inner/outer ≈ 0.4, ≥1.5 mm of black around it.
+| | ring | dot |
+|---|---|---|
+| chain recovered | 155/167 | 142/167 |
+| worst pin: median · 95th pct · max | 0.023 · 0.056 · 0.130 mm | 0.025 · 0.056 · 0.151 mm |
+| random setups, matte / standard / glossy | 32/32 · 32/34 · 10/14 | 30/32 · 28/34 · 9/14 |
+
+Of the dot's extra losses, most are dots missed under sheen: the default lamp sits near the reflection angle for one of the three view directions, and standard PLA's link then reads within ~10% of the dot (four of the six presets the dot fails, all on that view). The rest are look-alikes on busy tables (terrazzo, fabric, printed pages) joining the chain. Two changes for the dot also went into ordering for both fiducials: no walk counts as longer than the chain's pin count, with ties going to the walk whose detections stand out most (a woven fabric had strung 58 highlights into a "chain"); and each pin must stay within 1.6× of its walk's median size.
+
+**Using the dot:** 5 mm on the 8 mm link (1.5 mm of black margin, which the detector relies on); matte black, which matters more for the dot than for the ring; keep lamps out of the reflection.
+
+**Recommendation.** The plain ring, 5.0/2.0 mm, is the most robust choice, printed as windows in a two-layer black top over white, in **matte** black. The chain uses the 5 mm dot because it is easier to make; it is as accurate, and with matte filament nearly as robust (30/32 vs 32/32 random setups). If the real chain's links can be ~9 mm wide, a 6 mm ring (keeping a 1.5 mm black margin) buys the ring-6 gains without its cost. Rules of thumb for any size: band ≥1.5 mm (≥3.5 lines), centre ≥2 mm, inner/outer ≈ 0.4, ≥1.5 mm of black around it.
 
 For the real chain, print the ring in one piece with the link so its centre is the pin hole's centre to within print accuracy, and keep the pin out of the ring's centre: an edge formed by a pin head would shift the centre by the hole's clearance.
 

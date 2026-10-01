@@ -5,19 +5,21 @@ every preset environment plus randomly drawn ones, then runs detection and
 the whole pipeline on each and reports, per environment:
 
   found     true pins detected (of 13), anywhere in the photo
-  false     ring detections that are not a pin
+  false     fiducial detections that are not a pin
   chain     photos where the pipeline returned every pin, in order, with no
             stray (washer, letter) taken for a pin
   err px    centre error of detected pins: median / worst
   err mm    worst pin error in mm after the pipeline (rigid fit to truth)
 
-Renders are cached in out/cv-benchmark/ so detector changes re-run in
-a couple of minutes. --baseline <git rev> also evaluates the whole
-splinewire package as it was at that revision, for comparison.
+The fiducial is the chain's (data/chain.yaml), or --fiducial dot|ring.
+Renders are cached in out/cv-benchmark/<fiducial>/ so detector changes
+re-run in a couple of minutes. --baseline <git rev> also evaluates the
+whole splinewire package as it was at that revision (with that revision's
+own chain.yaml), for comparison: rings only before the dot existed.
 
     uv run python experiments/cv_benchmark.py                 # render (once) + evaluate
     uv run python experiments/cv_benchmark.py --random 60     # plus 60 random environments
-    uv run python experiments/cv_benchmark.py --baseline 752b3a9
+    uv run python experiments/cv_benchmark.py --fiducial ring --baseline 752b3a9
 """
 from __future__ import annotations
 
@@ -37,13 +39,30 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parent.parent
 # SPLINEWIRE_ROOT: evaluate another copy of the package (see --baseline).
-sys.path.insert(0, os.environ.get("SPLINEWIRE_ROOT", str(REPO)))
+ROOT = Path(os.environ.get("SPLINEWIRE_ROOT", str(REPO)))
+sys.path.insert(0, str(ROOT))
 
 from splinewire.chain import load_chain_spec, pins_from_turns  # noqa: E402
 from splinewire.synthetic import circle_wrap_pins, s_curve_pins  # noqa: E402
 
-SPEC = load_chain_spec(REPO / "data" / "chain.yaml")
 OUT = REPO / "out" / "cv-benchmark"
+_FIDUCIALS = {"dot": dict(fiducial="dot", fiducial_mm=5.0, ring_inner_mm=0.0),
+              "ring": dict(fiducial="ring", fiducial_mm=5.0, ring_inner_mm=2.0)}
+
+
+def _load_spec():
+    spec = load_chain_spec(ROOT / "data" / "chain.yaml")
+    kind = os.environ.get("SPLINEWIRE_FIDUCIAL")
+    if kind and hasattr(spec, "fiducial"):              # older packages only knew rings
+        spec = replace(spec, **_FIDUCIALS[kind])
+    return spec
+
+
+SPEC = _load_spec()
+
+
+def _size_mm(spec) -> float:
+    return getattr(spec, "fiducial_mm", None) or spec.ring_outer_mm
 
 
 def shapes(spec=SPEC) -> dict[str, np.ndarray]:
@@ -120,12 +139,15 @@ def evaluate_one(args) -> dict:
     truth_px = np.array(meta["pins_px"])
     truth_mm = np.array(meta["pins_mm"])
     ppm = meta["px_per_mm"]
-    ring_px = SPEC.ring_outer_mm * ppm
+    ring_px = _size_mm(SPEC) * ppm
     rec = {"id": sid, "environment": meta["environment"], "shape": meta["shape"],
            "filament": meta["env"].get("filament"), "glare": bool(meta["env"]["lamp_on_reflection"])}
 
     t = time.time()
-    rings = pipeline.detect_rings(img, SPEC.ring_inner_mm / SPEC.ring_outer_mm)
+    if hasattr(pipeline, "detect_fiducials"):
+        rings = pipeline.detect_fiducials(img, SPEC)
+    else:                                                   # before the dot
+        rings = pipeline.detect_rings(img, SPEC.ring_inner_mm / SPEC.ring_outer_mm)
     rec["detect_s"] = time.time() - t
     centers = np.array([r.center_px for r in rings]).reshape(-1, 2)
     match = _match(centers, truth_px, 0.3 * ring_px)
@@ -233,22 +255,29 @@ def main() -> None:
     ap.add_argument("--baseline", help="also evaluate the package as of this git revision")
     ap.add_argument("--only", nargs="*", help="only these environments")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 2)
-    ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--fiducial", choices=sorted(_FIDUCIALS), help="instead of chain.yaml's")
+    ap.add_argument("--out", type=Path, help=f"render cache (default {OUT}/<fiducial>)")
     ap.add_argument("--json", type=Path, help="write per-photo records here")
     ap.add_argument("--evaluate", type=Path, help=argparse.SUPPRESS)   # internal: see evaluate()
     ap.add_argument("--ids", nargs="*", help=argparse.SUPPRESS)
     args = ap.parse_args()
+    global SPEC
+    if args.fiducial:
+        os.environ["SPLINEWIRE_FIDUCIAL"] = args.fiducial   # for workers and --baseline
+        SPEC = _load_spec()
+    if args.out is None:
+        args.out = OUT / SPEC.fiducial
 
     if args.evaluate:
         recs = evaluate(args.ids, args.out, args.workers)
         args.evaluate.write_text(json.dumps(recs), encoding="utf-8")
         return
 
-    from splinewire.fiducials import ring_design
+    from splinewire.fiducials import chain_design
     scenes = scene_list(args.random, args.seeds)
     if args.only:
         scenes = [s for s in scenes if s[1].name in args.only]
-    render_suite(scenes, ring_design(SPEC), args.out, args.workers)
+    render_suite(scenes, chain_design(SPEC), args.out, args.workers)
     ids = [sid for sid, *_ in scenes]
 
     runs = [("current code", None)] + ([(f"code at {args.baseline}", args.baseline)] if args.baseline else [])

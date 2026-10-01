@@ -156,8 +156,9 @@ label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
       <div class="grid2">
         <span>Pitch, pin to pin (mm)</span><input name="pitch_mm" inputmode="decimal">
         <span>Half width, pin line to edge (mm)</span><input name="half_width_mm" inputmode="decimal">
-        <span>Ring outer diameter (mm)</span><input name="ring_outer_mm" inputmode="decimal">
-        <span>Ring inner diameter (mm)</span><input name="ring_inner_mm" inputmode="decimal">
+        <span>Fiducial on each pin</span><select name="fiducial"><option value="dot">Dot</option><option value="ring">Ring</option></select>
+        <span>Dot or ring diameter (mm)</span><input name="fiducial_mm" inputmode="decimal">
+        <span>Ring hole diameter (mm, rings only)</span><input name="ring_inner_mm" inputmode="decimal">
         <span>Number of pins</span><input name="n_pins" inputmode="numeric">
       </div>
     </fieldset>
@@ -350,7 +351,7 @@ async function renderMain() {
   const p = state.photos.find((x) => x.id === selected);
   if (!p) {
     main.innerHTML = `<section class="card empty"><h2>Photograph the chain with your phone</h2>
-      <p>Lay the chain flat, rings facing up, the whole chain in the frame. Scan the QR code on the left
+      <p>Lay the chain flat, dots facing up, the whole chain in the frame. Scan the QR code on the left
       with your iPhone and take the photo from that page. It shows up here within a few seconds.</p>
       <p>Photos already on this computer: use <b>Add photos…</b> or drop them on this window.</p></section>`;
     return;
@@ -361,7 +362,7 @@ async function renderMain() {
     d = detailCache[key] || (detailCache[key] = await (await api(`/api/photo/${p.id}`)).json());
   }
   if (selected !== p.id) return;   // selection changed while loading
-  const help = `<section class="card empty"><p>Check that the whole chain is in the photo, rings facing up and in focus,
+  const help = `<section class="card empty"><p>Check that the whole chain is in the photo, dots facing up and in focus,
     without glare, and that the chain settings match your chain. Then take the photo again.</p></section>`;
   main.innerHTML = titleCard(p, d) + (p.status === "error" ? help : "")
     + (d ? viewsCard(p, d) + detailsCard(d) : "");
@@ -383,8 +384,8 @@ function titleCard(p, d) {
 function viewsCard(p, d) {
   return `<div class="views">
     <section class="card view"><h3>Measured curve</h3><div class="body">${curveSvg(d.curve)}</div></section>
-    <section class="card view"><h3>Detected rings</h3><div class="body">
-      <img alt="Photo with detected rings" src="${withToken(`/api/photo/${p.id}/preview.jpg`)}&v=${state.state_version}"></div></section>
+    <section class="card view"><h3>Detected pins</h3><div class="body">
+      <img alt="Photo with detected pins" src="${withToken(`/api/photo/${p.id}/preview.jpg`)}&v=${state.state_version}"></div></section>
   </div>`;
 }
 
@@ -436,7 +437,7 @@ function detailsCard(d) {
     ${rowHtml("Focal length", `${r.focal_35mm} mm <span class="small">${esc(focalSrc)}</span>`)}
     ${rowHtml("Link length error", `rms ${r.link_residual_rms_mm} · max ${r.link_residual_max_mm} mm`)}
     ${rowHtml("Object side", `${r.object_side} of the bend`)}
-    ${rowHtml("Stray rings ignored", r.rejected)}
+    ${rowHtml("Stray look-alikes ignored", r.rejected)}
     ${truth}
     <h3>Photo file</h3>
     ${rowHtml("Format", `${esc(info.format)} · ${info.width} × ${info.height}`)}
@@ -499,7 +500,7 @@ $("#quit").onclick = async () => {
 const form = $("#settings-form");
 $("#settings-btn").onclick = () => {
   const s = state.settings;
-  for (const [k, v] of Object.entries(s.chain)) form.elements[k].value = v;
+  for (const [k, v] of Object.entries(s.chain)) if (form.elements[k]) form.elements[k].value = v;
   form.elements.side.value = s.side;
   form.elements.phone_focal_35mm.value = s.phone_focal_35mm ?? "";
   form.elements.focal_override_35mm.value = s.focal_override_35mm ?? "";
@@ -514,7 +515,7 @@ $("#settings-save").onclick = async (ev) => {
   const e = form.elements;
   const body = {chain: {}, side: e.side.value, phone_focal_35mm: e.phone_focal_35mm.value.trim(),
     focal_override_35mm: e.focal_override_35mm.value.trim()};
-  for (const k of ["pitch_mm", "half_width_mm", "ring_outer_mm", "ring_inner_mm", "n_pins"]) body.chain[k] = e[k].value.trim();
+  for (const k of ["pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins"]) body.chain[k] = e[k].value.trim();
   try {
     await api("/api/settings", {method: "POST", body: JSON.stringify(body)});
     $("#settings").close();

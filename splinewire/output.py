@@ -138,14 +138,14 @@ def render_preview(image: np.ndarray, m: Measurement) -> np.ndarray:
         color = (0, 200, 255) if k not in m.order.gaps else (0, 0, 255)
         cv2.line(vis, _ip(pts[k]), _ip(pts[k + 1]), color, scale, cv2.LINE_AA)
     for k, i in enumerate(m.order.indices):
-        ring = m.rings[i]
-        c = _ip(ring.center_px)
-        cv2.circle(vis, c, int(ring.outer_axes_px[0] / 2) + 2 * scale, (0, 200, 0), scale, cv2.LINE_AA)
-        cv2.putText(vis, str(k), (c[0] + int(ring.outer_axes_px[0] / 2) + 3 * scale, c[1]),
+        fid = m.fiducials[i]
+        c = _ip(fid.center_px)
+        cv2.circle(vis, c, int(fid.outer_axes_px[0] / 2) + 2 * scale, (0, 200, 0), scale, cv2.LINE_AA)
+        cv2.putText(vis, str(k), (c[0] + int(fid.outer_axes_px[0] / 2) + 3 * scale, c[1]),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5 * scale, (0, 160, 0), scale, cv2.LINE_AA)
     for i in m.order.rejected:
-        ring = m.rings[i]
-        cv2.circle(vis, _ip(ring.center_px), int(ring.outer_axes_px[0] / 2) + 2 * scale,
+        fid = m.fiducials[i]
+        cv2.circle(vis, _ip(fid.center_px), int(fid.outer_axes_px[0] / 2) + 2 * scale,
                    (0, 0, 255), scale, cv2.LINE_AA)
     return vis
 
@@ -158,13 +158,13 @@ def _round(pts: np.ndarray) -> list[list[float]]:
     return [[round(float(x), 4), round(float(y), 4)] for x, y in pts]
 
 
-def crop_to_rings(preview: np.ndarray, m: Measurement, margin: float = 0.25) -> np.ndarray:
-    """The preview cropped to the detected rings plus a margin, so the chain
+def crop_to_chain(preview: np.ndarray, m: Measurement, margin: float = 0.25) -> np.ndarray:
+    """The preview cropped to the detected fiducials plus a margin, so the chain
     fills the view even when it is small in the photo."""
-    if not m.rings:
+    if not m.fiducials:
         return preview
-    pts = np.array([r.center_px for r in m.rings])
-    size = max(r.outer_axes_px[0] for r in m.rings)
+    pts = np.array([r.center_px for r in m.fiducials])
+    size = max(r.outer_axes_px[0] for r in m.fiducials)
     lo, hi = pts.min(axis=0) - size, pts.max(axis=0) + size
     pad = margin * (hi - lo).max()
     h, w = preview.shape[:2]

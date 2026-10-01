@@ -5,12 +5,12 @@ Designed for one manual filament swap with black and white filament:
 - White base, printed first, trimmed to the chain's outline plus a narrow
   rim, with a short bridge to the scale bar. A full rectangular plate used
   about three times the material for nothing: only the white under the
-  ring windows is ever measured. White PLA is translucent, so the base is
+  fiducial windows is ever measured. White PLA is translucent, so the base is
   thick enough (8 layers) to look white on any table.
 - One swap to black at z = plate thickness.
 - A thin black layer shaped like the chain (8 mm wide links with round
-  ends), with a ring-shaped window over every pin that shows the white
-  plate through it. Black is opaque, so two layers are enough, which
+  ends), with a window over every pin, dot- or ring-shaped as
+  data/chain.yaml says, that shows the white plate through it. Black is opaque, so two layers are enough, which
   keeps the window walls shallow (see experiments/relief_bias.py).
 - A black 50.0 mm bar to check the printer's XY scale with calipers.
 
@@ -46,11 +46,7 @@ def plaque_geometry(pins_mm: np.ndarray, spec: ChainSpec) -> Plaque:
     from shapely.ops import nearest_points, unary_union
 
     body = LineString(pins_mm).buffer(spec.half_width_mm, quad_segs=_ARC)  # round ends and joints
-    windows = unary_union([
-        Point(p).buffer(spec.ring_outer_mm / 2, quad_segs=_ARC)
-        .difference(Point(p).buffer(spec.ring_inner_mm / 2, quad_segs=_ARC))
-        for p in pins_mm
-    ])
+    windows = unary_union([_window(Point(p), spec) for p in pins_mm])
     # Scale bar under the chain's lowest point, kept within the chain's width.
     x0, y0, x1, _ = body.bounds
     bar_w, bar_h = SCALE_BAR_MM
@@ -62,6 +58,14 @@ def plaque_geometry(pins_mm: np.ndarray, spec: ChainSpec) -> Plaque:
     bridge = LineString(nearest_points(body, bar)).buffer(BRIDGE_MM / 2, quad_segs=_ARC)
     plate = unary_union([body.buffer(RIM_MM, quad_segs=_ARC), bar.buffer(RIM_MM, quad_segs=_ARC), bridge])
     return Plaque(plate=plate, pattern=pattern, pins_mm=np.asarray(pins_mm, dtype=float))
+
+
+def _window(center, spec: ChainSpec):
+    """The white window over one pin: a disc for a dot, an annulus for a ring."""
+    window = center.buffer(spec.fiducial_mm / 2, quad_segs=_ARC)
+    if spec.fiducial == "ring":
+        window = window.difference(center.buffer(spec.ring_inner_mm / 2, quad_segs=_ARC))
+    return window
 
 
 def plaque_meshes(plaque: Plaque) -> dict[str, object]:
@@ -114,12 +118,12 @@ Single extruder, manual filament swap (black + white PLA):
      slider at that height -> Add color change. Cura: "Filament Change"
      post-processing script at that layer.
   4. Use MATTE black filament if you can ("PLA Matte" and the like). A lamp
-     reflected in ordinary PLA can wash the black out until the rings
+     reflected in ordinary PLA can wash the black out until the dots
      vanish; in simulated photos matte never failed, standard PLA failed
      in about 1 in 10 setups and glossy/silk in about 1 in 4
      (docs/cv-robustness.md). Avoid silk.
   5. Solid infill (100%), or 4+ top/bottom layers: the part is thin, and
-     sparse infill can show through the white under the rings.
+     sparse infill can show through the white under the dots.
 
 Multi-material printer instead: load {name}-plaque-white.stl and
 {name}-plaque-black.stl together as one object with two parts, and

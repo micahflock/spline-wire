@@ -2,9 +2,10 @@
 
 A design is the set of white windows cut into the black top layer around a
 pin, in millimetres, in a frame centred on the pin with +x along the chain.
-The product uses a plain ring sized by data/chain.yaml (`ring_design`);
-the others are candidates compared by experiments/fiducial_study.py, and
-all are drawn through the same print model in scene.py.
+The chain uses a dot or a plain ring, as data/chain.yaml says
+(`chain_design`); the others are candidates compared by
+experiments/fiducial_study.py, and all are drawn through the same print
+model in scene.py.
 
 Sizes respect a 0.4 mm FDM nozzle (lines ~0.42 mm wide): every black or
 white band is at least 0.8 mm (two lines), and everything fits inside the
@@ -59,12 +60,17 @@ class Design:
     note: str = ""
 
 
-def ring_design(spec: ChainSpec) -> Design:
-    ro, ri = spec.ring_outer_mm / 2, spec.ring_inner_mm / 2
-    return Design("ring", (Annulus(ro, ri),), spec.ring_outer_mm, (ro, ri),
-                  f"white ring {spec.ring_outer_mm:g}/{spec.ring_inner_mm:g} mm (current)")
+def chain_design(spec: ChainSpec) -> Design:
+    """The fiducial a ChainSpec describes (data/chain.yaml)."""
+    r = spec.fiducial_mm / 2
+    if spec.fiducial == "dot":
+        return Design("dot", (Disc(r),), spec.fiducial_mm, (r,), f"white dot {spec.fiducial_mm:g} mm")
+    ri = spec.ring_inner_mm / 2
+    return Design("ring", (Annulus(r, ri),), spec.fiducial_mm, (r, ri),
+                  f"white ring {spec.fiducial_mm:g}/{spec.ring_inner_mm:g} mm")
 
 
+RING = Design("ring", (Annulus(2.5, 1.0),), 5.0, (2.5, 1.0), "white ring 5.0/2.0 mm")
 RING6 = Design("ring-6", (Annulus(3.0, 1.2),), 6.0, (3.0, 1.2),
                "white ring 6.0/2.4 mm: same shape, 20% larger")
 DOT = Design("dot", (Disc(2.5),), 5.0, (2.5,), "white disc 5.0 mm")

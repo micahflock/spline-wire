@@ -35,7 +35,7 @@ import numpy as np
 
 from splinewire.camera import Camera, focal_px_from_35mm, look_at_plane
 from splinewire.chain import ChainSpec
-from splinewire.fiducials import Design, draw_windows, ring_design
+from splinewire.fiducials import Design, chain_design, draw_windows
 
 TAU_PRINT = 30.0          # print raster, px per mm (0.033 mm)
 PLATE_MM = 1.6            # white plate under the black layer (plaque)
@@ -223,7 +223,7 @@ def render_scene(
 ) -> Scene:
     """Photograph a printed chain (or plaque) lying on a table under env."""
     rng = np.random.default_rng(seed)
-    design = design or ring_design(spec)
+    design = design or chain_design(spec)
     pins_mm = np.asarray(pins_mm, dtype=float)
     size = env.image_size
     w, h = size

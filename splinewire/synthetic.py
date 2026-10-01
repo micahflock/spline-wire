@@ -58,7 +58,7 @@ def render_photo(
 ) -> np.ndarray:
     """Grayscale photo of the chain lying on a table, seen by `camera`.
 
-    Link bodies are dark with light ring fiducials over each pin. The chain
+    Link bodies are dark with light dot or ring fiducials over each pin. The chain
     is drawn flat on the plane at high resolution, warped through the
     camera, then downsampled, blurred and given sensor noise.
     """
@@ -81,8 +81,9 @@ def render_photo(
         cv2.line(tex, to_tex(a), to_tex(b), LINK_GRAY, link_thickness, cv2.LINE_AA, shift)
     for p in pins_mm:
         c = to_tex(p)
-        cv2.circle(tex, c, int(round(spec.ring_outer_mm / 2 * tau * scale)), RING_GRAY, -1, cv2.LINE_AA, shift)
-        cv2.circle(tex, c, int(round(spec.ring_inner_mm / 2 * tau * scale)), LINK_GRAY, -1, cv2.LINE_AA, shift)
+        cv2.circle(tex, c, int(round(spec.fiducial_mm / 2 * tau * scale)), RING_GRAY, -1, cv2.LINE_AA, shift)
+        if spec.fiducial == "ring":
+            cv2.circle(tex, c, int(round(spec.ring_inner_mm / 2 * tau * scale)), LINK_GRAY, -1, cv2.LINE_AA, shift)
 
     # texture pixel -> plane mm -> image pixel (supersampled grid)
     T = np.array([[1 / tau, 0, x0], [0, -1 / tau, y1], [0, 0, 1]])
