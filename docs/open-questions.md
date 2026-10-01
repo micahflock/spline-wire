@@ -27,6 +27,8 @@ Unresolved design questions. Cross-reference `next-steps.md`; several get answer
 
 ## Workflow and CAD
 
+- Hand-placed pins: when no dot is visible to snap to (a lamp's reflection), a pin is its click fitted to the pitch of its links. Simulated, from a click up to 3 px off, the median error is 0.03 mm for one hidden pin and 0.1 mm for two in a row (worst of 12 trials: 0.23 and 0.19 mm), but how well do people click on real glare-damaged photos, and is "zoom in and click the middle of where the dot should be" enough guidance? Photos where every dot is washed out leave the plane fit with no measured links, so it falls back to fitting from the clicks.
+
 - Fusion: script vs add-in — which is lower friction to install and re-run?
 - Does Fusion's Insert SVG keep 1:1 mm scale for our SVG, or is a JSON-reading script required?
 - Origin and orientation in CAD: currently the first pin, with axes following the photo. Should the user be able to pick them, or align them to something?

@@ -10,6 +10,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [x] Contact offset from the pin line to the target curve (convex and concave), matching circular targets to 0.05 mm.
 - [x] CLI: `measure`, `synth`, `test-part`; JSON/CSV/SVG output and a preview image.
 - [x] Windows app (`SplineWire.exe`, built by GitHub Actions): browser UI on the computer plus a phone upload page.
+- [x] Pin editing in the app: remove a detection, add a missed pin or bring back a left-out one by clicking the photo; clicks snap to the dot under them (98% of simulated clicks, 0.1 px median error) and otherwise are fitted to the pitch (`edits.py`). Verified on simulated photos only; on real ones, see the open question about hand-placed pins.
 - [x] Realistic photo simulator (`scene.py`: FDM print defects, tables, clutter, glare, shadows, defocus, shake, distortion, noise, JPEG) and a detection benchmark over 29 environments plus random ones. The detector was reworked against it: the whole chain is recovered in 155/167 simulated photos, up from 77/167, and the failures left are a lamp reflected in shiny filament. Fiducial designs compared for a 0.4 mm nozzle: a plain dot or ring; the chain uses the 5 mm dot (easiest to make, 86/92 vs the ring's 87/92 in the study). See `docs/cv-robustness.md`.
 
 ## 1. Real-photo accuracy with a printed test part  ← next
