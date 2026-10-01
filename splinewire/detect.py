@@ -517,3 +517,75 @@ def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2) -> Fiducial
         polarity=1,
         surround=float(np.median(outside)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Snapping a click to a fiducial
+
+
+def snap_fiducial(
+    image: np.ndarray,
+    point_px: tuple[float, float],
+    spec,
+    like: Fiducial,
+) -> Fiducial | None:
+    """The fiducial a person pointed at, found and refined like any detection;
+    None if there is no clear one there.
+
+    `like` is a neighbouring fiducial on the same chain, which says how big
+    the one being looked for is and how it is foreshortened. The bright (for a
+    ring, the ring-coloured) blob under the click is thresholded out of a
+    small window and handed to the same sub-pixel refinement and acceptance
+    tests the detector uses, so a click several pixels off still lands on the
+    dot's real centre. Where the detector itself could see nothing (glare
+    washes the dot out), neither does this, and the answer is None rather
+    than a poor fit: a wrong snap looks as confident as a right one and is
+    worse than the click.
+    """
+    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    ring = spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0
+    cand = _blob_under(gray, point_px, like, ring)
+    if cand is None:
+        return None
+    grayf = gray.astype(np.float32)
+    found = _refine_dot(grayf, cand) if spec.fiducial == "dot" else _refine(grayf, cand, ring)
+    if found is None:
+        return None
+    major, minor = like.outer_axes_px
+    if math.hypot(found.center_px[0] - point_px[0], found.center_px[1] - point_px[1]) > 0.5 * minor:
+        return None                             # a different blob than the one pointed at
+    if not 0.6 < found.outer_axes_px[0] / major < 1.6:
+        return None                             # one of the wrong size
+    return found
+
+
+def _blob_under(gray: np.ndarray, point_px, like: Fiducial, ring_ratio: float) -> _Candidate | None:
+    """Outline of the blob under (or nearest) a point, as a start for refinement."""
+    major, minor = like.outer_axes_px
+    half = int(round(1.7 * major))
+    h, w = gray.shape
+    x0, y0 = max(0, int(point_px[0]) - half), max(0, int(point_px[1]) - half)
+    x1, y1 = min(w, int(point_px[0]) + half + 1), min(h, int(point_px[1]) + half + 1)
+    if min(x1 - x0, y1 - y0) < 8:
+        return None
+    crop = cv2.GaussianBlur(np.clip(gray[y0:y1, x0:x1], 0, 255).astype(np.uint8), (0, 0), 1.0)
+    flag = cv2.THRESH_BINARY if like.polarity > 0 else cv2.THRESH_BINARY_INV
+    _, mask = cv2.threshold(crop, 0, 255, flag + cv2.THRESH_OTSU)
+    n, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    px, py = point_px[0] - x0, point_px[1] - y0
+    label = int(labels[min(max(int(py), 0), labels.shape[0] - 1), min(max(int(px), 0), labels.shape[1] - 1)])
+    if label == 0:
+        # the click fell in a ring's hole or just off the blob: the nearest one
+        dist = np.hypot(centroids[1:, 0] - px, centroids[1:, 1] - py)
+        if not len(dist) or dist.min() > 0.7 * minor:
+            return None
+        label = 1 + int(np.argmin(dist))
+    expected = math.pi / 4 * major * minor * (1.0 - ring_ratio ** 2)
+    if not 0.35 * expected < stats[label, cv2.CC_STAT_AREA] < 2.5 * expected:
+        return None
+    contours, _ = cv2.findContours((labels == label).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours or len(max(contours, key=len)) < 12:
+        return None
+    (cx, cy), (a, b), angle = cv2.fitEllipse(max(contours, key=len))
+    c = (cx + x0, cy + y0)
+    return _Candidate(center=c, outer=(c, (a, b), angle), inner_ratio=ring_ratio, polarity=like.polarity)

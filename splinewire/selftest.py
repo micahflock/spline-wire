@@ -2,8 +2,8 @@
 
 Starts the web app on a spare port with a temporary workspace, uploads
 synthetic chain photos over HTTP (JPEG with EXIF, HEIC, and one with its
-metadata stripped), checks the measurements against truth, fetches both
-pages and the images, checks the security rules, installs the Fusion
+metadata stripped), checks the measurements against truth, edits pins by
+hand, fetches both pages and the images, checks the security rules, installs the Fusion
 add-in into a temporary folder and reads the Windows Firewall settings. Exit code 0 means every check passed.
 """
 from __future__ import annotations
@@ -87,13 +87,47 @@ def _run(log_path: Path | None) -> int:
                     raise AssertionError(f"max error {err:.4f} mm > {MAX_ERROR_MM} mm")
                 if r["focal_source"] != focal_source:
                     raise AssertionError(f"focal from {r['focal_source']}, expected {focal_source}")
-                for part in ("preview.jpg", "thumb.jpg", "points.tsv", "download/dxf"):
+                for part in ("preview.jpg", "thumb.jpg", "points.tsv", "download/dxf", "image.jpg"):
                     client.get(f"/api/photo/{pid}/{part}")
                 return f"max error {err:.4f} mm, focal from {r['focal_source']}"
 
             check("jpeg upload", lambda: measure(jpg, "exif"))
             check("heic upload", lambda: measure(heic, "exif"))
             check("upload without metadata", lambda: measure(bare, "default"))
+
+            def pin_editing() -> str:
+                client.post("/api/truth/clear", b"")          # a truth file wants every pin
+                pid = client.post_json(f"/api/upload?name={jpg.name}", jpg.read_bytes())["id"]
+
+                def measured() -> dict:
+                    if not app.wait_idle(90):
+                        raise AssertionError("processing did not finish")
+                    d = client.get_json(f"/api/photo/{pid}")
+                    if d["status"] != "done":
+                        raise AssertionError(f"{d['status']}: {d['error']}")
+                    return d
+
+                def edit(add: list, remove: list) -> dict:
+                    client.post(f"/api/photo/{pid}/edits", json.dumps({"add": add, "remove": remove}).encode())
+                    return measured()
+
+                first = measured()
+                end = first["view"]["pins"][-1]
+                removed = edit([], [[end["x"], end["y"]]])
+                if removed["result"]["pins"] != first["result"]["pins"] - 1 or len(removed["view"]["removed"]) != 1:
+                    raise AssertionError("removing the end pin did not shorten the chain")
+                back = edit([[end["x"] + 3, end["y"] - 2]], [])
+                added = [p for p in back["view"]["pins"] if "edit" in p]
+                if back["result"]["pins"] != first["result"]["pins"] or [p["snapped"] for p in added] != [True]:
+                    raise AssertionError("a click near the removed pin did not snap back onto it")
+                if client.get(f"/api/photo/{pid}/image.jpg")[:2] != b"\xff\xd8":
+                    raise AssertionError("no photo for the editor")
+                client.post("/api/truth?name=truth.json", truth.read_bytes())
+                if not app.wait_idle(90):
+                    raise AssertionError("processing did not finish")
+                return f"removed and re-added pin {first['result']['pins']}, snapped"
+
+            check("pin editing", pin_editing)
 
             def pages() -> str:
                 for page in ("/", "/phone"):

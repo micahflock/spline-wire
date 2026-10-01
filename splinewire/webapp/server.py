@@ -36,7 +36,7 @@ import sys
 import threading
 import time
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -48,8 +48,11 @@ from PIL import Image
 from splinewire import __version__, version_string
 from splinewire.chain import spec_from_dict, ChainSpec, default_chain_path, load_chain_spec
 from splinewire.contact import spline_samples
+from splinewire.detect import Fiducial, detect_fiducials
+from splinewire.edits import Edits, remove_detections
 from splinewire.fusion_addin import install_addin
 from splinewire.output import crop_to_chain, points_tsv
+from splinewire.pipeline import load_photo
 from splinewire.process import PHOTO_SUFFIXES, PhotoResult, process_photo
 from splinewire.settings import load_settings, save_settings
 from splinewire.webapp.firewall import Firewall
@@ -91,6 +94,15 @@ class Photo:
     result: PhotoResult | None = None
     preview_jpeg: bytes | None = None
     thumb_jpeg: bytes | None = None
+    # Pins a person removed or added by hand, and what re-measuring after an edit
+    # reuses: the decoded photo, its fiducials, the photo shown in the pin editor.
+    edits: Edits = field(default_factory=Edits)
+    measured_edits: Edits = field(default_factory=Edits)   # the edits the current result has
+    image: np.ndarray | None = None
+    focal_px: float | None = None
+    view_jpeg: bytes | None = None
+    detected: list[Fiducial] | None = None
+    detected_for: tuple | None = None       # the fiducial settings `detected` is valid for
 
 
 class AppState:
@@ -244,19 +256,24 @@ class AppState:
                 photo.status = "processing"
                 self._changed()
                 settings = json.loads(json.dumps(self.settings))
+                edits = photo.edits
             try:
+                spec = spec_from_dict(settings["chain"])
+                self._read(photo, spec)
                 truth = settings["truth"]
                 result = process_photo(
-                    photo.path, self.spec(), self.workspace / "results",
+                    photo.path, spec, self.workspace / "results",
                     focal_35mm=settings["focal_override_35mm"], side=settings["side"],
                     truth_path=Path(truth) if truth and Path(truth).is_file() else None,
                     default_focal_35mm=settings["phone_focal_35mm"],
+                    edits=edits, loaded=(photo.image, photo.focal_px), detected=photo.detected,
                 )
                 preview = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 1600)
                 thumb = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 240)
                 with self.lock:
                     photo.result, photo.error, photo.status = result, None, "done"
                     photo.preview_jpeg, photo.thumb_jpeg = preview, thumb
+                    photo.measured_edits = edits
                     self._changed()
             except Exception as err:   # every failure is reported on its photo
                 # ValueErrors are the pipeline's own messages for people; show
@@ -266,7 +283,42 @@ class AppState:
                 with self.lock:
                     photo.result, photo.error, photo.status = None, detail, "error"
                     photo.preview_jpeg = photo.thumb_jpeg = None
+                    photo.measured_edits = edits
                     self._changed()
+
+    def _read(self, photo: Photo, spec: ChainSpec) -> None:
+        """Decode the photo and find its fiducials, once each: an edit only
+        re-orders what was found, so measuring again after one is quick."""
+        if photo.image is None:
+            image, focal = load_photo(photo.path)
+            view = _jpeg(image, 4096)
+            with self.lock:
+                photo.image, photo.focal_px, photo.view_jpeg = image, focal, view
+        key = (spec.fiducial, spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0)
+        if photo.detected is None or photo.detected_for != key:
+            detected = detect_fiducials(photo.image, spec)
+            with self.lock:
+                photo.detected, photo.detected_for = detected, key
+
+    def set_edits(self, photo_id: str, doc) -> None:
+        """Replace a photo's hand edits (see splinewire.edits) and measure it again."""
+        with self.lock:
+            photo = self.photos.get(photo_id)
+            if photo is None:
+                raise KeyError(photo_id)
+            if photo.image is None:
+                raise ValueError("this photo has not been read yet")
+            h, w = photo.image.shape[:2]
+            photo.edits = Edits.from_json(doc, (w, h))
+            photo.status = "queued"
+            self._changed()
+        self._queue.put(photo_id)
+
+    def photo_view(self, photo_id: str) -> bytes | None:
+        """The photo itself, upright and unmarked, for the pin editor."""
+        with self.lock:
+            photo = self.photos.get(photo_id)
+            return photo.view_jpeg if photo else None
 
     # -- views for the pages -------------------------------------------------
 
@@ -297,7 +349,48 @@ class AppState:
                     "spline": _rounded(spline_samples(m.contacts_mm)),
                 }
                 out["downloads"] = [k for k in DOWNLOADS if k in r.outputs]
+            out["view"] = self._view(photo)
             return out
+
+    def _view(self, photo: Photo) -> dict | None:
+        """What the pin editor draws over the photo, in photo pixels: the pins
+        on the chain in order, detections left out of it, pins removed by hand
+        (as ghosts, to bring them back), and the edits that produced all this.
+        Also available when measuring failed, so a photo the app could not read
+        can still be fixed by hand."""
+        if photo.image is None or photo.detected is None or photo.status not in ("done", "error"):
+            return None
+        edits, r = photo.measured_edits, photo.result
+
+        def marker(f: Fiducial, **extra) -> dict:
+            return {"x": round(f.center_px[0], 2), "y": round(f.center_px[1], 2),
+                    "r": round(f.outer_axes_px[0] / 2, 1), **extra}
+
+        if r is not None:
+            m = r.measurement
+            by_hand = {mp.fiducial: mp for mp in m.manual}
+
+            def mark(i: int, **extra) -> dict:
+                mp = by_hand.get(i)
+                return marker(m.fiducials[i], **extra, **({"edit": mp.edit, "snapped": mp.snapped} if mp else {}))
+
+            pins = [mark(i, k=k) for k, i in enumerate(m.order.indices)]
+            unused = [mark(i) for i in m.order.rejected]
+            gaps = list(m.order.gaps)
+        else:
+            pins, gaps = [], []
+            unused = [marker(f) for f in remove_detections(photo.detected, edits)]
+        radii = [p["r"] for p in pins or unused]
+        r_default = float(np.median(radii)) if radii else 12.0
+        if r is None:      # no measurement to say where added pins ended up: where they were clicked
+            unused += [{"x": x, "y": y, "r": r_default, "edit": j, "snapped": False}
+                       for j, (x, y) in enumerate(edits.add_px)]
+        h, w = photo.image.shape[:2]
+        return {
+            "width": w, "height": h, "r": r_default, "pins": pins, "gaps": gaps, "unused": unused,
+            "removed": [{"x": x, "y": y, "edit": j} for j, (x, y) in enumerate(edits.remove_px)],
+            "edits": edits.to_json(),
+        }
 
     def points_text(self, photo_id: str) -> str | None:
         with self.lock:
@@ -311,7 +404,7 @@ class AppState:
 
     def _summary(self, p: Photo) -> dict:
         out = {"id": p.id, "name": p.name, "source": p.source, "received": p.received,
-               "status": p.status, "error": p.error}
+               "status": p.status, "error": p.error, "edits": len(p.edits.add_px) + len(p.edits.remove_px)}
         r = p.result
         if r is not None:
             m, rect = r.measurement, r.measurement.rectification
@@ -480,6 +573,15 @@ class _Handler(BaseHTTPRequestHandler):
                 ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
                 return self._send(200, Path(file).read_bytes(), ctype,
                                   {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(file.name)}"})
+            if method == "GET" and rest == ["image.jpg"]:
+                data = app.photo_view(pid)
+                return self._send(200, data, "image/jpeg") if data else self._error(404, "no such photo")
+            if method == "POST" and rest == ["edits"]:
+                try:
+                    app.set_edits(pid, json.loads(self._body() or b"{}"))
+                except KeyError:
+                    return self._error(404, "no such photo")
+                return self._json({"ok": True})
             if method == "POST" and rest == ["delete"]:
                 app.delete_photo(pid)
                 return self._json({"ok": True})

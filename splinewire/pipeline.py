@@ -1,7 +1,7 @@
 """Photo in, curve points out."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -17,18 +17,20 @@ from splinewire.camera import focal_px_from_exif
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side, contact_points, object_sign
 from splinewire.detect import Fiducial, detect_fiducials
+from splinewire.edits import Edits, ManualPin, add_pins, pin_to_pitch, remove_detections
 from splinewire.order import ChainOrder, order_chain
 from splinewire.rectify import Rectification, rectify_chain
 
 
 @dataclass(frozen=True)
 class Measurement:
-    fiducials: list[Fiducial]            # every fiducial detected in the photo
+    fiducials: list[Fiducial]            # every fiducial detected in the photo, as edited by hand
     order: ChainOrder
     rectification: Rectification
     object_side: Side
     contacts_mm: np.ndarray      # points on the target curve, in chain order
     warnings: list[str]
+    manual: list[ManualPin] = field(default_factory=list)   # pins a person added
 
     @property
     def pins_mm(self) -> np.ndarray:
@@ -55,25 +57,54 @@ def measure(
     spec: ChainSpec,
     focal_px: float | None,
     side: Side = "inside",
+    edits: Edits | None = None,
+    detected: list[Fiducial] | None = None,
 ) -> Measurement:
+    """Measure the chain in a photo.
+
+    edits: pins a person removed or added by hand, see splinewire.edits.
+    detected: this photo's fiducials if already found (detection is the slow
+    part, and does not change when only the edits do).
+    """
     warnings: list[str] = []
-    fiducials = detect_fiducials(image, spec)
+    fiducials = list(detected) if detected is not None else detect_fiducials(image, spec)
+    manual: list[ManualPin] = []
+    if edits:
+        fiducials = remove_detections(fiducials, edits)
+        chain = _order(fiducials, spec, set()).indices if _can_order(fiducials) else []
+        fiducials, manual = add_pins(image, fiducials, spec, edits, chain)
     if len(fiducials) < 3:
         raise ValueError(f"found {len(fiducials)} fiducials; need the whole chain in view")
+    keep = {mp.fiducial for mp in manual}
+    by_click = {mp.fiducial for mp in manual if not mp.snapped}      # no fiducial under the click
 
     h, w = image.shape[:2]
     centers = np.array([r.center_px for r in fiducials])
     excluded: set[int] = set()
     for _ in range(4):
         order = _order(fiducials, spec, excluded)
-        rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
-        misfits = _misfits(fiducials, order, rect, spec)
+        # Fit the plane from links between pins that were measured, not clicked.
+        links = _measured_links(order, by_click)
+        rect = rectify_chain(centers[order.indices], links, spec.pitch_mm, (w, h), focal_px)
+        misfits = _misfits(fiducials, replace(order, links=links), rect, spec, keep)
         if not misfits:
             break
         excluded |= misfits
+    free = [k for k, i in enumerate(order.indices) if i in by_click]
+    if free:
+        rect = _settle_clicked_pins(rect, order, free, spec)
     n_on_chain = len(order.indices)
-    if order.rejected:
-        warnings.append(f"ignored {len(order.rejected)} look-alike detection(s) not on the chain")
+    left_out = [mp for mp in manual if mp.fiducial in order.rejected]
+    by_hand = [mp for mp in manual if not mp.snapped and mp not in left_out]
+    skipped = len(order.rejected) - len(left_out)
+    if skipped:
+        warnings.append(f"ignored {skipped} look-alike detection(s) not on the chain")
+    if left_out:
+        warnings.append(f"{len(left_out)} pin(s) you added were left out: each must be about one pitch "
+                        "from the pins next to it, in line with the chain")
+    if by_hand:
+        warnings.append(f"{len(by_hand)} pin(s) you added have no fiducial to snap to: placed by your click, "
+                        "then fitted to the link lengths around them")
     if order.gaps:
         warnings.append(f"{len(order.gaps)} pin(s) not detected; the curve bridges those gaps")
     expected = spec.n_pins - len(order.gaps)
@@ -98,8 +129,32 @@ def measure(
     contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign)
     return Measurement(
         fiducials=fiducials, order=order, rectification=rect, object_side=side,
-        contacts_mm=contacts, warnings=warnings,
+        contacts_mm=contacts, warnings=warnings, manual=manual,
     )
+
+
+def _measured_links(order: ChainOrder, by_click: set[int]) -> list[tuple[int, int]]:
+    """The links between pins whose positions were measured. Those touching a
+    pin placed by a click are left out of the plane fit, so a click does not
+    bend it (unless too few remain to fit it)."""
+    clicked = {k for k, i in enumerate(order.indices) if i in by_click}
+    measured = [(a, b) for a, b in order.links if a not in clicked and b not in clicked]
+    return measured if len(measured) >= 6 else order.links
+
+
+def _settle_clicked_pins(rect: Rectification, order: ChainOrder, free: list[int], spec: ChainSpec) -> Rectification:
+    """Move the pins placed by a click onto the pitch (see pin_to_pitch), and
+    recompute the link errors, now over every link."""
+    depth = float(np.median(rect.depth_mm[free])) if rect.depth_mm is not None else 3.0 * spec.pitch_mm
+    pins = pin_to_pitch(rect.pins_mm, order.links, free, spec.pitch_mm,
+                        sigma_click_mm=3.0 * depth / rect.focal_px)     # a click is good to ~3 px
+    res = np.array([np.linalg.norm(pins[b] - pins[a]) - spec.pitch_mm for a, b in order.links])
+    return replace(rect, pins_mm=pins, link_residuals_mm=res,
+                   residual_rms_mm=float(np.sqrt(np.mean(res ** 2))), residual_max_mm=float(np.max(np.abs(res))))
+
+
+def _can_order(fiducials: list[Fiducial]) -> bool:
+    return any(sum(f.polarity == p for f in fiducials) >= 3 for p in (1, -1))
 
 
 def _order(fiducials: list[Fiducial], spec: ChainSpec, excluded: set[int]) -> ChainOrder:
@@ -132,7 +187,8 @@ def _order(fiducials: list[Fiducial], spec: ChainSpec, excluded: set[int]) -> Ch
     return best
 
 
-def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, spec: ChainSpec) -> set[int]:
+def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, spec: ChainSpec,
+             keep: frozenset[int] | set[int] = frozenset()) -> set[int]:
     """Pins that do not belong on the chain, judged after deskewing.
 
     - A fiducial whose physical size differs from its chain neighbours' by more
@@ -142,6 +198,8 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
       end. One bad link would otherwise bend the whole solution.
     - With more pins than the spec's chain has, whichever end looks least
       like the rest of the chain.
+
+    Pins in `keep` (added by hand) are never named.
     """
     idx = order.indices
     if len(idx) < 6:
@@ -151,7 +209,7 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
     bad = set()
     for k in range(len(idx)):
         nb = [j for j in range(max(0, k - 2), min(len(idx), k + 3)) if j != k]
-        if abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) > 0.12:
+        if abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) > 0.12 and idx[k] not in keep:
             bad.add(idx[k])
     if not bad and len(idx) + len(order.gaps) > spec.n_pins:
         # More pins than the chain has, so a look-alike lies about one
@@ -167,7 +225,9 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
             return (abs(surround[k] - np.median(surround[nb])) / spread
                     + abs(size_mm[k] / np.median(size_mm[nb]) - 1.0) / 0.03)
 
-        bad.add(idx[0] if oddness(0) > oddness(len(idx) - 1) else idx[-1])
+        ends = [k for k in (0, len(idx) - 1) if idx[k] not in keep]
+        if ends:
+            bad.add(idx[max(ends, key=oddness)])
         return bad
     res = rect.link_residuals_mm
     links = order.links
@@ -175,8 +235,8 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
         worst = float(np.max(np.abs(res)))
         for end_link, end_pin in ((0, 0), (len(links) - 1, len(idx) - 1)):
             a, b = links[end_link]
-            if end_pin not in (a, b):
-                continue            # the end is across a gap; leave it
+            if end_pin not in (a, b) or idx[end_pin] in keep:
+                continue            # the end is across a gap, or added by hand; leave it
             if abs(res[end_link]) > 0.08 * spec.pitch_mm and abs(res[end_link]) >= 0.999 * worst:
                 bad.add(idx[end_pin])
     return bad
