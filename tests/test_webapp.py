@@ -179,7 +179,7 @@ def test_pins_can_be_added_and_removed_by_hand(served, dot_spec, tmp_path):
     assert app.wait_idle(60)
     after = detail()
     assert after["result"]["pins"] == len(pins)
-    assert any("only as exact as your click" in w for w in after["result"]["warnings"])
+    assert any("fitted to the link lengths" in w for w in after["result"]["warnings"])
     added = [p for p in after["view"]["pins"] if "edit" in p]
     assert sorted(p["edit"] for p in added) == [0, 1] and not any(p["snapped"] for p in added)
     assert after["view"]["edits"]["add"] == [[round(c[0], 2), round(c[1], 2)] for c in clicks]
@@ -191,7 +191,7 @@ def test_pins_can_be_added_and_removed_by_hand(served, dot_spec, tmp_path):
     write_truth(truth, pins)
     call(server, "/api/truth?name=truth.json", truth.read_bytes(), app.token)
     assert app.wait_idle(60)
-    assert detail()["result"]["truth"]["max_error_mm"] < 0.6       # clicks were 3.6 px (~0.4 mm) off, nothing to snap to
+    assert detail()["result"]["truth"]["max_error_mm"] < 0.3       # clicks were 3.6 px (~0.4 mm) off, nothing to snap to
     call(server, "/api/truth/clear", b"", app.token)
     assert app.wait_idle(60)
 

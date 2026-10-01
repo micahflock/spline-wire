@@ -22,6 +22,7 @@ import math
 from dataclasses import dataclass, replace
 
 import numpy as np
+from scipy.optimize import least_squares
 
 from splinewire.detect import Fiducial, snap_fiducial
 
@@ -178,3 +179,42 @@ def _from_spacing(points, spec) -> Fiducial:
     inner = d * spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0
     return Fiducial(center_px=(0.0, 0.0), outer_axes_px=(d, d), inner_axes_px=(inner, inner),
                     angle_deg=0.0, contrast=40.0, polarity=1, surround=40.0)
+
+
+def pin_to_pitch(
+    pins_mm: np.ndarray,
+    links: list[tuple[int, int]],
+    free: list[int],
+    pitch_mm: float,
+    sigma_click_mm: float,
+    sigma_link_mm: float = 0.05,
+) -> np.ndarray:
+    """Pins in `free` moved to where the links around them say they are.
+
+    A pin with no fiducial to snap to is only as exact as the click, a few
+    pixels, but the chain is not: its links are exactly one pitch long. Each
+    free pin moves as little as it must (a click costs sigma_click_mm per mm
+    of distance) to make the links to its neighbours pitch long (sigma_link_mm).
+    One pin between two known ones lands exactly, on the nearer of the two
+    places both links allow; several in a row keep whatever freedom the links
+    leave (an elbow can flex) as clicked.
+    """
+    pins = np.array(pins_mm, dtype=float)
+    free = list(free)
+    if not free:
+        return pins
+    index = {k: n for n, k in enumerate(free)}
+    start = pins[free].copy()
+    touching = [(a, b) for a, b in links if a in index or b in index]
+
+    def put(x: np.ndarray) -> np.ndarray:
+        q = pins.copy()
+        q[free] = x.reshape(-1, 2)
+        return q
+
+    def residuals(x: np.ndarray) -> np.ndarray:
+        q = put(x)
+        link = [(np.linalg.norm(q[a] - q[b]) - pitch_mm) / sigma_link_mm for a, b in touching]
+        return np.r_[link, (x - start.ravel()) / sigma_click_mm]
+
+    return put(least_squares(residuals, start.ravel(), method="lm", max_nfev=200).x)

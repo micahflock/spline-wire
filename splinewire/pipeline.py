@@ -1,7 +1,7 @@
 """Photo in, curve points out."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +17,7 @@ from splinewire.camera import focal_px_from_exif
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side, contact_points, object_sign
 from splinewire.detect import Fiducial, detect_fiducials
-from splinewire.edits import Edits, ManualPin, add_pins, remove_detections
+from splinewire.edits import Edits, ManualPin, add_pins, pin_to_pitch, remove_detections
 from splinewire.order import ChainOrder, order_chain
 from splinewire.rectify import Rectification, rectify_chain
 
@@ -76,17 +76,23 @@ def measure(
     if len(fiducials) < 3:
         raise ValueError(f"found {len(fiducials)} fiducials; need the whole chain in view")
     keep = {mp.fiducial for mp in manual}
+    by_click = {mp.fiducial for mp in manual if not mp.snapped}      # no fiducial under the click
 
     h, w = image.shape[:2]
     centers = np.array([r.center_px for r in fiducials])
     excluded: set[int] = set()
     for _ in range(4):
         order = _order(fiducials, spec, excluded)
-        rect = rectify_chain(centers[order.indices], order.links, spec.pitch_mm, (w, h), focal_px)
-        misfits = _misfits(fiducials, order, rect, spec, keep)
+        # Fit the plane from links between pins that were measured, not clicked.
+        links = _measured_links(order, by_click)
+        rect = rectify_chain(centers[order.indices], links, spec.pitch_mm, (w, h), focal_px)
+        misfits = _misfits(fiducials, replace(order, links=links), rect, spec, keep)
         if not misfits:
             break
         excluded |= misfits
+    free = [k for k, i in enumerate(order.indices) if i in by_click]
+    if free:
+        rect = _settle_clicked_pins(rect, order, free, spec)
     n_on_chain = len(order.indices)
     left_out = [mp for mp in manual if mp.fiducial in order.rejected]
     by_hand = [mp for mp in manual if not mp.snapped and mp not in left_out]
@@ -97,8 +103,8 @@ def measure(
         warnings.append(f"{len(left_out)} pin(s) you added were left out: each must be about one pitch "
                         "from the pins next to it, in line with the chain")
     if by_hand:
-        warnings.append(f"{len(by_hand)} pin(s) you added have no fiducial to snap to, so each is only "
-                        "as exact as your click")
+        warnings.append(f"{len(by_hand)} pin(s) you added have no fiducial to snap to: placed by your click, "
+                        "then fitted to the link lengths around them")
     if order.gaps:
         warnings.append(f"{len(order.gaps)} pin(s) not detected; the curve bridges those gaps")
     expected = spec.n_pins - len(order.gaps)
@@ -125,6 +131,26 @@ def measure(
         fiducials=fiducials, order=order, rectification=rect, object_side=side,
         contacts_mm=contacts, warnings=warnings, manual=manual,
     )
+
+
+def _measured_links(order: ChainOrder, by_click: set[int]) -> list[tuple[int, int]]:
+    """The links between pins whose positions were measured. Those touching a
+    pin placed by a click are left out of the plane fit, so a click does not
+    bend it (unless too few remain to fit it)."""
+    clicked = {k for k, i in enumerate(order.indices) if i in by_click}
+    measured = [(a, b) for a, b in order.links if a not in clicked and b not in clicked]
+    return measured if len(measured) >= 6 else order.links
+
+
+def _settle_clicked_pins(rect: Rectification, order: ChainOrder, free: list[int], spec: ChainSpec) -> Rectification:
+    """Move the pins placed by a click onto the pitch (see pin_to_pitch), and
+    recompute the link errors, now over every link."""
+    depth = float(np.median(rect.depth_mm[free])) if rect.depth_mm is not None else 3.0 * spec.pitch_mm
+    pins = pin_to_pitch(rect.pins_mm, order.links, free, spec.pitch_mm,
+                        sigma_click_mm=3.0 * depth / rect.focal_px)     # a click is good to ~3 px
+    res = np.array([np.linalg.norm(pins[b] - pins[a]) - spec.pitch_mm for a, b in order.links])
+    return replace(rect, pins_mm=pins, link_residuals_mm=res,
+                   residual_rms_mm=float(np.sqrt(np.mean(res ** 2))), residual_max_mm=float(np.max(np.abs(res))))
 
 
 def _can_order(fiducials: list[Fiducial]) -> bool:

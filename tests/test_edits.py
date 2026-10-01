@@ -5,7 +5,7 @@ import pytest
 
 from splinewire.camera import focal_px_from_35mm, look_at_plane
 from splinewire.detect import detect_fiducials
-from splinewire.edits import Edits
+from splinewire.edits import Edits, pin_to_pitch
 from splinewire.pipeline import compare_to_truth, measure
 from splinewire.synthetic import LINK_GRAY, render_photo, s_curve_pins
 
@@ -71,8 +71,47 @@ def test_a_pin_under_glare_can_be_added_by_hand(spec, scene):
     m = measure(img, spec, FOCAL, edits=Edits(add_px=exact))
     assert len(m.order.indices) == len(pins)
     assert [mp.snapped for mp in m.manual] == [False, False]
-    assert any("only as exact as your click" in w for w in m.warnings)
+    assert any("fitted to the link lengths" in w for w in m.warnings)
     assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.1
+
+
+def test_a_clicked_pin_is_fitted_to_the_pitch_of_its_links(spec, scene):
+    """With no dot to snap to, a click 6 px off (~0.7 mm) still lands near the true pin:
+    the links either side of it are exactly one pitch long."""
+    pins, cam, img = scene
+    k = 6
+    cv2.circle(img, tuple(int(v) for v in cam.project(pins[[k]])[0]), 34, LINK_GRAY, -1)
+    click = cam.project(pins[[k]])[0] + (4.2, -4.2)
+    edits = Edits(add_px=((float(click[0]), float(click[1])),))
+
+    m = measure(img, spec, FOCAL, edits=edits)
+    assert [mp.snapped for mp in m.manual] == [False]
+    assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.15
+    assert m.rectification.residual_max_mm < 0.03          # every link, the clicked pin's too
+
+
+def test_pins_in_a_row_keep_the_freedom_the_links_leave_but_stay_on_pitch(spec, scene):
+    pins, cam, img = scene
+    for k in MISSED:
+        cv2.circle(img, tuple(int(v) for v in cam.project(pins[[k]])[0]), 34, LINK_GRAY, -1)
+    clicks = _clicks(cam, pins, MISSED, jitter_px=4.0, seed=3)
+    m = measure(img, spec, FOCAL, edits=Edits(add_px=clicks))
+    assert len(m.order.indices) == len(pins) and m.rectification.residual_max_mm < 0.03
+    assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.5
+
+
+def test_pin_to_pitch_puts_a_pin_where_both_its_links_allow():
+    step = lambda angle: 10.0 * np.array([np.cos(angle), np.sin(angle)])
+    chain = np.zeros((4, 2))
+    for k, angle in enumerate([0.0, 0.45, -0.45], start=1):      # a clear bend at pin 2
+        chain[k] = chain[k - 1] + step(angle)
+    clicked = chain.copy()
+    clicked[2] += (0.8, -0.6)
+    links = [(0, 1), (1, 2), (2, 3)]
+    out = pin_to_pitch(clicked, links, [2], 10.0, sigma_click_mm=0.5)
+    assert np.linalg.norm(out[2] - chain[2]) < 0.05 < np.linalg.norm(clicked[2] - chain[2])
+    np.testing.assert_array_equal(out[[0, 1, 3]], clicked[[0, 1, 3]])      # only free pins move
+    np.testing.assert_array_equal(pin_to_pitch(clicked, links, [], 10.0, 0.5), clicked)
 
 
 def test_removing_an_end_pin(spec, scene):

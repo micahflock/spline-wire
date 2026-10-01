@@ -86,6 +86,27 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
   border-radius: 8px; overflow: hidden; background: var(--bg); }
 .view img { max-width: 100%; max-height: 520px; display: block; }
 .view svg { width: 100%; height: 100%; max-height: 520px; }
+.view h3 { display: flex; align-items: center; gap: 8px; }
+.view h3 .tools { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; text-transform: none; letter-spacing: 0; }
+.btn.small { padding: 3px 9px; font-size: 12.5px; border-radius: 6px; }
+.views.busy .view { opacity: .72; transition: opacity .15s; }
+.view .body.editor-body { min-height: 0; padding: 0; background: #14171b; align-items: stretch; }
+.view svg.editor { height: 520px; max-height: none; display: block; cursor: crosshair; touch-action: none; user-select: none; }
+.view svg.editor.over { cursor: pointer; }
+.view svg.editor.wait { cursor: progress; }
+.ed-hint { margin: 8px 4px 2px; min-height: 20px; font-size: 12.5px; color: var(--muted); }
+.ed-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 4px 4px; font-size: 12px; color: var(--muted); }
+.ed-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 2px solid; vertical-align: -1px; margin-right: 4px; }
+.ov-link, .ov-gap, .ov-pin, .ov-mine, .ov-hand, .ov-unused, .ov-removed, .ov-pending { fill: none; stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ov-link { stroke: #f2cc60; } .ov-gap { stroke: #ff6b6b; stroke-dasharray: 6 5; }
+.ov-pin { stroke: #3fb950; } .ov-mine { stroke: #58a6ff; } .ov-hand { stroke: #58a6ff; stroke-dasharray: 5 4; }
+.ov-unused { stroke: #ff6b6b; } .ov-removed { stroke: #c9d1d9; stroke-dasharray: 4 4; opacity: .85; }
+.ov-pending { stroke: #fff; stroke-dasharray: 3 3; animation: ov-pulse .8s ease-in-out infinite alternate; }
+@keyframes ov-pulse { from { opacity: 1; } to { opacity: .25; } }
+.ov-dot { pointer-events: none; } .ov-dot.pin { fill: #3fb950; } .ov-dot.mine { fill: #58a6ff; } .ov-dot.unused { fill: #ff6b6b; }
+.ov-label { fill: #3fb950; stroke: #0b0e11; paint-order: stroke; stroke-width: 3px; vector-effect: non-scaling-stroke;
+  font-weight: 600; pointer-events: none; }
+.ov-label.mine { fill: #58a6ff; }
 .details { padding: 14px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 24px; }
 .details h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px;
   color: var(--muted); }
@@ -243,18 +264,22 @@ async function init() {
   poll();
 }
 
+async function refresh() {
+  const s = await (await api("/api/state")).json();
+  $("#offline").classList.remove("show");
+  renderNetwork(s.network, s.phone_urls);
+  if (!state || s.state_version !== state.state_version) {
+    const newest = s.photos[0];
+    if (s.photos.length > lastCount && newest) selected = newest.id;   // follow new uploads
+    lastCount = s.photos.length;
+    state = s;
+    render();
+  }
+}
+
 async function poll() {
   try {
-    const s = await (await api("/api/state")).json();
-    $("#offline").classList.remove("show");
-    renderNetwork(s.network, s.phone_urls);
-    if (!state || s.state_version !== state.state_version) {
-      const newest = s.photos[0];
-      if (s.photos.length > lastCount && newest) selected = newest.id;   // follow new uploads
-      lastCount = s.photos.length;
-      state = s;
-      render();
-    }
+    await refresh();
   } catch (e) {
     $("#offline").classList.add("show");
   }
@@ -321,8 +346,9 @@ function statusLine(p) {
   if (p.status === "error") return ["bad", (p.error || "Couldn't measure this photo").split("\n").pop()];
   const r = p.result;
   const t = r.truth ? ` · error ${r.truth.max_error_mm.toFixed(2)} mm` : "";
+  const edited = p.edits ? ` · ${p.edits} edit${p.edits > 1 ? "s" : ""}` : "";
   const cls = r.warnings.length || (r.truth && r.truth.max_error_mm > 1) ? "warn" : "ok";
-  return [cls, `${r.pins} pins · ${r.curve_points} curve points${t}`];
+  return [cls, `${r.pins} pins · ${r.curve_points} curve points${t}${edited}`];
 }
 
 function render() {
@@ -346,10 +372,15 @@ function render() {
   renderMain();
 }
 
+let renderSeq = 0;
+const lastDetail = {};
+
 async function renderMain() {
+  const seq = ++renderSeq;
   const main = $("#main");
   const p = state.photos.find((x) => x.id === selected);
   if (!p) {
+    viewer.pid = null; viewer.svg = null;
     main.innerHTML = `<section class="card empty"><h2>Photograph the chain with your phone</h2>
       <p>Lay the chain flat, dots facing up, the whole chain in the frame. Scan the QR code on the left
       with your iPhone and take the photo from that page. It shows up here within a few seconds.</p>
@@ -357,36 +388,53 @@ async function renderMain() {
     return;
   }
   let d = null;
-  if (p.status === "done") {
+  if (p.status === "done" || p.status === "error") {
     const key = `${p.id}:${state.state_version}`;
     d = detailCache[key] || (detailCache[key] = await (await api(`/api/photo/${p.id}`)).json());
+    lastDetail[p.id] = d;
+  } else {
+    d = lastDetail[p.id] || null;     // measuring again, e.g. after an edit: keep the old picture up
   }
-  if (selected !== p.id) return;   // selection changed while loading
+  if (seq !== renderSeq || selected !== p.id) return;   // something newer is being drawn
   const help = `<section class="card empty"><p>Check that the whole chain is in the photo, dots facing up and in focus,
-    without glare, and that the chain settings match your chain. Then take the photo again.</p></section>`;
+    without glare, and that the chain settings match your chain. Then take the photo again.${
+    d && d.view ? " Or, if you can see the dots, click each pin on the photo below." : ""}</p></section>`;
   main.innerHTML = titleCard(p, d) + (p.status === "error" ? help : "")
-    + (d ? viewsCard(p, d) + detailsCard(d) : "");
+    + (d ? viewsCard(p, d) + (d.result ? detailsCard(d) : "") : "");
+  if (d && d.view) mountEditor(p, d);
 }
 
 function titleCard(p, d) {
   const [cls, text] = statusLine(p);
-  const dl = d ? d.downloads.map((k) => `<a class="btn" href="${withToken(`/api/photo/${p.id}/download/${k}`)}">${
+  const ready = p.status === "done" && d && d.result;
+  const dl = ready ? d.downloads.map((k) => `<a class="btn" href="${withToken(`/api/photo/${p.id}/download/${k}`)}">${
     {dxf: "DXF", csv: "CSV", svg: "SVG", json: "JSON", fusion_csv: "Fusion CSV"}[k]}</a>`).join("") : "";
   return `<section class="card title">
     <div style="min-width:0"><h2>${esc(p.name)}</h2><div class="meta sub ${cls}">${esc(text)}</div></div>
     <div class="actions">
-      ${d ? `<button class="btn primary big" id="copy">Copy points</button><span class="hint">then <b>Paste points</b> in a Fusion sketch</span>` : ""}
+      ${ready ? `<button class="btn primary big" id="copy">Copy points</button><span class="hint">then <b>Paste points</b> in a Fusion sketch</span>` : ""}
       ${dl}
       <button class="btn link" id="delete">Remove</button>
     </div></section>`;
 }
 
 function viewsCard(p, d) {
-  return `<div class="views">
-    <section class="card view"><h3>Measured curve</h3><div class="body">${curveSvg(d.curve)}</div></section>
-    <section class="card view"><h3>Detected pins</h3><div class="body">
-      <img alt="Photo with detected pins" src="${withToken(`/api/photo/${p.id}/preview.jpg`)}&v=${state.state_version}"></div></section>
-  </div>`;
+  const busy = p.status === "queued" || p.status === "processing";
+  const curve = d.result ? `<section class="card view"><h3>Measured curve</h3><div class="body">${curveSvg(d.curve)}</div></section>` : "";
+  const editor = d.view ? `<section class="card view">
+      <h3>Pins <span class="tools">
+        <button class="btn small" id="ed-undo" title="Undo the last change (Ctrl+Z)">Undo</button>
+        <button class="btn small" id="ed-reset" title="Back to what was detected">Reset</button>
+        <button class="btn small" id="ed-fit">Zoom to chain</button>
+        <button class="btn small" id="ed-all">Whole photo</button></span></h3>
+      <div class="body editor-body" id="editor-slot"></div>
+      <p class="ed-hint" id="ed-hint"></p>
+      <div class="ed-legend"><span><i style="border-color:#3fb950"></i>pin on the chain</span>
+        <span><i style="border-color:#58a6ff"></i>pin you added</span>
+        <span><i style="border-color:#ff6b6b"></i>left out (click to use)</span>
+        <span><i style="border-color:#c9d1d9;border-style:dashed"></i>removed (click to restore)</span></div>
+    </section>` : "";
+  return `<div class="views ${busy ? "busy" : ""}">${curve}${editor}</div>`;
 }
 
 function curveSvg(c) {
@@ -438,6 +486,8 @@ function detailsCard(d) {
     ${rowHtml("Link length error", `rms ${r.link_residual_rms_mm} · max ${r.link_residual_max_mm} mm`)}
     ${rowHtml("Object side", `${r.object_side} of the bend`)}
     ${rowHtml("Stray look-alikes ignored", r.rejected)}
+    ${d.view && (d.view.edits.add.length || d.view.edits.remove.length)
+      ? rowHtml("Edited by hand", `${d.view.edits.add.length} added · ${d.view.edits.remove.length} removed`) : ""}
     ${truth}
     <h3>Photo file</h3>
     ${rowHtml("Format", `${esc(info.format)} · ${info.width} × ${info.height}`)}
@@ -471,6 +521,10 @@ document.addEventListener("click", async (ev) => {
   const item = ev.target.closest(".item");
   if (item) { selected = item.dataset.id; render(); return; }
   if (ev.target.id === "copy") return copyPoints();
+  if (ev.target.id === "ed-undo") return undoEdit();
+  if (ev.target.id === "ed-reset") return commitEdits({add: [], remove: []});
+  if (ev.target.id === "ed-fit") return zoomTo(chainBox());
+  if (ev.target.id === "ed-all") return zoomTo({x: 0, y: 0, w: viewer.view.width, h: viewer.view.height});
   const fw = ev.target.dataset && ev.target.dataset.fw;
   if (fw === "allow") return allowFirewall();
   if (fw === "check") { api("/api/firewall/check", {method: "POST"}); netKey = null; return; }
@@ -481,6 +535,7 @@ document.addEventListener("click", async (ev) => {
 document.addEventListener("keydown", (ev) => {
   const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
   if ((ev.ctrlKey || ev.metaKey) && ev.key === "c" && !typing && !String(getSelection())) { ev.preventDefault(); copyPoints(); }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === "z" && !typing && viewer.svg) { ev.preventDefault(); undoEdit(); }
 });
 $("#add").onclick = () => $("#file").click();
 $("#file").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
@@ -495,6 +550,228 @@ $("#quit").onclick = async () => {
   await api("/api/quit", {method: "POST"}).catch(() => {});
   document.body.innerHTML = '<div class="empty"><h2>Spline Wire has stopped.</h2><p>You can close this tab.</p></div>';
 };
+
+// Pin editor: the photo with the detected pins drawn over it. Click empty space to add a pin,
+// a pin to remove it, a red (left-out) detection to use it, a blue pin to delete it, a ghost to
+// restore it. Edits are sent whole to the app, which measures the photo again. All coordinates
+// are photo pixels; the SVG's own coordinate system is the photo's, so zoom is just its viewBox.
+const SVGNS = "http://www.w3.org/2000/svg";
+const viewer = {pid: null, svg: null, vb: null, view: null, pending: [], history: {}, drag: null};
+
+function mountEditor(p, d) {
+  const slot = $("#editor-slot");
+  if (!slot) return;
+  if (viewer.pid !== p.id || !viewer.svg) {
+    viewer.pid = p.id; viewer.view = d.view; viewer.pending = [];
+    viewer.svg = createEditorSvg(p.id, d.view);
+    slot.appendChild(viewer.svg);
+    zoomTo(chainBox());
+  } else {
+    slot.appendChild(viewer.svg);       // the same element, so zoom and the loaded photo stay
+  }
+  viewer.view = d.view; viewer.drag = null;
+  if (p.status === "done" || p.status === "error") viewer.pending = [];
+  drawOverlay();
+  hint();
+}
+
+function createEditorSvg(pid, view) {
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "editor");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "The photo with the detected pins. Click to add or remove pins.");
+  svg.innerHTML = `<image href="${withToken(`/api/photo/${pid}/image.jpg`)}" x="0" y="0" width="${view.width}" height="${view.height}"/><g class="overlay"></g>`;
+  svg.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    svg.setPointerCapture(ev.pointerId);
+    viewer.drag = {x: ev.clientX, y: ev.clientY, vb: {...viewer.vb}, moved: false};
+  });
+  svg.addEventListener("pointermove", (ev) => {
+    const d = viewer.drag;
+    if (!d) return hover(ev);
+    const dx = ev.clientX - d.x, dy = ev.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
+    if (d.moved) {
+      const k = scale();
+      viewer.vb = {...d.vb, x: d.vb.x - dx / k, y: d.vb.y - dy / k};
+      applyViewBox();
+    }
+  });
+  svg.addEventListener("pointerup", (ev) => {
+    const d = viewer.drag; viewer.drag = null;
+    if (d && !d.moved) onEditorClick(toPhoto(ev));
+  });
+  svg.addEventListener("pointercancel", () => { viewer.drag = null; });
+  svg.addEventListener("pointerleave", () => hint());
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const at = toPhoto(ev), vb = viewer.vb, v = viewer.view;
+    const w = Math.min(Math.max(vb.w * Math.exp(ev.deltaY * 0.0015), 6 * v.r), 2 * Math.max(v.width, v.height));
+    const k = w / vb.w;
+    viewer.vb = {x: at.x - (at.x - vb.x) * k, y: at.y - (at.y - vb.y) * k, w, h: vb.h * k};
+    applyViewBox();
+  }, {passive: false});
+  return svg;
+}
+
+const scale = () => viewer.svg.getScreenCTM().a;     // screen px per photo px
+
+function toPhoto(ev) {
+  const pt = viewer.svg.createSVGPoint();
+  pt.x = ev.clientX; pt.y = ev.clientY;
+  const q = pt.matrixTransform(viewer.svg.getScreenCTM().inverse());
+  return {x: q.x, y: q.y};
+}
+
+function applyViewBox() {
+  const b = viewer.vb;
+  viewer.svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.w} ${b.h}`);
+}
+
+// The box that frames the chain (everything marked), padded, in the shape of the viewer.
+function chainBox() {
+  const v = viewer.view, pts = [...v.pins, ...v.unused, ...v.removed];
+  if (!pts.length) return {x: 0, y: 0, w: v.width, h: v.height};
+  const xs = pts.map((m) => m.x), ys = pts.map((m) => m.y);
+  const pad = Math.max(0.12 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)), 4 * v.r);
+  return {x: Math.min(...xs) - pad, y: Math.min(...ys) - pad,
+          w: Math.max(...xs) - Math.min(...xs) + 2 * pad, h: Math.max(...ys) - Math.min(...ys) + 2 * pad};
+}
+
+function zoomTo(box) {
+  const svg = viewer.svg;
+  if (!svg) return;
+  const aspect = (svg.clientWidth || 700) / (svg.clientHeight || 520);
+  let {x, y, w, h} = box;
+  if (w / h < aspect) { const nw = h * aspect; x -= (nw - w) / 2; w = nw; }
+  else { const nh = w / aspect; y -= (nh - h) / 2; h = nh; }
+  viewer.vb = {x, y, w, h};
+  applyViewBox();
+}
+
+// What is under a point: the nearest marker within its own radius (at least 8 screen px).
+function hit(at) {
+  const v = viewer.view, slack = 8 / scale();
+  let best = null;
+  const consider = (kind, m) => {
+    const d = Math.hypot(m.x - at.x, m.y - at.y);
+    if (d <= Math.max((m.r || v.r) * 1.25, slack) && (!best || d < best.d)) best = {kind, m, d};
+  };
+  v.pins.forEach((m) => consider(m.edit === undefined ? "pin" : "mine", m));
+  v.unused.forEach((m) => consider(m.edit === undefined ? "unused" : "mine", m));
+  v.removed.forEach((m) => consider("removed", m));
+  return best;
+}
+
+function hint(text) {
+  const el = $("#ed-hint");
+  if (el) el.textContent = text ?? (editable() ? "Click a pin to remove it, empty space to add one at the middle of a dot. Scroll to zoom, drag to pan."
+                                               : "Measuring…");
+}
+
+function hover(ev) {
+  if (!viewer.view) return;
+  const h = hit(toPhoto(ev));
+  viewer.svg.classList.toggle("over", !!h && editable());
+  viewer.svg.classList.toggle("wait", !editable());
+  if (!editable()) return hint("Measuring…");
+  if (!h) return hint("Click to add a pin here.");
+  const m = h.m;
+  hint({
+    pin: `Pin ${m.k + 1}. Click to remove it.`,
+    mine: m.k === undefined ? "Your pin doesn't fit the chain (it must be about one pitch from its neighbours). Click to delete it."
+      : `Pin ${m.k + 1}, added by you${m.snapped ? "" : "; no dot to snap to, so it is where you clicked"}. Click to delete it.`,
+    unused: "A detection that isn't on the chain. Click to use it as a pin.",
+    removed: "A pin you removed. Click to bring it back.",
+  }[h.kind]);
+}
+
+const editable = () => {
+  const p = state && state.photos.find((x) => x.id === viewer.pid);
+  return !!p && (p.status === "done" || p.status === "error");
+};
+
+function onEditorClick(at) {
+  if (!editable()) return;
+  const e = JSON.parse(JSON.stringify(viewer.view.edits)), h = hit(at);
+  let mark = at;
+  if (!h) e.add.push([at.x, at.y]);
+  else if (h.kind === "pin") { e.remove.push([h.m.x, h.m.y]); mark = h.m; }
+  else if (h.kind === "unused") { e.add.push([h.m.x, h.m.y]); mark = h.m; }
+  else if (h.kind === "mine") { e.add.splice(h.m.edit, 1); mark = h.m; }
+  else { e.remove.splice(h.m.edit, 1); mark = h.m; }
+  commitEdits(e, mark);
+}
+
+function undoEdit() {
+  const stack = viewer.history[viewer.pid] || [];
+  if (!stack.length || !editable()) return;
+  const previous = stack.pop();
+  sendEdits(previous, null, () => stack.push(previous));
+}
+
+function commitEdits(next, mark) {
+  if (!editable()) return;
+  const stack = (viewer.history[viewer.pid] ||= []), current = viewer.view.edits;
+  stack.push(current);
+  sendEdits(next, mark, () => stack.pop());
+}
+
+async function sendEdits(next, mark, rollback) {
+  const pid = viewer.pid;
+  viewer.pending = mark ? [{x: mark.x, y: mark.y, r: mark.r}] : [];
+  drawOverlay(); updateTools();
+  try {
+    await api(`/api/photo/${pid}/edits`, {method: "POST", body: JSON.stringify(next)});
+  } catch (err) {
+    rollback();                          // the app refused it: history stays as it was
+    viewer.pending = []; drawOverlay(); toast(err.message);
+    return;
+  }
+  for (let i = 0; i < 40; i++) {         // the result is a second away: look often, not every 900 ms
+    await new Promise((r) => setTimeout(r, 200));
+    try { await refresh(); } catch (e) { return; }
+    const p = state.photos.find((x) => x.id === pid);
+    if (!p || p.status === "done" || p.status === "error") return;
+  }
+}
+
+function updateTools() {
+  const v = viewer.view, ok = editable();
+  const undo = $("#ed-undo"), reset = $("#ed-reset");
+  if (undo) undo.disabled = !ok || !(viewer.history[viewer.pid] || []).length;
+  if (reset) reset.disabled = !ok || !(v.edits.add.length || v.edits.remove.length);
+}
+
+function drawOverlay() {
+  const v = viewer.view, g = viewer.svg.querySelector(".overlay");
+  const out = [], rr = (m) => (m.r || v.r) * 1.3;
+  const circle = (cls, m) => `<circle class="${cls}" cx="${m.x}" cy="${m.y}" r="${rr(m)}"/>`;
+  const dot = (cls, m) => `<circle class="ov-dot ${cls}" cx="${m.x}" cy="${m.y}" r="${v.r * 0.09}"/>`;
+  v.pins.forEach((m, i) => {
+    if (!i) return;
+    const a = v.pins[i - 1];
+    out.push(`<line class="${v.gaps.includes(i - 1) ? "ov-gap" : "ov-link"}" x1="${a.x}" y1="${a.y}" x2="${m.x}" y2="${m.y}"/>`);
+  });
+  for (const m of v.removed) {
+    const r = rr({}), c = r * 0.55;
+    out.push(`<circle class="ov-removed" cx="${m.x}" cy="${m.y}" r="${r}"/>`,
+      `<path class="ov-removed" d="M${m.x - c} ${m.y - c}L${m.x + c} ${m.y + c}M${m.x - c} ${m.y + c}L${m.x + c} ${m.y - c}"/>`);
+  }
+  for (const m of v.unused) {
+    if (m.edit === undefined) out.push(circle("ov-unused", m), dot("unused", m));
+    else out.push(circle("ov-hand", m), dot("mine", m));
+  }
+  for (const m of v.pins) {
+    const mine = m.edit !== undefined;
+    out.push(circle(!mine ? "ov-pin" : m.snapped ? "ov-mine" : "ov-hand", m), dot(mine ? "mine" : "pin", m),
+      `<text class="ov-label ${mine ? "mine" : ""}" x="${m.x + rr(m) * 0.8}" y="${m.y - rr(m) * 0.8}" font-size="${v.r * 0.85}">${m.k + 1}</text>`);
+  }
+  for (const m of viewer.pending) out.push(circle("ov-pending", {...m, r: (m.r || v.r) * 1.05}));
+  g.innerHTML = out.join("");
+  viewer.svg.classList.toggle("wait", !editable());
+  updateTools();
+}
 
 // Settings dialog
 const form = $("#settings-form");
