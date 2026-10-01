@@ -15,6 +15,8 @@ from PIL import Image
 from splinewire.camera import focal_px_from_35mm
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side
+from splinewire.detect import Fiducial
+from splinewire.edits import Edits
 from splinewire.output import (
     render_preview, write_csv, write_dxf, write_fusion_csv, write_image, write_json, write_svg,
 )
@@ -67,24 +69,33 @@ def process_photo(
     side: Side = "inside",
     truth_path: Path | None = None,
     default_focal_35mm: float | None = None,
+    edits: Edits | None = None,
+    loaded: tuple[np.ndarray, float | None] | None = None,
+    detected: list[Fiducial] | None = None,
 ) -> PhotoResult:
     """Measure the chain in `photo` and write JSON, CSV, SVG and preview to out_dir.
 
     Focal length, in order of preference: focal_35mm (an explicit override),
     the photo's EXIF, default_focal_35mm (e.g. the user's phone camera, for
     uploads that lost their EXIF), or an estimate from the chain itself.
+
+    edits: pins removed or added by hand (splinewire.edits). loaded and
+    detected: what load_photo and detect_fiducials already returned for this
+    photo, to measure it again without repeating them (e.g. after an edit).
     """
     photo = Path(photo)
-    image, focal = load_photo(photo)
+    image, focal = loaded if loaded is not None else load_photo(photo)
     size = (image.shape[1], image.shape[0])
     source = "exif" if focal is not None else "estimated"
     if focal_35mm is not None:
         focal, source = focal_px_from_35mm(focal_35mm, size), "override"
     elif focal is None and default_focal_35mm is not None:
         focal, source = focal_px_from_35mm(default_focal_35mm, size), "default"
-    m = measure(image, spec, focal, side=side)
+    m = measure(image, spec, focal, side=side, edits=edits, detected=detected)
 
     extra: dict = {"photo": photo.name}
+    if edits:
+        extra["edits"] = edits.to_json()
     truth_comparison = None
     if truth_path is not None:
         truth = np.array(json.loads(Path(truth_path).read_text(encoding="utf-8"))["pin_points"])
