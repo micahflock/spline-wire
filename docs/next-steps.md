@@ -35,7 +35,8 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 **Only after item 1 passes.** Pitch accuracy is now the critical dimension.
 
-- Build or adapt a chain matching `data/chain.yaml` (or update the YAML to match what's built), with a light dot on each pin (keep ≥1.5 mm of dark link around it). Options: a printed dot on each pin boss, or a light pin head; a pin head's centre is only as good as its fit in the hole. A contrasting hollow rivet is a ring for free (`fiducial: ring`).
+- Print-in-place option, designed but not yet printed: `uv run splinewire print-chain` (`docs/printed-chain.md`). Print `--pins 3` first: check that the joint frees, sets, has no play and holds with even friction; tune `--clearance` and `--preload`. Then print the full chain and check its length (128.0 mm).
+- Or build or adapt a chain matching `data/chain.yaml` (or update the YAML to match what's built), with a light dot on each pin (keep ≥1.5 mm of dark link around it). Options: a printed dot on each pin boss, or a light pin head; a pin head's centre is only as good as its fit in the hole. A contrasting hollow rivet is a ring for free (`fiducial: ring`).
 - Tune joint friction.
 - Measure the actual pitch with calipers across many links and put the mean in the YAML.
 - **Exit criterion:** wrap a pipe or gauge of known radius, photograph, and recover the radius within 0.5 mm.
