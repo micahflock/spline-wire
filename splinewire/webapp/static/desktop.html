@@ -181,6 +181,7 @@ label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
         <span>Dot or ring diameter (mm)</span><input name="fiducial_mm" inputmode="decimal">
         <span>Ring hole diameter (mm, rings only)</span><input name="ring_inner_mm" inputmode="decimal">
         <span>Number of pins</span><input name="n_pins" inputmode="numeric">
+        <span>Sharpest bend at a pin (°; 80, or 125 for the O-ring chain)</span><input name="max_bend_deg" inputmode="decimal">
       </div>
     </fieldset>
     <fieldset>
@@ -792,7 +793,7 @@ $("#settings-save").onclick = async (ev) => {
   const e = form.elements;
   const body = {chain: {}, side: e.side.value, phone_focal_35mm: e.phone_focal_35mm.value.trim(),
     focal_override_35mm: e.focal_override_35mm.value.trim()};
-  for (const k of ["pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins"]) body.chain[k] = e[k].value.trim();
+  for (const k of ["pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins", "max_bend_deg"]) body.chain[k] = e[k].value.trim();
   try {
     await api("/api/settings", {method: "POST", body: JSON.stringify(body)});
     $("#settings").close();

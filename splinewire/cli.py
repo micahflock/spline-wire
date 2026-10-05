@@ -5,6 +5,7 @@
     splinewire test-part               printable chain drawing with known shape
     splinewire test-plaque             3D-printable chain plaque (STL) with known shape
     splinewire print-chain             3D-printable working chain (print-in-place STL)
+    splinewire oring-chain             3D-printable working chain for PETG (screws, O-rings)
 """
 from __future__ import annotations
 
@@ -78,10 +79,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--preload", type=float, default=0.15,
                    help="how far each pin bends its spring once set, mm; sets the joint friction")
 
+    p = sub.add_parser("oring-chain", help="write an assembled PETG chain: printed links, M3 screws, O-rings (STL)")
+    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--out", type=Path, default=Path("out/oring-chain"))
+    p.add_argument("--pins", type=int, help="number of pins (default: n_pins from the chain file); "
+                                             "4 prints a two-joint test piece")
+    p.add_argument("--margin", type=float, default=0.2,
+                   help="joints stop where the pins either side are (1 + margin) pitches apart")
+    p.add_argument("--squeeze", type=float, default=0.25,
+                   help="how far each O-ring is pressed into its seat, mm; sets the joint friction")
+    p.add_argument("--screw-length", type=float, default=6.0, help="M3 countersunk screw length, mm")
+
     args = parser.parse_args(argv)
     spec = load_chain_spec(args.chain)
     commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque,
-                "print-chain": _print_chain}
+                "print-chain": _print_chain, "oring-chain": _oring_chain}
     return commands[args.command](args, spec)
 
 
@@ -173,6 +185,20 @@ def _print_chain(args, spec: ChainSpec) -> int:
     params = JointParams(clearance_mm=args.clearance, preload_mm=args.preload)
     name = "chain" if args.pins is None else f"chain-{args.pins}pins"
     paths = write_printed_chain(args.out, spec, params, n_pins=args.pins, name=name)
+    print(paths["instructions"].read_text(encoding="utf-8"))
+    print("wrote " + ", ".join(p.name for p in paths.values()) + f" in {args.out}")
+    return 0
+
+
+def _oring_chain(args, spec: ChainSpec) -> int:
+    try:
+        from splinewire.oring_chain import OringParams, write_oring_chain
+    except ImportError as err:
+        print(f"oring-chain needs the dev dependencies (uv sync): {err}", file=sys.stderr)
+        return 1
+    params = OringParams(margin=args.margin, squeeze_mm=args.squeeze, screw_len_mm=args.screw_length)
+    name = "oring-chain" if args.pins is None else f"oring-chain-{args.pins}pins"
+    paths = write_oring_chain(args.out, spec, params, n_pins=args.pins, name=name)
     print(paths["instructions"].read_text(encoding="utf-8"))
     print("wrote " + ", ".join(p.name for p in paths.values()) + f" in {args.out}")
     return 0

@@ -10,6 +10,7 @@ def test_spec_file_loads():
     spec = load_chain_spec(REPO / "data" / "chain.yaml")
     assert spec.pitch_mm == 10.0 and spec.n_pins == 13
     assert (spec.fiducial, spec.fiducial_mm) == ("dot", 5.0)
+    assert spec.max_bend_deg == 80.0
 
 
 @pytest.mark.parametrize("kwargs, match", [
@@ -19,6 +20,7 @@ def test_spec_file_loads():
     ({"fiducial_mm": 12.0}, "fiducial_mm"),
     ({"fiducial": "square"}, "fiducial"),
     ({"n_pins": 2}, "n_pins"),
+    ({"max_bend_deg": 170.0}, "max_bend_deg"),
 ])
 def test_spec_rejects_bad_values(kwargs, match):
     base = dict(pitch_mm=10.0, half_width_mm=4.0, fiducial_mm=5.0, n_pins=13)
@@ -31,6 +33,8 @@ def test_older_ring_spec_still_loads():
     s = spec_from_dict(old)
     assert (s.fiducial, s.fiducial_mm, s.ring_inner_mm) == ("ring", 5.0, 2.0)
     assert spec_from_dict({**old, "fiducial_mm": 5.0, "fiducial": "dot"}).fiducial == "dot"
+    assert s.max_bend_deg == 80.0                                    # files from before the setting
+    assert spec_from_dict({**old, "max_bend_deg": 125}).max_bend_deg == 125.0
 
 
 def test_pins_from_turns_keeps_pitch_and_turns():

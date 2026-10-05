@@ -60,7 +60,7 @@ from splinewire.webapp.firewall import Firewall
 DEFAULT_PORT = 8765
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 STATIC = Path(__file__).resolve().parent / "static"
-CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins")
+CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins", "max_bend_deg")
 # The chain every earlier version shipped (rings); saved unchanged, it follows the new default.
 OLD_DEFAULT_CHAIN = {"ring_outer_mm": 5.0, "ring_inner_mm": 2.0}
 FULL_FRAME_DIAGONAL_MM = 43.2666
@@ -135,7 +135,7 @@ class AppState:
             chain = {k: getattr(base, k) for k in CHAIN_KEYS}
         except (OSError, KeyError, ValueError):
             chain = {"pitch_mm": 10.0, "half_width_mm": 4.0, "fiducial": "dot", "fiducial_mm": 5.0,
-                     "ring_inner_mm": 0.0, "n_pins": 13}
+                     "ring_inner_mm": 0.0, "n_pins": 13, "max_bend_deg": 80.0}
         s["chain"] = {**chain, **_migrate_chain(s.get("chain", {}))}
         s.setdefault("side", "inside")
         s.setdefault("focal_override_35mm", None)
@@ -157,6 +157,8 @@ class AppState:
             if "chain" in changes:
                 c = changes["chain"]
                 new["chain"] = {k: float(c.get(k) or 0.0) for k in CHAIN_KEYS if k != "fiducial"}
+                if not c.get("max_bend_deg"):         # a page from before the setting existed
+                    new["chain"]["max_bend_deg"] = float(self.settings["chain"]["max_bend_deg"])
                 new["chain"]["n_pins"] = int(new["chain"]["n_pins"])
                 new["chain"]["fiducial"] = str(c.get("fiducial", "dot"))
             if "side" in changes:
