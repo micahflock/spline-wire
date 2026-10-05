@@ -174,6 +174,7 @@ def _order(fiducials: list[Fiducial], spec: ChainSpec, excluded: set[int]) -> Ch
             axes_px=np.array([fiducials[i].outer_axes_px for i in idx]),
             pitch_per_diameter=spec.pitch_mm / spec.fiducial_mm,
             n_pins=spec.n_pins,
+            max_turn_deg=spec.max_bend_deg,
             strength=np.array([fiducials[i].contrast for i in idx]),
         )
         mapped = ChainOrder(

@@ -95,6 +95,13 @@ def test_settings_are_validated(served):
     assert call(server, "/api/settings", json.dumps(ok).encode(), app.token)[0] == 200
     assert app.settings["side"] == "outside" and app.settings["phone_focal_35mm"] == 24
 
+    sharp = {"chain": {**app.settings["chain"], "max_bend_deg": "125"}}
+    assert call(server, "/api/settings", json.dumps(sharp).encode(), app.token)[0] == 200
+    assert app.spec().max_bend_deg == 125.0
+    older_page = {"chain": {k: v for k, v in app.settings["chain"].items() if k != "max_bend_deg"}}
+    assert call(server, "/api/settings", json.dumps(older_page).encode(), app.token)[0] == 200
+    assert app.spec().max_bend_deg == 125.0                     # kept, not zeroed
+
 
 def test_phone_side_is_limited(served):
     """From another device: pages and uploads work; settings, downloads and quit don't."""

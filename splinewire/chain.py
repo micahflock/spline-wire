@@ -20,6 +20,7 @@ class ChainSpec:
     n_pins: int
     fiducial: str = "dot"         # "dot" (solid light disc) or "ring" (light annulus)
     ring_inner_mm: float = 0.0    # a ring's hole diameter; 0 for a dot
+    max_bend_deg: float = 80.0    # sharpest turn at a pin the ordering accepts, as seen in the photo
 
     def __post_init__(self) -> None:
         if self.pitch_mm <= 0:
@@ -42,6 +43,8 @@ class ChainSpec:
             )
         if self.n_pins < 3:
             raise ValueError(f"n_pins must be >= 3, got {self.n_pins}")
+        if not 30.0 <= self.max_bend_deg <= 150.0:
+            raise ValueError(f"max_bend_deg must be between 30 and 150, got {self.max_bend_deg}")
 
 
 def default_chain_path() -> Path:
@@ -70,6 +73,7 @@ def spec_from_dict(raw: dict) -> ChainSpec:
         n_pins=int(raw["n_pins"]),
         fiducial=str(kind),
         ring_inner_mm=float(raw.get("ring_inner_mm") or 0.0) if kind == "ring" else 0.0,
+        max_bend_deg=float(raw.get("max_bend_deg") or ChainSpec.max_bend_deg),
     )
 
 
