@@ -21,7 +21,7 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 
 ## Repo layout
 
-- `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`; `edits` holds a person's corrections to the detections (pins removed or added by clicking the photo, snapped to the dot under the click, then fitted to the pitch); `process` measures one photo and writes its files, shared by `cli` and the app in `webapp/` (a local web server with browser UI and phone upload over Wi-Fi; `settings` holds its per-user settings). `synthetic` renders ideal test photos and `scene` realistic ones (FDM print defects for a 0.4 mm nozzle, tables, clutter, glare, shadows, defocus, noise, JPEG; named `PRESETS`); `fiducials` defines the dot, the ring and the alternative fiducial designs compared in `docs/cv-robustness.md`. `testpart` renders a paper test chain and `plaque` a 3D-printable one (black/white, one filament swap); `selftest` checks a packaged build.
+- `splinewire/` — the pipeline: `detect` → `order` → `rectify` → `contact`, glued by `pipeline`; `edits` holds a person's corrections to the detections (pins removed or added by clicking the photo, snapped to the dot under the click, then fitted to the pitch); `process` measures one photo and writes its files, shared by `cli` and the app in `webapp/` (a local web server with browser UI and phone upload over Wi-Fi; `settings` holds its per-user settings). `synthetic` renders ideal test photos and `scene` realistic ones (FDM print defects for a 0.4 mm nozzle, tables, clutter, glare, shadows, defocus, noise, JPEG; named `PRESETS`); `fiducials` defines the dot, the ring and the alternative fiducial designs compared in `docs/cv-robustness.md`. `testpart` renders a paper test chain and `plaque` a 3D-printable one (black/white, one filament swap); `printed_chain` a print-in-place working chain (outer/inner links, pins held play-free by a sprung V once set; `docs/printed-chain.md`); `selftest` checks a packaged build.
 - `fusion/SplineWire/` — Fusion add-in: a Paste points button that reads the table SplineWire.exe's Copy points puts on the clipboard (mm) and adds sketch points plus a fitted spline (API units are cm). `splinewire/fusion_addin.py` installs it. Feasibility notes: `docs/fusion-import.md`.
 - `packaging/` — PyInstaller build of the app (`SplineWire.exe`, a console program that serves the web app); `.github/workflows/windows-exe.yml` builds, tests and uploads it on Windows.
 - `data/chain.yaml` — the chain's physical parameters (pitch, half-width, fiducial type and size, pin count).
@@ -29,6 +29,7 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 - `experiments/` — standalone studies: `cv_benchmark` (detection across simulated environments, current code vs a git revision), `fiducial_study` (fiducial designs), `lens_distortion`, `self_rectification`, `relief_bias`.
 - `docs/architecture.md` — design and rationale.
 - `docs/cv-robustness.md` — simulated environments, benchmark results, fiducial options for a 0.4 mm nozzle.
+- `docs/printed-chain.md` — the print-in-place chain: layout, joint, setting, colours, open risks.
 - `docs/next-steps.md` — status and near-term tasks, in risk order.
 - `docs/open-questions.md` — unresolved design questions.
 
@@ -43,6 +44,7 @@ uv run python experiments/cv_benchmark.py --baseline HEAD   # detection benchmar
 uv run splinewire measure out/synth/pipe.jpg --truth out/synth/pipe-truth.json
 uv run splinewire test-part               # printable paper SVG + truth -> out/test-part/
 uv run splinewire test-plaque             # 3D-printable plaque STLs + truth -> out/test-plaque/
+uv run splinewire print-chain             # print-in-place working chain STLs -> out/print-chain/ (--pins 3: one test joint)
 uv run splinewire-app                     # the app: opens http://localhost:8765/ (phone page via its QR code)
 uv run splinewire-app --selftest log.txt  # headless check over HTTP, also run on the packaged .exe
 uv sync --group build && uv run python packaging/build_exe.py   # dist/SplineWire(.exe)
