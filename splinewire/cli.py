@@ -4,6 +4,7 @@
     splinewire synth [--env PRESET]    synthetic chain photo with known shape
     splinewire test-part               printable chain drawing with known shape
     splinewire test-plaque             3D-printable chain plaque (STL) with known shape
+    splinewire print-chain             3D-printable working chain (print-in-place STL)
 """
 from __future__ import annotations
 
@@ -15,7 +16,13 @@ import numpy as np
 
 from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec
 from splinewire.process import process_photo
-from splinewire.synthetic import circle_wrap_pins, s_curve_pins, save_photo, write_synthetic_photo, write_truth
+from splinewire.synthetic import (
+    circle_wrap_pins,
+    s_curve_pins,
+    save_photo,
+    write_synthetic_photo,
+    write_truth,
+)
 from splinewire.testpart import test_part_svg
 
 DEFAULT_CHAIN = default_chain_path()
@@ -61,9 +68,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, default=Path("out/test-plaque"))
     _add_shape_args(p)
 
+    p = sub.add_parser("print-chain", help="write a print-in-place chain with working joints (STL)")
+    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--out", type=Path, default=Path("out/print-chain"))
+    p.add_argument("--pins", type=int, help="number of pins (default: n_pins from the chain file); "
+                                             "3 prints a single test joint")
+    p.add_argument("--clearance", type=float, default=0.3,
+                   help="gap between parts as printed, mm; raise it if joints fuse")
+    p.add_argument("--preload", type=float, default=0.15,
+                   help="how far each pin bends its spring once set, mm; sets the joint friction")
+
     args = parser.parse_args(argv)
     spec = load_chain_spec(args.chain)
-    commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque}
+    commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque,
+                "print-chain": _print_chain}
     return commands[args.command](args, spec)
 
 
@@ -143,6 +161,20 @@ def _test_plaque(args, spec: ChainSpec) -> int:
     write_truth(args.out / f"{args.shape}-truth.json", pins)
     print(paths["instructions"].read_text(encoding="utf-8"))
     print("wrote " + ", ".join(p.name for p in paths.values()) + f", {args.shape}-truth.json in {args.out}")
+    return 0
+
+
+def _print_chain(args, spec: ChainSpec) -> int:
+    try:
+        from splinewire.printed_chain import JointParams, write_printed_chain
+    except ImportError as err:
+        print(f"print-chain needs the dev dependencies (uv sync): {err}", file=sys.stderr)
+        return 1
+    params = JointParams(clearance_mm=args.clearance, preload_mm=args.preload)
+    name = "chain" if args.pins is None else f"chain-{args.pins}pins"
+    paths = write_printed_chain(args.out, spec, params, n_pins=args.pins, name=name)
+    print(paths["instructions"].read_text(encoding="utf-8"))
+    print("wrote " + ", ".join(p.name for p in paths.values()) + f" in {args.out}")
     return 0
 
 
