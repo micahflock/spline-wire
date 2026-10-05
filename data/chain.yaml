@@ -22,3 +22,11 @@ fiducial_mm: 5.0
 
 # Number of pins (links + 1).
 n_pins: 13
+
+# Sharpest turn at a pin, in degrees from straight, that the ordering
+# accepts as seen in the photo. Keep it below the chain's own limit: a
+# larger value lets the ordering jump across to a nearby part of the chain.
+# 80 suits the print-in-place chain (joints stop at 90). The O-ring chain
+# (splinewire oring-chain) stops at 106; perspective makes that look up to
+# ~117 at a 35 degree tilt, so use 125 for it.
+max_bend_deg: 80

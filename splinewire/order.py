@@ -4,8 +4,12 @@ The fiducials carry no IDs, so order comes from geometry: walk from pin to
 pin, stepping about one pitch each time and turning as little as possible.
 A turn limit stops the walk from jumping across to a neighbouring part of
 the chain (e.g. the other leg of a tight U-bend), and a step of about two
-pitches is accepted as one missing detection. Every detection is tried as
-the starting point; the walk that visits the most pins wins.
+pitches is accepted as one missing detection. A step never passes over an
+unvisited pin that lies about one pitch from both its ends: at a sharp
+bend the pin after next can be nearer than the next pin's turn suggests
+(1.2 pitches at the O-ring chain's stop), and skipping it would lose it.
+Every detection is tried as the starting point; the walk that visits the
+most pins wins.
 
 When ring sizes are given, each ring also predicts how long a step from it
 should be (the pitch is a known multiple of the ring diameter, foreshortened
@@ -66,7 +70,8 @@ def order_chain(
     for start in range(n):
         path, turn_total = _walk(start, pts, dist, nn_pitch, max_turn, sizes)
         length = min(len(path), n_pins) if n_pins else len(path)
-        key = (length, float(np.sum(strength[path])) if strength is not None else 0.0, -turn_total)
+        off, gaps = _off_pitch(path, dist)
+        key = (length, float(np.sum(strength[path])) if strength is not None else 0.0, -off, -gaps, -turn_total)
         if best_key is None or key > best_key:
             best_path, best_key = path, key
 
@@ -138,6 +143,8 @@ def _walk(start, pts, dist, nn_pitch, max_turn, sizes: _Sizes | None):
                 if not band / 1.6 < sizes.major[j] < band * 1.6:
                     continue
             score = turn + 2.0 * abs(ratio - (2.0 if is_gap else 1.0)) + (1.0 if is_gap else 0.0)
+            if not is_gap and _passes_over(cur, j, dist, pitch, visited):
+                score += 1.0
             if score < best_score:
                 best, best_score, best_turn = j, score, turn
         if best is None:
@@ -150,6 +157,28 @@ def _walk(start, pts, dist, nn_pitch, max_turn, sizes: _Sizes | None):
         turn_total += best_turn
         path.append(int(best))
         visited.add(int(best))
+
+
+def _off_pitch(path: list[int], dist: np.ndarray) -> tuple[int, int]:
+    """Steps of the walk more than 10% off a whole pitch, and steps of two
+    pitches (over a missing pin). A walk that doubles back over a sharp bend
+    takes a step of ~1.2 pitches where the chain itself takes two of one."""
+    steps = np.array([dist[a, b] for a, b in zip(path[:-1], path[1:])])
+    if len(steps) == 0:
+        return 0, 0
+    ratio = steps / np.median(steps)
+    whole = np.clip(np.round(ratio), 1, 2)
+    return int(np.sum(np.abs(ratio - whole) > 0.1)), int(np.sum(whole == 2))
+
+
+def _passes_over(cur: int, j: int, dist: np.ndarray, pitch: float, visited: set) -> bool:
+    """Some unvisited pin is about one pitch from both cur and j, and nearer
+    to each than they are to each other."""
+    d = dist[cur, j]
+    near = ((np.abs(dist[cur] / pitch - 1.0) < 0.25) & (np.abs(dist[j] / pitch - 1.0) < 0.25)
+            & (dist[cur] < d) & (dist[j] < d))
+    near[[cur, j]] = False
+    return any(m not in visited for m in np.flatnonzero(near))
 
 
 def _angle(a: np.ndarray, b: np.ndarray) -> float:

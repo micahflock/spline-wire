@@ -74,3 +74,33 @@ def test_missing_pin_becomes_a_gap():
     assert got == kept or got == kept[::-1]
     assert len(order.gaps) == 1
     assert len(order.links) == len(kept) - 2
+
+
+SHARP = 106.0   # the O-ring chain's stop: links 74° apart, pins either side 1.2 pitches apart
+
+
+@pytest.mark.parametrize("turns_deg", [
+    np.r_[np.zeros(5), SHARP, np.zeros(5)],                   # one sharp corner
+    np.r_[np.zeros(3), SHARP, 0.0, 0.0, -SHARP, np.zeros(4)],  # sharp S
+    np.r_[np.zeros(4), SHARP, 60.0, np.zeros(5)],             # hook
+    np.r_[np.zeros(4), 90.0, 90.0, np.zeros(5)],              # U with legs one pitch apart
+    SHARP * np.array([(-1) ** k for k in range(11)]),         # zigzag, every joint at its stop
+])
+@pytest.mark.parametrize("tilt_deg", [0.0, 25.0])
+def test_orders_sharp_bends(turns_deg, tilt_deg):
+    """With max_turn_deg raised for a chain that bends to 106°, foreshortened
+    by a tilted camera: the walk neither skips the pin at a sharp bend nor
+    starts mid-chain and doubles back."""
+    rng = np.random.default_rng(3)
+    for _ in range(10):
+        pins = pins_from_turns(40.0, np.radians(turns_deg), heading_rad=rng.uniform(0, 2 * np.pi))
+        pins = pins * [1.0, np.cos(np.radians(tilt_deg))] + rng.normal(0, 0.3, pins.shape)
+        pts, perm = _shuffled(pins, seed=int(rng.integers(1000)))
+        order = order_chain(pts, max_turn_deg=125.0)
+        _assert_chain_order(order, perm, list(range(len(pins))))
+        assert order.gaps == []
+
+
+def test_sharp_bends_need_the_raised_turn_limit():
+    pins = pins_from_turns(40.0, np.radians(np.r_[np.zeros(5), SHARP, np.zeros(5)]))
+    assert len(order_chain(pins).indices) < len(pins)                  # default 80°: stops at the corner
