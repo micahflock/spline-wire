@@ -95,3 +95,19 @@ def test_scale_fit_separates_print_scale_from_shape_error():
     assert t["scale"] == pytest.approx(0.995)
     assert t["max_error_scaled_mm"] < 1e-9
     assert t["max_error_mm"] > 0.1
+
+
+def test_sharp_corner_end_to_end(spec):
+    """The O-ring chain bends to 106° at a joint; with max_bend_deg raised
+    the photo is ordered and measured through the corner."""
+    from dataclasses import replace
+
+    from splinewire.chain import pins_from_turns
+
+    turns = np.radians(np.r_[np.zeros(4), 106.0, 20.0, -106.0, np.zeros(4)])
+    pins = pins_from_turns(spec.pitch_mm, turns)[: spec.n_pins]
+    img, _ = _photo(spec, pins)
+    assert len(measure(img, spec, FOCAL).order.indices) < spec.n_pins     # default 80°: loses the corner
+    m = measure(img, replace(spec, max_bend_deg=125.0), FOCAL)
+    assert len(m.order.indices) == spec.n_pins and m.order.gaps == []
+    assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.05
