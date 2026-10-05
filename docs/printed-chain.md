@@ -78,5 +78,14 @@ Seen from above, everything is black except the dots. That includes the inner li
 - **Preload accuracy.** The 0.15 mm interference is close to FDM tolerance (±0.05–0.1 mm). Friction may vary from joint to joint, and the spring force varies by up to ±50%. Tune with `--preload`.
 - **Creep.** PLA under 25 MPa relaxes, so retest friction after some weeks. PETG is less stiff and so gives less force for the same preload. It creeps less.
 - **Thickness.** 7.4 mm, about the link's width, set mostly by the 45° cones. A thinner chain needs flat overhangs that print onto other parts, which is exactly what fuses print-in-place joints.
+- **Thin parts.** The spring beam is two 0.4 mm lines, which prints fine as a vertical wall. The 0.35 mm slots either side of it are more likely to bridge shut. If they do, a more forgiving spring could help: 0.45 mm slots and a thicker beam with less preload.
+
+## Alternatives considered
+
+- **Copper wire through the chain to hold the pose** (instead of the spring's friction). Rejected for now, from rough numbers (annealed copper, yield 35–70 MPa, E 117 GPa):
+  - **Springback.** Copper is elastic below yield, so each bent joint relaxes by about 6.8 σ_y/E when the chain comes off the object. That is 0.12–0.23° per joint whatever the gauge, and in simulation it gives 0.15–0.6 mm worst pin (pipe R 25 mm: 0.31–0.63 mm). Friction joints in stiff plastic store almost nothing and do not spring back. Combining the two does not help: the friction would have to cancel the wire's springback, and then the wire does no work.
+  - **Fatigue.** A bend concentrated at a joint strains the wire about 9% at 20° and 40% at 90°, so it cracks after tens of tight bends. Letting the wire curve smoothly through loose channels lowers the strain but increases the springback.
+  - **Play.** The wire does not take out the joints' play, which the spring does. Play of 0.3 mm costs 0.23–0.34 mm worst pin in simulation (0.4 px centre noise, which matches the first real photo), against 0.08 mm without play. Deskewing from the outer links alone, whose dots are rigid, gets that to about 0.15 mm.
+- **An elastomer instead of the printed spring** (an O-ring or silicone pad pressing each pin into its V), if an assembly step after printing is acceptable. It keeps the play-free V and the springback-free friction, and holds its force better than stressed PLA. Not designed yet.
 
 The next-steps item 2 exit test applies unchanged. Wrap a gauge of known radius, photograph the chain, and the radius should come back within 0.5 mm.
