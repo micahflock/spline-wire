@@ -533,7 +533,7 @@ Estimated: O-ring force {fe["force_N"]:.0f} N, friction {fe["torque_Nmm"]:.0f} N
 store, so a joint does not spring back. Too stiff or too loose: regenerate
 with a different --squeeze (default {OringParams().squeeze_mm:g} mm).
 Try a short piece first: splinewire oring-chain --pins 4 (two joints).
-To measure photos of this chain, set max_bend_deg: 125 in chain.yaml.
+To measure photos of this chain, chain.yaml needs max_bend_deg: 125 (the default).
 """
 
 
