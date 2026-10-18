@@ -181,12 +181,12 @@ def test_write_files(tmp_path, chain):
     paths = write_oring_chain(tmp_path, spec, n_pins=4, name="test")
     for p in paths.values():
         assert p.is_file() and p.stat().st_size > 0
-    text = paths["instructions"].read_text()
+    text = paths["instructions"].read_text(encoding="utf-8")
     h = print_heights(joint_geometry(spec))
     assert f"{h['white']:.1f} mm" in text and f"{h['black']:.1f} mm" in text
     assert "2 x M3 x 6 countersunk" in text
-    assert paths["drawing"].read_text().startswith("<svg")
-    page = paths["viewer"].read_text()
+    assert paths["drawing"].read_text(encoding="utf-8").startswith("<svg")
+    page = paths["viewer"].read_text(encoding="utf-8")
     assert page.startswith("<!doctype html>") and "{{" not in page and "<!--FIT_ROWS-->" not in page
     assert "window.CHAIN=" in page and "106.3" in page and "Ø4.5 on Ø4.0" in page
     import trimesh
