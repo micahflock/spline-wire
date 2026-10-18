@@ -10,7 +10,7 @@ def test_spec_file_loads():
     spec = load_chain_spec(REPO / "data" / "chain.yaml")
     assert spec.pitch_mm == 10.0 and spec.n_pins == 13
     assert (spec.fiducial, spec.fiducial_mm) == ("dot", 5.0)
-    assert spec.max_bend_deg == 80.0
+    assert spec.max_bend_deg == 125.0                               # the O-ring chain
 
 
 @pytest.mark.parametrize("kwargs, match", [

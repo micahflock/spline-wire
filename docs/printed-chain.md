@@ -143,7 +143,7 @@ Everything prints as used, dots up, on one bed, with no supports:
 
 ## Measuring photos of it
 
-Set `max_bend_deg: 125` in `data/chain.yaml` (default 80, for the print-in-place chain), or in the app's settings. The joints stop at a 106° turn. Seen through a phone tilted by 35°, that can look like ~117°.
+`data/chain.yaml` sets `max_bend_deg: 125` for this chain (use 80 for the print-in-place chain; it is also in the app's settings). The joints stop at a 106° turn. Seen through a phone tilted by 35°, that can look like ~117°.
 
 With the turn limit raised, the ordering walk would otherwise be tempted to skip the pin at a sharp bend: the pin after next is only 1.2 pitches away and needs half the turn. So a step that passes over an unvisited pin lying about a pitch from both its ends costs extra. Among walks that visit equally many pins, the one with fewer steps off a whole pitch wins. In tests with noise and foreshortening, single sharp corners, sharp S-bends, hooks and pitch-wide U-turns order correctly up to a 35° tilt. The one known failure: a zigzag with every joint at its stop, seen at a 35° tilt. Foreshortening then shrinks the 1.2-pitch skip to about one pitch in the photo, and about half the walks skip every other pin. Pins can be fixed by hand in the app.
 

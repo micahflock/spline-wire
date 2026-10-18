@@ -107,7 +107,8 @@ def test_sharp_corner_end_to_end(spec):
     turns = np.radians(np.r_[np.zeros(4), 106.0, 20.0, -106.0, np.zeros(4)])
     pins = pins_from_turns(spec.pitch_mm, turns)[: spec.n_pins]
     img, _ = _photo(spec, pins)
-    assert len(measure(img, spec, FOCAL).order.indices) < spec.n_pins     # default 80°: loses the corner
+    narrow = replace(spec, max_bend_deg=80.0)                   # the print-in-place chain's limit
+    assert len(measure(img, narrow, FOCAL).order.indices) < spec.n_pins     # loses the corner
     m = measure(img, replace(spec, max_bend_deg=125.0), FOCAL)
     assert len(m.order.indices) == spec.n_pins and m.order.gaps == []
     assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.05
