@@ -186,3 +186,26 @@ def test_write_files(tmp_path, chain):
     assert f"{h['white']:.1f} mm" in text and f"{h['black']:.1f} mm" in text
     assert "2 x M3 x 6 countersunk" in text
     assert paths["drawing"].read_text().startswith("<svg")
+    page = paths["viewer"].read_text()
+    assert page.startswith("<!doctype html>") and "{{" not in page and "<!--FIT_ROWS-->" not in page
+    assert "window.CHAIN=" in page and "106.3" in page and "Ø4.5 on Ø4.0" in page
+    import trimesh
+    model = trimesh.load(paths["model"])
+    assert len(model.geometry) == 9                      # 2 outer, 1 inner, 2 x (screw, washer, O-ring)
+
+
+def test_viewer_data_matches_the_parts(chain):
+    import base64
+
+    from splinewire.oring_viewer import fit_rows, viewer_data
+
+    spec, j, parts = chain
+    data = viewer_data(spec)
+    assert [it["kind"] for it in data["items"]] == [pt.kind for pt in parts]
+    for it, pt in zip(data["items"], parts):
+        g = data["geoms"][it["geom"]]
+        v = np.frombuffer(base64.b64decode(g["pos"]), dtype=np.float32).reshape(-1, 3)
+        assert np.allclose(v.min(axis=0), pt.solid.bounding_box()[:3], atol=1e-4)
+    rows = dict((a, c) for a, _, c in fit_rows(spec))
+    assert rows["Washer on the sleeve"] == "0.15 mm play, free"
+    assert rows["Outer plates at the stop"] == "plates 1.6 mm apart"

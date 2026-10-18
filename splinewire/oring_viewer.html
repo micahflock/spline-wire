@@ -1,0 +1,320 @@
+<title>O-ring Chain Joint</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a drawing sheet. Viewer and its controls side by side, then the build sequence and the fit table below. */
+:root {
+  --paper: #f3f5f7;
+  --sheet: #ffffff;
+  --ink: #18212b;
+  --muted: #5b6876;
+  --rule: #d5dce3;
+  --accent: #1d5f99;
+  --stage: #e7ebef;
+  --ok: #2f7d4f;
+  --c-outer: #466ea0;
+  --c-inner: #d68c34;
+  --c-screw: #969ea8;
+  --c-washer: #c4cad1;
+  --c-oring: #c0392b;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12171d; --sheet: #19212a; --ink: #e3e9ef; --muted: #98a6b4; --rule: #2c3743;
+    --accent: #6fa8dc; --stage: #0e1318; --ok: #5cb884; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12171d; --sheet: #19212a; --ink: #e3e9ef; --muted: #98a6b4; --rule: #2c3743;
+  --accent: #6fa8dc; --stage: #0e1318; --ok: #5cb884; color-scheme: dark;
+}
+html, body { background: var(--paper); color: var(--ink); }
+body {
+  font-family: var(--body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 28px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4vw, 40px); line-height: 1.05; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 22px; margin: 0; text-wrap: balance; }
+.lede { margin: 0; max-width: 68ch; color: var(--muted); }
+
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+.stage { position: relative; background: var(--stage); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; aspect-ratio: 16 / 11; max-width: 100%; }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.stage .hint { position: absolute; left: 12px; bottom: 10px; font-family: var(--mono); font-size: 11px; color: var(--muted); pointer-events: none; }
+.stage .status { position: absolute; right: 12px; top: 10px; font-family: var(--mono); font-size: 12px; padding: 3px 8px; border-radius: 4px; background: var(--sheet); border: 1px solid var(--rule); }
+.stage .status.stop { color: var(--c-oring); border-color: var(--c-oring); }
+.stage .fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
+
+.panel { display: grid; gap: 18px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; }
+.ctl { display: grid; gap: 6px; }
+.ctl-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ctl label, .ctl .lab { font-weight: 600; font-size: 14px; }
+.val { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: 500 13px var(--body); color: var(--ink); background: transparent; border: 1px solid var(--rule); border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--sheet); }
+.chip { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 11px; height: 11px; border-radius: 2px; flex: none; }
+.chip[aria-pressed="false"] { opacity: .5; text-decoration: line-through; background: transparent; color: var(--ink); border-color: var(--rule); }
+.chip[aria-pressed="true"] { background: transparent; color: var(--ink); border-color: var(--ink); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+
+.lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 28px; }
+@media (max-width: 860px) { .lower { grid-template-columns: minmax(0, 1fr); } }
+section { display: grid; gap: 12px; align-content: start; min-width: 0; }
+ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 10px; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; }
+ol.steps li::before { content: counter(s); font-family: var(--mono); font-size: 13px; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--rule); border-radius: 50%; color: var(--accent); }
+ol.steps b { font-weight: 600; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--sheet); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+td.ok { color: var(--ok); font-family: var(--mono); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">splinewire oring-chain · --pins 4 · two joints</div>
+    <h1>O-ring chain joint, assembled</h1>
+    <p class="lede">The two-joint test piece exactly as the generator builds it: two outer links, one inner link, and at each joint an M3 countersunk screw, a {{ORING}} O-ring and an M4 small washer. Pull it apart, bend the joints to their stops, and cut it open to check every fit before you print.</p>
+  </header>
+
+  <div class="bench">
+    <div class="stage" id="stage">
+      <canvas id="view" aria-label="3D view of the assembled test piece"></canvas>
+      <div class="status" id="status">assembled</div>
+      <div class="hint">drag to orbit · scroll or pinch to zoom · right-drag to pan</div>
+    </div>
+
+    <div class="panel">
+      <div class="ctl">
+        <div class="ctl-head"><label for="explode">Explode</label><span class="val" id="explode-v">0 mm</span></div>
+        <input id="explode" type="range" min="0" max="1" step="0.01" value="0">
+        <p class="note">Parts slide apart along the screw axis, in the order they go together.</p>
+      </div>
+      <div class="ctl">
+        <div class="ctl-head"><label for="j1">Joint at pin 1</label><span class="val" id="j1-v">0°</span></div>
+        <input id="j1" type="range" min="-{{TURN}}" max="{{TURN}}" step="0.1" value="0">
+      </div>
+      <div class="ctl">
+        <div class="ctl-head"><label for="j2">Joint at pin 2</label><span class="val" id="j2-v">0°</span></div>
+        <input id="j2" type="range" min="-{{TURN}}" max="{{TURN}}" step="0.1" value="0">
+        <p class="note">Each joint stops at a {{TURN}}° turn, {{BETWEEN}}° between the links, when the inner link's side meets the post under the outer link.</p>
+      </div>
+      <div class="ctl">
+        <span class="lab">View</span>
+        <div class="row">
+          <button id="section" aria-pressed="false">Cut through the pins</button>
+          <button id="flip" aria-pressed="false">Dots down (as assembled)</button>
+          <button id="reset">Reset</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <span class="lab">Parts shown</span>
+        <div class="row" id="chips"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lower">
+    <section>
+      <h2>Putting one joint together</h2>
+      <ol class="steps">
+        <li><div><b>Cut the thread.</b> Drive a screw into the outer link's sleeve until its head touches the sleeve's end, then back it out. The sleeve's hole is {{PILOT}} mm, so the M3 cuts its own thread.</div></li>
+        <li><div><b>Outer link dots down.</b> The sleeve points up at you. Use the Dots down button to see it this way.</div></li>
+        <li><div><b>O-ring on.</b> Slide it over the {{SLEEVE}} mm sleeve until it sits in the 45° seat under the plate.</div></li>
+        <li><div><b>Washer on.</b> {{WASHER_ID}} mm hole over the {{SLEEVE}} mm sleeve; it rests on the O-ring.</div></li>
+        <li><div><b>Inner link on.</b> Its {{HOLE}} mm hole goes over the sleeve, raised ring toward the washer, countersink facing you.</div></li>
+        <li><div><b>Screw in until it stops hard.</b> It firms up as the O-ring squeezes, then stops when the head meets the sleeve's end. Stop there: that sets the squeeze.</div></li>
+        <li><div><b>Check.</b> No play when you push and pull, smooth friction, and a firm stop at about {{BETWEEN_ROUND}}° between the links.</div></li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Fits to check</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Where</th><th>Mating sizes</th><th>Result</th></tr></thead>
+          <tbody>
+            <!--FIT_ROWS-->
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Heights are from the table up with the chain dots up. In the cut view the O-ring is drawn round, as it is before it is squeezed, so it overlaps its seat by the squeeze.</p>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>/*CHAIN_DATA*/</script>
+<script>
+(function () {
+  const stage = document.getElementById("stage");
+  const canvas = document.getElementById("view");
+  if (!window.THREE || !THREE.OrbitControls) {
+    const f = document.createElement("div");
+    f.className = "fallback";
+    f.textContent = "The 3D view could not load its graphics library. The fit table below still applies.";
+    stage.appendChild(f);
+    return;
+  }
+  const D = window.CHAIN;
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const KINDS = [
+    ["outer", "Outer links", "--c-outer"], ["inner", "Inner link", "--c-inner"], ["screw", "Screws", "--c-screw"],
+    ["washer", "Washers", "--c-washer"], ["oring", "O-rings", "--c-oring"],
+  ];
+  // Explode offsets along z (mm at full explode), in assembly order.
+  const EXPLODE = { outer: 0, oring: -4, washer: -8, inner: -13, screw: -22 };
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.localClippingEnabled = true;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 1000);
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.75));
+  const key = new THREE.DirectionalLight(0xffffff, 0.75); key.position.set(-30, -40, 60); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.3); fill.position.set(40, 30, -20); scene.add(fill);
+
+  // The chain lives in a group with z up; the scene's camera looks in y-up, so rotate.
+  const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; scene.add(world);
+  const clip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);   // world plane through the pin line (chain y = 0)
+
+  function b64(s, Type) { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Type(u.buffer); }
+  const geoms = {};
+  for (const [k, g] of Object.entries(D.geoms)) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(b64(g.pos, Float32Array), 3));
+    geo.setIndex(new THREE.BufferAttribute(b64(g.idx, g.u32 ? Uint32Array : Uint16Array), 1));
+    geo.computeVertexNormals();
+    geoms[k] = geo;
+  }
+  const mats = {};
+  function buildMats() {
+    for (const [kind, , token] of KINDS) {
+      const c = new THREE.Color(css(token));
+      const metal = kind === "screw" || kind === "washer";
+      mats[kind] = {
+        front: new THREE.MeshStandardMaterial({ color: c, roughness: metal ? 0.4 : 0.7, metalness: metal ? 0.15 : 0.0, side: THREE.FrontSide, clippingPlanes: [], flatShading: false }),
+        back: new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(0.55), side: THREE.BackSide, clippingPlanes: [] }),
+      };
+    }
+  }
+  buildMats();
+  const parts = D.items.map((it) => {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(geoms[it.geom], mats[it.kind].front));
+    g.add(new THREE.Mesh(geoms[it.geom], mats[it.kind].back));
+    world.add(g);
+    return { ...it, obj: g };
+  });
+
+  const state = { explode: 0, turns: [0, 0], section: false, flip: false, show: Object.fromEntries(KINDS.map(([k]) => [k, true])) };
+  const P = D.meta.pitch, STOP = 180 - D.meta.stop;
+
+  function layout() {
+    const t = state.turns.map((d) => d * Math.PI / 180);
+    const heading = [0, t[0], t[0] + t[1]];
+    const pins = [[0, 0]];
+    for (let k = 0; k < 3; k++) pins.push([pins[k][0] + P * Math.cos(heading[k]), pins[k][1] + P * Math.sin(heading[k])]);
+    for (const p of parts) {
+      const k = p.pins[0];
+      p.obj.position.set(pins[k][0], pins[k][1], EXPLODE[p.kind] * state.explode);
+      p.obj.rotation.set(0, 0, heading[Math.min(k, 2)]);
+      p.obj.visible = state.show[p.kind];
+    }
+    // Centre the chain and flip it about its long axis for the dots-down view.
+    const cx = (pins[0][0] + pins[3][0]) / 2, cy = (pins[0][1] + pins[3][1]) / 2;
+    world.position.set(0, 0, 0);
+    world.rotation.set(-Math.PI / 2 + (state.flip ? Math.PI : 0), 0, 0);
+    world.updateMatrixWorld();
+    for (const p of parts) { p.obj.position.x -= cx; p.obj.position.y -= cy; }
+    const mid = (D.meta.top + EXPLODE.screw * state.explode) / 2;      // middle of the stack, exploded or not
+    world.position.y = state.flip ? mid : -mid;
+    for (const m of Object.values(mats)) {
+      const planes = state.section ? [clip] : [];
+      m.front.clippingPlanes = planes; m.back.clippingPlanes = planes;
+    }
+    // Section plane: the chain's y = 0 plane in world space (through pins 0 and 1).
+    world.updateMatrixWorld(true);
+    const o = new THREE.Vector3(-cx, -cy, 0).applyMatrix4(world.matrixWorld);
+    clip.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, -1), o);   // keep the half away from the default camera
+    const atStop = state.turns.some((d) => Math.abs(d) >= STOP - 0.05);
+    const st = document.getElementById("status");
+    st.textContent = atStop ? `at the stop: ${D.meta.stop.toFixed(1)}° between links` : state.explode > 0 ? "exploded" : "assembled";
+    st.classList.toggle("stop", atStop);
+  }
+
+  function resize() {
+    const r = stage.getBoundingClientRect();
+    renderer.setSize(r.width, r.height, false);
+    camera.aspect = r.width / Math.max(1, r.height);
+    camera.updateProjectionMatrix();
+  }
+  function home() {
+    camera.position.set(-20, 28, 46);
+    controls.target.set(0, 0, 0);
+    controls.update();
+  }
+  new ResizeObserver(resize).observe(stage);
+  resize(); home(); layout();
+
+  // Controls
+  const ex = document.getElementById("explode");
+  ex.addEventListener("input", () => { state.explode = +ex.value; document.getElementById("explode-v").textContent = (state.explode * 22).toFixed(0) + " mm"; layout(); });
+  for (const [i, id] of [[0, "j1"], [1, "j2"]]) {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => { state.turns[i] = +el.value; document.getElementById(id + "-v").textContent = (+el.value).toFixed(1) + "°"; layout(); });
+  }
+  const sec = document.getElementById("section");
+  sec.addEventListener("click", () => { state.section = !state.section; sec.setAttribute("aria-pressed", state.section); layout(); });
+  const flip = document.getElementById("flip");
+  flip.addEventListener("click", () => { state.flip = !state.flip; flip.setAttribute("aria-pressed", state.flip); layout(); });
+  document.getElementById("reset").addEventListener("click", () => {
+    state.explode = 0; state.turns = [0, 0]; state.section = false; state.flip = false;
+    ex.value = 0; document.getElementById("explode-v").textContent = "0 mm";
+    for (const id of ["j1", "j2"]) { document.getElementById(id).value = 0; document.getElementById(id + "-v").textContent = "0°"; }
+    sec.setAttribute("aria-pressed", false); flip.setAttribute("aria-pressed", false);
+    for (const k in state.show) state.show[k] = true;
+    document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", true));
+    home(); layout();
+  });
+  const chips = document.getElementById("chips");
+  for (const [kind, label, token] of KINDS) {
+    const b = document.createElement("button");
+    b.className = "chip"; b.setAttribute("aria-pressed", "true");
+    b.innerHTML = `<span class="sw" style="background:var(${token})"></span>${label}`;
+    b.addEventListener("click", () => { state.show[kind] = !state.show[kind]; b.setAttribute("aria-pressed", state.show[kind]); layout(); });
+    chips.appendChild(b);
+  }
+
+  // Follow theme changes for the part colours (the stage background is CSS).
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const recolour = () => { for (const [kind, , token] of KINDS) { const c = new THREE.Color(css(token)); mats[kind].front.color = c; mats[kind].back.color = c.clone().multiplyScalar(0.55); } };
+  mq.addEventListener && mq.addEventListener("change", recolour);
+  new MutationObserver(recolour).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  (function loop() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
+})();
+</script>

@@ -95,7 +95,7 @@ The next-steps item 2 exit test applies unchanged. Wrap a gauge of known radius,
 The same chain (10 mm pitch, 8 mm links, 5 mm dots, 13 pins), printed in separate parts in PETG and screwed together. Each joint takes one M3 countersunk screw, one O-ring and one small steel washer, all from assortment boxes, about $0.05 a joint. Code: `splinewire/oring_chain.py`.
 
 ```bash
-uv run splinewire oring-chain                    # out/oring-chain/oring-chain.stl, -black/-white.stl, -assembled.stl, -PRINTING.txt, -joint.svg
+uv run splinewire oring-chain                    # out/oring-chain/oring-chain.stl, -black/-white.stl, -assembled.stl, -PRINTING.txt, -joint.svg, -viewer.html, -assembly.glb
 uv run splinewire oring-chain --pins 4           # two-joint test piece: two outer links, one inner link
 uv run splinewire oring-chain --squeeze 0.2 --margin 0.15 --screw-length 5
 ```
@@ -103,6 +103,8 @@ uv run splinewire oring-chain --squeeze 0.2 --margin 0.15 --screw-length 5
 Nothing here has been printed yet. Everything below is checked on the geometry only (`tests/test_oring_chain.py`).
 
 ![Section through two joints, and a joint at its stop](img/oring-chain-joint.svg)
+
+`-viewer.html` is an interactive 3D page of the two-joint piece, built from the same solids as the STLs: explode it along the screw axis, bend each joint to its stop, cut it open through the pins, and read the fits (it loads three.js from a CDN). `-assembly.glb` is the written chain, gently bent, with one coloured mesh per part, for any glTF viewer or to import into CAD. Code: `splinewire/oring_viewer.py`.
 
 **Why not print in place.** PETG strings across the 0.3 mm gaps of a print-in-place joint and tends to fuse there. Printing the links apart removes that risk and the setting step; it costs an assembly step and some hardware.
 
