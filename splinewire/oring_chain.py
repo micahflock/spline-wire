@@ -462,6 +462,8 @@ def write_oring_chain(out_dir: Path, spec: ChainSpec, p: OringParams = DEFAULT_P
         "assembled": out_dir / f"{name}-assembled.stl",
         "instructions": out_dir / f"{name}-PRINTING.txt",
         "drawing": out_dir / f"{name}-joint.svg",
+        "viewer": out_dir / f"{name}-viewer.html",
+        "model": out_dir / f"{name}-assembly.glb",
     }
     to_trimesh(bed).export(paths["combined"])
     to_trimesh(split["black"]).export(paths["black"])
@@ -470,6 +472,10 @@ def write_oring_chain(out_dir: Path, spec: ChainSpec, p: OringParams = DEFAULT_P
     n = max(max(pt.pins) for pt in parts) + 1
     paths["instructions"].write_text(print_instructions(name, j, parts, n), encoding="utf-8")
     paths["drawing"].write_text(joint_svg(spec, p), encoding="utf-8")
+    from splinewire.oring_viewer import viewer_html, write_assembly_glb
+
+    paths["viewer"].write_text(viewer_html(spec, p), encoding="utf-8")
+    write_assembly_glb(paths["model"], spec, p, n_pins)
     return paths
 
 
@@ -533,7 +539,7 @@ Estimated: O-ring force {fe["force_N"]:.0f} N, friction {fe["torque_Nmm"]:.0f} N
 store, so a joint does not spring back. Too stiff or too loose: regenerate
 with a different --squeeze (default {OringParams().squeeze_mm:g} mm).
 Try a short piece first: splinewire oring-chain --pins 4 (two joints).
-To measure photos of this chain, set max_bend_deg: 125 in chain.yaml.
+To measure photos of this chain, chain.yaml needs max_bend_deg: 125 (the default).
 """
 
 
