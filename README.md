@@ -7,8 +7,8 @@
 
 > Hardware design, direction and testing by me; the software was written with Opus 5.5 in [Claude Code](https://claude.com/claude-code). [How it was built](#how-it-was-built).
 
-![A phone photo of the printed chain, the curve the app measured from it in millimetres, and the same curve pasted into a Fusion sketch](docs/img/hero.jpg)
-<sub>The printed chain on a mousepad, photographed with an iPhone at a 24.5° tilt; the curve the app measured from it; the same curve in a Fusion sketch after Copy points → Paste points. More on this photo [below](#results-so-far).</sub>
+![A phone photo of the printed chain with the pins the software found, the curve the app measured from it in millimetres, and the same curve pasted into a Fusion sketch](docs/img/hero.jpg)
+<sub>The printed chain on a mousepad, photographed with an iPhone at a 24.5° tilt, with the app's overlay: the 13 pins in order (green), dots in the mousepad pattern it ignored (red) and the edge that touched the object (pink). Then the curve the app measured from it; the same curve in a Fusion sketch after Copy points → Paste points. More on this photo [below](#results-so-far).</sub>
 
 ## The problem
 
