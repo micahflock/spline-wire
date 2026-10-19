@@ -116,7 +116,7 @@ I came up with the idea, set the requirements (sub-millimetre accuracy, any curv
 
 - **Labels to no labels.** The first design (April 2026) gave each link a printed ring plus a 7-segment digit, so an AI vision model could read which link was which. Working through the accuracy showed the problem: AI vision models locate points to several pixels at best, which costs a millimetre or more on the curve. Classical computer vision is accurate to fractions of a pixel, so I restarted around unlabeled dots. The chain's own pitch then replaced the reference object.
 - **Simulate before printing.** Rather than print and photograph dozens of parts, I had a photo simulator built first. Every change to the detector was measured against 167 simulated photos with known answers. The same simulator settled the fiducial design: a plain 5 mm dot, the easiest to print reliably.
-- **Two chain designs.** The print-in-place chain came first, but it relies on thin, finely toleranced spring parts. PETG strings across print-in-place gaps. So I added an assembled design that uses cheap hardware for the precise parts.
+- **Two chain designs.** The print-in-place chain came first, but it relies on thin, finely toleranced spring parts. PETG strings across print-in-place gaps. So I added an assembled design that uses cheap hardware for the precise parts, and that's the one I built first.
 
 Every decision, with the numbers behind it, is recorded in [docs/](docs/). [docs/open-questions.md](docs/open-questions.md) lists what's still unresolved.
 
@@ -159,7 +159,7 @@ Each command writes STLs (black and white bodies for the filament changes) plus 
 | ✅ | Fusion add-in, tested in Fusion: Copy points → Paste points lands the curve in the sketch in under 5 s |
 | ✅ | First real photo of the printed test plaque: 0.098 mm worst pin |
 | 🔄 | Real-photo test series: angles, lighting, shapes, phones |
-| 🔄 | Test chain printed and assembled; real-world testing under way |
+| 🔄 | O-ring chain (13 pins) printed and assembled; real-world testing under way |
 | ⬜ | End to end: a real object, measured into a Fusion sketch in under 30 s |
 
 The full plan, in risk order: [docs/next-steps.md](docs/next-steps.md).
