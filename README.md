@@ -7,8 +7,8 @@
 
 > Hardware design, direction and testing by me; the software was written with Opus 5.5 in [Claude Code](https://claude.com/claude-code). [How it was built](#how-it-was-built).
 
-![A phone photo of the chain, the pins the software found, and the measured curve in millimetres](docs/img/hero-simulated.png)
-<sub>Simulated photo, from the project's own photo simulator. Photos of the real chain are [below](#results-so-far).</sub>
+![A phone photo of the printed chain, the curve the app measured from it in millimetres, and the same curve pasted into a Fusion sketch](docs/img/hero.jpg)
+<sub>The printed chain on a mousepad, photographed with an iPhone at a 24.5° tilt; the curve the app measured from it; the same curve in a Fusion sketch after Copy points → Paste points. More on this photo [below](#results-so-far).</sub>
 
 ## The problem
 
