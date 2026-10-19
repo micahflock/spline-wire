@@ -38,7 +38,8 @@ Status doc: items are in risk order and get checked off as they are validated.
 **Only after item 1 passes.** Pitch accuracy is now the critical dimension.
 
 - Print-in-place option, designed but not yet printed: `uv run splinewire print-chain` (`docs/printed-chain.md`). Print `--pins 3` first: check that the joint frees, sets, has no play and holds with even friction; tune `--clearance` and `--preload`. Then print the full chain and check its length (128.0 mm).
-- Assembled PETG option (screws, O-rings, washers): the full 13-pin chain is printed and assembled (2026-10-18, with one filament change instead of the two in the printing notes); photos next. `uv run splinewire oring-chain` (`docs/printed-chain.md`). Print `--pins 4` first: check for play, springback after a 90° bend, even friction (tune `--squeeze`) and the stop at 74°. Then the full chain, its length (128.0 mm), and photos with `max_bend_deg: 125`.
+- Assembled PETG option (screws, O-rings, washers): the full 13-pin chain is printed and assembled (2026-10-18, with one filament change instead of the two in the printing notes). `uv run splinewire oring-chain` (`docs/printed-chain.md`). Print `--pins 4` first: check for play, springback after a 90° bend, even friction (tune `--squeeze`) and the stop at 74°. Then the full chain, its length (128.0 mm), and photos with `max_bend_deg: 125`.
+  - First photos (2026-10-19, SplineWire 0.7.0, iPhone, uploaded from the phone page, on a mousepad printed with dots): two bends, a C and an S. All 13 pins found in both, with 580 and 534 look-alike dots left out. The C photo, at a 24.5° tilt, came out with link lengths within 0.122 mm rms and 0.213 mm max of the 10 mm pitch, using the 24 mm iPhone focal length from Settings (the file had none). That figure includes detection, focal length and the chain's own pitch error together. The pitch hasn't been measured with calipers yet.
 - Or build or adapt a chain matching `data/chain.yaml` (or update the YAML to match what's built), with a light dot on each pin (keep ≥1.5 mm of dark link around it). Options: a printed dot on each pin boss, or a light pin head; a pin head's centre is only as good as its fit in the hole. A contrasting hollow rivet is a ring for free (`fiducial: ring`).
 - Tune joint friction.
 - Measure the actual pitch with calipers across many links and put the mean in the YAML.
@@ -61,6 +62,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [ ] Test with the iPhone:
   - Does the focal length survive the upload? Try both buttons. The phone page and the desktop details show "Focal length in file". If it's missing, set the iPhone focal length in Settings (24 mm for iPhone 14 Pro and iPhone 15 or later, 26 mm for earlier models).
     - First try (2026-10-01): no. The photo arrived as a 4032 × 3024 JPEG with all EXIF gone ("Camera: not recorded", "Focal length in file: missing"). Which button was used is not recorded; try the other one.
+    - Second try (2026-10-19, 0.7.0, two photos of the chain): the same, all EXIF gone. Still to do: one photo with each button, noting which is which.
   - Time from shutter to the photo appearing on the computer.
   - Home Wi-Fi and the phone's hotspot. First try (0.5.0) timed out: Windows Firewall. 0.5.1 detects it and adds **Allow phone connections**; confirm it fixes the timeout.
 - **Exit criterion:** under 15 s from photo to points, no custom phone app.
@@ -68,7 +70,16 @@ Status doc: items are in risk order and get checked off as they are validated.
 ## 5. End-to-end
 
 - Real chain, real object (a pipe or doorknob profile), photo to curve in Fusion.
+- [x] First run (2026-10-19): a photo of the real O-ring chain, Copy points, then Paste points put the points and a fitted spline into a Fusion sketch. Not yet timed, and not yet checked against an object of known size.
 - **Exit criterion:** curve tracks the object within item 2's tolerance in under 30 s.
+
+## Known issues from the first real-chain photos (2026-10-19)
+
+To fix later:
+
+- **Ignored look-alikes show as a warning.** Any entry in `warnings` turns a photo orange ("Measured, with warnings" on the phone, orange in the desktop list), and "ignored N look-alike detection(s) not on the chain" is one of them (`splinewire/pipeline.py`). On a dotted background every clean measurement shows orange. It should be a note, not a warning.
+- **The truth file applies to every photo.** A truth file set in Settings is compared to every photo with a matching pin count, so a leftover plaque truth file gave real-chain photos a meaningless 28.6 mm "error", flagged them orange and showed a "Compared to test-part truth" section. Compare only photos that are of the test part (per photo, or skip when the shapes clearly don't match).
+- **Phone uploads lose all EXIF** (item 4): the focal length then comes from the iPhone setting.
 
 ## Deferred
 

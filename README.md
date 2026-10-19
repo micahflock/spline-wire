@@ -8,7 +8,7 @@
 > Hardware design, direction and testing by me; the software was written with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding agent. [How it was built](#how-it-was-built).
 
 ![A phone photo of the chain, the pins the software found, and the measured curve in millimetres](docs/img/hero-simulated.png)
-<sub>Simulated photo, from the project's own photo simulator. Real photos are on the way.</sub>
+<sub>Simulated photo, from the project's own photo simulator. Photos of the real chain are [below](#results-so-far).</sub>
 
 ## The problem
 
@@ -102,6 +102,17 @@ More detail: [docs/architecture.md](docs/architecture.md).
 
 The target is under 1 mm, so this passes about 10 times over, and it's close to the plaque's own print tolerance. One photo is not a test series: different angles, lighting, shapes and phones are next.
 
+**First photos of the real chain** (the 13-pin O-ring chain in PETG, iPhone, on a mousepad covered in printed dots):
+
+![The app with a photo of the real chain: the measured curve in millimetres on the left, the pins found on the photo on the right](docs/img/real-chain-app.jpg)
+<sub>Left: the measured curve (white) offset from the pin line (grey) to the edge that touched the object. Right: the 13 pins it found (green); red marks are look-alike dots in the mousepad pattern that it left out.</sub>
+
+Both photos found all 13 pins, among 580 and 534 look-alike dots. There is no truth file for a bent chain, so the check here is the chain itself. After the perspective is removed, every link should come out exactly 10 mm. In the photo above, taken at a 24.5° tilt, they came out within **0.122 mm RMS, 0.213 mm worst**. That one number includes the dot detection, the focal length and the printed chain's own pitch accuracy. It is a consistency check, not yet a comparison with a measured object. The phone upload stripped the photo's EXIF data, so the focal length came from the app's iPhone setting (24 mm).
+
+Copy points, then Paste points, put the curve into a Fusion sketch as points with a fitted spline through them:
+
+![The measured curve pasted into an Autodesk Fusion sketch](docs/img/real-chain-fusion.png)
+
 **Simulated photos.** Before anything was printed, I built a photo simulator: realistic FDM print defects, nine table surfaces, clutter, lamp glare, shadows, defocus, hand shake, lens distortion, sensor noise and JPEG compression. Testing against it raised whole-chain detection from 77 to 155 of 167 photos, with a ring-shaped fiducial. The plain dot the chain now uses gets 142 of 167, the price of being easier to print. When the chain is found, the median worst-pin error is 0.023 mm. The remaining failures are one case: a lamp reflected in shiny filament. Matte filament avoids it.
 
 ![A grid of simulated phone photos under different tables, lighting and clutter](docs/img/environments.jpg)
@@ -159,8 +170,9 @@ Each command writes STLs (black and white bodies for the filament changes) plus 
 | ✅ | Fusion add-in, tested in Fusion: Copy points → Paste points lands the curve in the sketch in under 5 s |
 | ✅ | First real photo of the printed test plaque: 0.098 mm worst pin |
 | 🔄 | Real-photo test series: angles, lighting, shapes, phones |
-| 🔄 | O-ring chain (13 pins) printed and assembled; real-world testing under way |
-| ⬜ | End to end: a real object, measured into a Fusion sketch in under 30 s |
+| ✅ | O-ring chain (13 pins) printed, assembled and photographed: all 13 pins found in both first photos, links within 0.12 mm RMS of the 10 mm pitch |
+| ✅ | First run with the real chain from photo to Fusion sketch |
+| 🔄 | End to end on a real object: the path works; still to check the curve against an object of known size, and the time (target under 30 s) |
 
 The full plan, in risk order: [docs/next-steps.md](docs/next-steps.md).
 
