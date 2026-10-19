@@ -20,14 +20,14 @@ Unresolved design questions. Cross-reference `next-steps.md`; several get answer
 - O-ring chain (`docs/printed-chain.md`): does the countersink really out-hold the washer (no springback), does the self-cut thread centre the outer links well enough, and how evenly do the squeeze and friction come out across joints?
 - How much joint friction, and does it drift with use?
 - Fiducial construction on real links: a window in a thin black top layer over white (as on the test plaque, ≤0.4 mm deep), a light pin head, a label? Contrast and edge sharpness matter more than exact size; keep any relief shallow. Simulated for a 0.4 mm nozzle (`docs/cv-robustness.md` §5): a plain dot or ring beats a bullseye, a checker-corner centre and ArUco tags. The chain uses a 5 mm dot; keep ≥1.5 mm of black around it, make its centre the pin's (print it with the pin hole; a pin head sits wherever its clearance lets it), and use matte black filament.
-- Length: is ~120 mm right, or should there be short and long chains? The software handles any pin count; set `n_pins` in the YAML.
+- Length: is ~120 mm right, or should there be short and long chains? The software handles any pin count: set it per photo in the app (or `--pins`; `n_pins` in the YAML is the default).
 - Physical joint limit: ordering assumes no joint bends more than 80°.
 
 ## Contact model
 
 - The model assumes stadium-shaped links (semicircular ends centered on the pins). If the real links differ, the concave-contact rule needs updating.
 - Near inflection points, and where curvature changes quickly relative to the pitch, contact points are approximate. How large is the error on real molding profiles?
-- `--side inside|outside` must be right. Can the UI make this obvious? (For example, the preview could show which side the offset went.)
+- The object side must be right. The app now draws the contact edge on the photo and lets you pick the side there; does that make mistakes rare in practice?
 
 ## Workflow and CAD
 

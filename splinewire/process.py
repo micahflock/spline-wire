@@ -66,7 +66,7 @@ def process_photo(
     spec: ChainSpec,
     out_dir: Path,
     focal_35mm: float | None = None,
-    side: Side = "inside",
+    side: Side | tuple[float, float] = "inside",
     truth_path: Path | None = None,
     default_focal_35mm: float | None = None,
     edits: Edits | None = None,
@@ -79,6 +79,8 @@ def process_photo(
     the photo's EXIF, default_focal_35mm (e.g. the user's phone camera, for
     uploads that lost their EXIF), or an estimate from the chain itself.
 
+    side: "inside" or "outside" of the chain's bend, or a photo point (x, y)
+    on the object's side of the chain (see measure).
     edits: pins removed or added by hand (splinewire.edits). loaded and
     detected: what load_photo and detect_fiducials already returned for this
     photo, to measure it again without repeating them (e.g. after an edit).
@@ -96,6 +98,8 @@ def process_photo(
     extra: dict = {"photo": photo.name}
     if edits:
         extra["edits"] = edits.to_json()
+    if m.side_px is not None:
+        extra["object_side_picked_px"] = [round(v, 1) for v in m.side_px]
     truth_comparison = None
     if truth_path is not None:
         truth = np.array(json.loads(Path(truth_path).read_text(encoding="utf-8"))["pin_points"])

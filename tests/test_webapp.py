@@ -119,6 +119,8 @@ def test_phone_side_is_limited(served):
     assert call(server, "/api/settings", b"{}", app.token, ip=ip)[0] == 403
     assert call(server, "/api/photo/1/edits", b"{}", app.token, ip=ip)[0] == 403
     assert call(server, "/api/photo/1/image.jpg", token=app.token, ip=ip)[0] == 403
+    assert call(server, "/api/photo/1/options", b"{}", app.token, ip=ip)[0] == 404      # allowed; no such photo
+    assert call(server, "/api/photo/1/image-small.jpg", token=app.token, ip=ip)[0] == 404
     assert call(server, "/api/quit", b"", app.token, ip=ip)[0] == 403
     assert call(server, "/api/firewall/allow", b"", app.token, ip=ip)[0] == 403
     assert "network" not in json.loads(call(server, "/api/state", token=app.token, ip=ip)[1])
@@ -244,3 +246,79 @@ def test_a_photo_that_failed_can_still_be_fixed_by_hand(served, tmp_path):
     d = detail()
     assert d["status"] == "error"                                   # too few pins to measure
     assert [(p["x"], p["y"], p["edit"]) for p in d["view"]["unused"]] == [(100.0, 100.0, 0), (180.0, 110.0, 1)]
+
+
+def test_pin_count_and_side_are_set_per_photo(served, dot_spec, tmp_path):
+    """Each photo has its own pin count and object side; the last ones used
+    are what the next photo gets."""
+    spec = dot_spec
+    app, server = served
+    size = (2000, 1500)
+    pins = s_curve_pins(spec)
+    cam = look_at_plane(focal_px_from_35mm(26, size), size, 180.0, tilt_deg=25.0, tilt_direction_deg=35.0,
+                        roll_deg=-15.0, target_mm=tuple(pins.mean(axis=0)))
+    save_photo(tmp_path / "p.jpg", render_photo(pins, spec, cam), 26)
+    data = (tmp_path / "p.jpg").read_bytes()
+    state = lambda: json.loads(call(server, "/api/state", token=app.token)[1])
+    detail = lambda pid: json.loads(call(server, f"/api/photo/{pid}", token=app.token)[1])
+    options = lambda pid, doc: call(server, f"/api/photo/{pid}/options", json.dumps(doc).encode(), app.token)
+
+    assert state()["defaults"] == {"n_pins": spec.n_pins, "side": "inside"}
+    first = json.loads(call(server, "/api/upload?name=a.jpg&pins=11&side=outside", data, app.token)[1])["id"]
+    assert app.wait_idle(60)
+    d = detail(first)
+    assert (d["n_pins"], d["side"], d["result"]["object_side"]) == (11, "outside", "outside")
+    assert d["result"]["pins"] == 11 and d["result"]["warnings"]       # the chain, cut to 11 pins
+    assert state()["defaults"] == {"n_pins": 11, "side": "outside"}
+
+    # the right count clears the warning, and becomes the default; the first photo keeps its side
+    assert options(first, {"n_pins": spec.n_pins})[0] == 200
+    second = json.loads(call(server, "/api/upload?name=b.jpg", data, app.token)[1])["id"]
+    assert app.wait_idle(60)
+    assert detail(first)["result"]["pins"] == spec.n_pins and detail(first)["result"]["warnings"] == []
+    assert (detail(second)["n_pins"], detail(second)["side"]) == (spec.n_pins, "outside")
+
+    # pick the side by a point in the photo, on either side of the chain
+    px = cam.project(pins)
+    k = len(pins) // 4                     # in the first bend
+    a, b = px[k], px[k + 1]
+    normal = np.array([-(b - a)[1], (b - a)[0]]) / np.linalg.norm(b - a)
+    sides = []
+    for sgn in (1, -1):
+        point = ((a + b) / 2 + sgn * 60 * normal).tolist()
+        assert options(second, {"side": point})[0] == 200
+        assert app.wait_idle(60)
+        d = detail(second)
+        assert d["side"] == "picked" and d["view"]["side_px"] == point
+        sides.append(d["result"]["object_side"])
+        # the drawn contact edge is on the picked side of the chain
+        edge = np.array(d["view"]["curve"])
+        near = edge[np.argmin(np.linalg.norm(edge - (a + b) / 2, axis=1))]
+        assert np.dot(near - (a + b) / 2, sgn * normal) > 0
+    assert sorted(sides) == ["inside", "outside"]
+    assert state()["defaults"]["side"] == "outside"            # a picked point is only this photo's
+    doc = json.loads(app.photos[second].result.outputs["json"].read_text(encoding="utf-8"))
+    assert doc["object_side_picked_px"] == [round(v, 1) for v in point]
+
+    assert options(second, {"side": "inside"})[0] == 200
+    assert app.wait_idle(60)
+    assert detail(second)["side"] == "inside"
+    assert detail(second)["view"]["side_px"] is None
+
+    # bad values are refused and change nothing
+    for bad in ({"n_pins": 2}, {"n_pins": 12.5}, {"n_pins": "x"}, {"n_pins": 1e400}, {"side": "left"},
+                {"side": [1]}, {"side": ["a", 2]}, {"side": [1e6, 5]}, [1, 2]):
+        assert options(second, bad)[0] == 400, bad
+    assert call(server, "/api/upload?name=c.jpg&pins=2", data, app.token)[0] == 400
+    assert call(server, "/api/upload?name=c.jpg&side=left", data, app.token)[0] == 400
+    assert options("999", {"n_pins": 5})[0] == 404
+    assert (app.photos[second].n_pins, app.photos[second].side) == (spec.n_pins, "inside")
+    assert len(app.photos) == 2
+
+
+def test_settings_keep_the_pin_count_when_the_page_leaves_it_out(served):
+    app, server = served
+    app.settings["chain"]["n_pins"] = 21
+    chain = {k: v for k, v in app.settings["chain"].items() if k != "n_pins"}
+    assert call(server, "/api/settings", json.dumps({"chain": chain}).encode(), app.token)[0] == 200
+    assert app.settings["chain"]["n_pins"] == 21

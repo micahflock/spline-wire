@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
@@ -15,7 +16,7 @@ except ImportError:  # pragma: no cover
 
 from splinewire.camera import focal_px_from_exif
 from splinewire.chain import ChainSpec
-from splinewire.contact import Side, contact_points, object_sign
+from splinewire.contact import Side, contact_points, object_sign, side_name, sign_from_photo_point
 from splinewire.detect import Fiducial, detect_fiducials
 from splinewire.edits import Edits, ManualPin, add_pins, pin_to_pitch, remove_detections
 from splinewire.order import ChainOrder, order_chain
@@ -27,10 +28,12 @@ class Measurement:
     fiducials: list[Fiducial]            # every fiducial detected in the photo, as edited by hand
     order: ChainOrder
     rectification: Rectification
-    object_side: Side
+    object_side: Side            # inside or outside of the chain's bend
     contacts_mm: np.ndarray      # points on the target curve, in chain order
     warnings: list[str]
     manual: list[ManualPin] = field(default_factory=list)   # pins a person added
+    object_sign: int = 1         # the object's side of the pin line: +1 left, -1 right (y-up, chain order)
+    side_px: tuple[float, float] | None = None   # the photo point that picked the side, if one did
 
     @property
     def pins_mm(self) -> np.ndarray:
@@ -39,6 +42,34 @@ class Measurement:
     @property
     def pins_px(self) -> np.ndarray:
         return np.array([self.fiducials[i].center_px for i in self.order.indices])
+
+    def to_photo_px(self, points_mm: np.ndarray) -> np.ndarray:
+        """Where points on the chain plane (mm) fall in the photo, for drawing.
+
+        The plane maps to the photo by a homography, fitted to the pins. A
+        nearly straight chain leaves it undetermined across the chain; then
+        each point is placed by its nearest link's scale and direction instead.
+        """
+        pts = np.asarray(points_mm, dtype=float)
+        mm, px = self.pins_mm, self.pins_px
+        spread = np.linalg.svd(mm - mm.mean(axis=0), compute_uv=False)
+        if len(mm) >= 5 and spread[1] > 0.1 * spread[0]:
+            H, _ = cv2.findHomography(mm, px, 0)
+            if H is not None and np.abs(_apply(H, mm) - px).max() < 3.0:
+                return _apply(H, pts)
+        a_mm, a_px = mm[:-1], px[:-1]
+        d_mm, d_px = mm[1:] - a_mm, px[1:] - a_px
+        len2 = np.maximum(np.sum(d_mm ** 2, axis=1), 1e-12)
+        out = np.empty_like(pts)
+        for j, p in enumerate(pts):
+            t = np.clip(np.sum((p - a_mm) * d_mm, axis=1) / len2, 0.0, 1.0)
+            k = int(np.argmin(np.linalg.norm(a_mm + t[:, None] * d_mm - p, axis=1)))
+            r = p - a_mm[k]
+            along = float(np.dot(r, d_mm[k])) / len2[k]
+            left = float(d_mm[k, 0] * r[1] - d_mm[k, 1] * r[0]) / len2[k]
+            # mm runs y-up and the photo y-down: mm's left normal is (v, -u) of a photo direction (u, v)
+            out[j] = a_px[k] + along * d_px[k] + left * np.array([d_px[k, 1], -d_px[k, 0]])
+        return out
 
 
 def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
@@ -56,11 +87,14 @@ def measure(
     image: np.ndarray,
     spec: ChainSpec,
     focal_px: float | None,
-    side: Side = "inside",
+    side: Side | tuple[float, float] = "inside",
     edits: Edits | None = None,
     detected: list[Fiducial] | None = None,
 ) -> Measurement:
     """Measure the chain in a photo.
+
+    side: where the object touched the chain: "inside" or "outside" of its
+    bend, or a point (x, y) in photo pixels on the object's side of the chain.
 
     edits: pins a person removed or added by hand, see splinewire.edits.
     detected: this photo's fiducials if already found (detection is the slow
@@ -125,12 +159,22 @@ def measure(
             "check the detections in the preview image"
         )
 
-    sign = object_sign(rect.pins_mm, side)
+    side_px = None
+    if isinstance(side, str):
+        sign = object_sign(rect.pins_mm, side)
+    else:
+        side_px = (float(side[0]), float(side[1]))
+        sign = sign_from_photo_point(centers[order.indices], side_px)
     contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign)
     return Measurement(
-        fiducials=fiducials, order=order, rectification=rect, object_side=side,
-        contacts_mm=contacts, warnings=warnings, manual=manual,
+        fiducials=fiducials, order=order, rectification=rect, object_side=side_name(rect.pins_mm, sign),
+        contacts_mm=contacts, warnings=warnings, manual=manual, object_sign=sign, side_px=side_px,
     )
+
+
+def _apply(H: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    q = np.c_[pts, np.ones(len(pts))] @ H.T
+    return q[:, :2] / q[:, 2:]
 
 
 def _measured_links(order: ChainOrder, by_click: set[int]) -> list[tuple[int, int]]:

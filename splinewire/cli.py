@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -43,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--side", choices=["inside", "outside"], default="inside",
                    help="object on the inside of the chain's bend (wrapped around it, default) "
                         "or the outside (chain pressed into a hollow)")
+    p.add_argument("--pins", type=int, help="number of pins on the chain in this photo "
+                                            "(default: n_pins from the chain file)")
     p.add_argument("--truth", type=Path, help="truth JSON from synth/test-part; reports error")
 
     p = sub.add_parser("synth", help="render a synthetic chain photo with known geometry")
@@ -114,6 +117,8 @@ def _shape(args, spec: ChainSpec) -> np.ndarray:
 
 
 def _measure(args, spec: ChainSpec) -> int:
+    if args.pins is not None:
+        spec = replace(spec, n_pins=args.pins)
     result = process_photo(args.photo, spec, args.out, focal_35mm=args.focal_35mm,
                            side=args.side, truth_path=args.truth)
     m = result.measurement
