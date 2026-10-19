@@ -1,5 +1,7 @@
 # Getting the curve into Fusion — feasibility
 
+[← Back to the README](../README.md)
+
 Goal (next-steps item 3): measured curve in the active Fusion sketch, correctly scaled in mm, with as little clicking as possible. Points are acceptable; a spline is a bonus.
 
 ## What Fusion can and can't do (researched 2026-09)

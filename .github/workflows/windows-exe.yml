@@ -2,9 +2,13 @@ name: Windows app
 
 # Builds SplineWire.exe (desktop GUI) on Windows, smoke-tests it, and
 # uploads it as a workflow artifact. Download it from the run's summary page.
+# Pushing a version tag (v0.6.0, matching __version__ in splinewire/__init__.py)
+# also publishes a GitHub Release with the exe and the test plaques attached.
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]         # path filters don't apply to tag pushes
     paths:
       - "splinewire/**"
       - "data/**"
@@ -20,10 +24,19 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 30
+    permissions:
+      contents: write    # create the release on a tag push
     env:
       UV_PYTHON_DOWNLOADS: never   # use the python.org build below; its Tk bundles cleanly
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path splinewire/__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} does not match __version__ $version" }
 
       - id: python
         uses: actions/setup-python@v5
@@ -72,3 +85,12 @@ jobs:
           name: SplineWire-windows
           path: dist/SplineWire.exe
           if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path dist/test-plaques/* -DestinationPath dist/SplineWire-test-plaques.zip
+          gh release create "${{ github.ref_name }}" dist/SplineWire.exe dist/SplineWire-test-plaques.zip --title "SplineWire ${{ github.ref_name }}" --generate-notes

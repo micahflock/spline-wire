@@ -1,5 +1,7 @@
 # Architecture
 
+[← Back to the README](../README.md)
+
 The system is a pipeline: physical curve → posed chain → phone photo → pin positions → curve points → CAD. Stages hand off plain data, so each can be developed and tested alone.
 
 ## 1. Chain (hardware)

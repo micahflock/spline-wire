@@ -1,5 +1,7 @@
 # Open questions
 
+[← Back to the README](../README.md)
+
 Unresolved design questions. Cross-reference `next-steps.md`; several get answered by experiments there.
 
 ## Accuracy in the real world

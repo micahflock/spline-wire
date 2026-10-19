@@ -3,9 +3,12 @@ name = "spline-wire"
 dynamic = ["version"]
 description = "Measure real-world curves with a fiducial chain and a phone photo"
 authors = [
-    { name = "micah", email = "44813498+micahflock@users.noreply.github.com" }
+    { name = "micahflock", email = "44813498+micahflock@users.noreply.github.com" }
 ]
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
 dependencies = [
     "ezdxf>=1.3",
     "numpy>=2.0",
@@ -16,6 +19,9 @@ dependencies = [
     "scipy>=1.14",
     "segno>=1.6.6",
 ]
+
+[project.urls]
+Repository = "https://github.com/micahflock/spline-wire"
 
 [project.scripts]
 splinewire = "splinewire.cli:main"

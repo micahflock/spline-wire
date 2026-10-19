@@ -1,5 +1,7 @@
 # Print-in-place chain
 
+[← Back to the README](../README.md)
+
 A working measuring chain that comes off a single-extruder FDM printer assembled: it bends at every pin, holds its pose by friction, and keeps every link one pitch long. It matches `data/chain.yaml` (10 mm pitch, 8 mm wide links with round ends, a 5 mm dot on every pin, 13 pins), so the software needs no changes. Code: `splinewire/printed_chain.py`.
 
 ```bash

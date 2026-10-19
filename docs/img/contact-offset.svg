@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="470" viewBox="0 0 1000 470" font-family="Helvetica, Arial, sans-serif">
+<rect width="1000" height="470" fill="#ffffff"/>
+<clipPath id="c"><rect x="0" y="0" width="1000" height="410"/></clipPath>
+<g clip-path="url(#c)">
+<circle cx="250" cy="330" r="175.0" fill="#dfe3e8" stroke="#8a94a0" stroke-width="2"/>
+<path d="M95.1,241.4 L141.1,188.6 A28.0,28.0 0 0 0 98.9,151.8 L52.9,204.6 A28.0,28.0 0 0 0 95.1,241.4 Z" fill="#525c69" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M133.7,194.6 L194.7,160.3 A28.0,28.0 0 0 0 167.3,111.5 L106.3,145.8 A28.0,28.0 0 0 0 133.7,194.6 Z" fill="#3b4450" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M185.8,163.5 L254.8,151.6 A28.0,28.0 0 0 0 245.2,96.4 L176.3,108.3 A28.0,28.0 0 0 0 185.8,163.5 Z" fill="#525c69" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M245.2,151.6 L314.2,163.5 A28.0,28.0 0 0 0 323.7,108.3 L254.8,96.4 A28.0,28.0 0 0 0 245.2,151.6 Z" fill="#3b4450" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M305.3,160.3 L366.3,194.6 A28.0,28.0 0 0 0 393.7,145.8 L332.7,111.5 A28.0,28.0 0 0 0 305.3,160.3 Z" fill="#525c69" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M358.9,188.6 L404.9,241.4 A28.0,28.0 0 0 0 447.1,204.6 L401.1,151.8 A28.0,28.0 0 0 0 358.9,188.6 Z" fill="#3b4450" stroke="#1b2430" stroke-width="1.5"/>
+<circle cx="74.0" cy="223.0" r="17.5" fill="#f4f5f7"/>
+<circle cx="120.0" cy="170.2" r="17.5" fill="#f4f5f7"/>
+<circle cx="181.0" cy="135.9" r="17.5" fill="#f4f5f7"/>
+<circle cx="250.0" cy="124.0" r="17.5" fill="#f4f5f7"/>
+<circle cx="319.0" cy="135.9" r="17.5" fill="#f4f5f7"/>
+<circle cx="380.0" cy="170.2" r="17.5" fill="#f4f5f7"/>
+<circle cx="426.0" cy="223.0" r="17.5" fill="#f4f5f7"/>
+<circle cx="118.1" cy="215.0" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="164.2" cy="177.5" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="220.3" cy="157.5" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="279.7" cy="157.5" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="335.8" cy="177.5" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="381.9" cy="215.0" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+</g>
+<path d="M512.0,270.5 L512.0,92.0 L988.0,92.0 L988.0,270.5 Z" fill="none"/>
+<path d="M581.0,284.7 L584.3,273.7 L588.3,263.0 L593.0,252.6 L598.4,242.5 L604.5,232.8 L611.2,223.5 L618.4,214.6 L626.3,206.3 L634.6,198.4 L643.5,191.2 L652.8,184.5 L662.5,178.4 L672.6,173.0 L683.0,168.3 L693.7,164.3 L704.7,161.0 L715.9,158.4 L727.2,156.5 L738.6,155.4 L750.0,155.0 L761.4,155.4 L772.8,156.5 L784.1,158.4 L795.3,161.0 L806.3,164.3 L817.0,168.3 L827.4,173.0 L837.5,178.4 L847.2,184.5 L856.5,191.2 L865.4,198.4 L873.7,206.3 L881.6,214.6 L888.8,223.5 L895.5,232.8 L901.6,242.5 L907.0,252.6 L911.7,263.0 L915.7,273.7 L919.0,284.7 L966.4,272.0 L962.1,258.0 L956.9,244.3 L950.9,230.9 L944.0,218.0 L936.2,205.6 L927.7,193.6 L918.4,182.3 L908.4,171.6 L897.7,161.6 L886.4,152.3 L874.4,143.8 L862.0,136.0 L849.1,129.1 L835.7,123.1 L822.0,117.9 L808.0,113.6 L793.7,110.3 L779.2,107.9 L764.7,106.5 L750.0,106.0 L735.3,106.5 L720.8,107.9 L706.3,110.3 L692.0,113.6 L678.0,117.9 L664.3,123.1 L650.9,129.1 L638.0,136.0 L625.6,143.8 L613.6,152.3 L602.3,161.6 L591.6,171.6 L581.6,182.3 L572.3,193.6 L563.8,205.6 L556.0,218.0 L549.1,230.9 L543.1,244.3 L537.9,258.0 L533.6,272.0 Z" fill="#dfe3e8" stroke="#8a94a0" stroke-width="2"/>
+<path d="M630.3,321.3 L655.6,256.0 A28.0,28.0 0 0 0 603.3,235.8 L578.1,301.1 A28.0,28.0 0 0 0 630.3,321.3 Z" fill="#525c69" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M647.9,266.9 L700.5,220.7 A28.0,28.0 0 0 0 663.5,178.6 L611.0,224.9 A28.0,28.0 0 0 0 647.9,266.9 Z" fill="#3b4450" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M688.7,226.9 L756.7,210.2 A28.0,28.0 0 0 0 743.3,155.8 L675.3,172.5 A28.0,28.0 0 0 0 688.7,226.9 Z" fill="#525c69" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M743.3,210.2 L811.3,226.9 A28.0,28.0 0 0 0 824.7,172.5 L756.7,155.8 A28.0,28.0 0 0 0 743.3,210.2 Z" fill="#3b4450" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M799.5,220.7 L852.1,266.9 A28.0,28.0 0 0 0 889.0,224.9 L836.5,178.6 A28.0,28.0 0 0 0 799.5,220.7 Z" fill="#525c69" stroke="#1b2430" stroke-width="1.5"/>
+<path d="M844.4,256.0 L869.7,321.3 A28.0,28.0 0 0 0 921.9,301.1 L896.7,235.8 A28.0,28.0 0 0 0 844.4,256.0 Z" fill="#3b4450" stroke="#1b2430" stroke-width="1.5"/>
+<circle cx="604.2" cy="311.2" r="17.5" fill="#f4f5f7"/>
+<circle cx="629.4" cy="245.9" r="17.5" fill="#f4f5f7"/>
+<circle cx="682.0" cy="199.7" r="17.5" fill="#f4f5f7"/>
+<circle cx="750.0" cy="183.0" r="17.5" fill="#f4f5f7"/>
+<circle cx="818.0" cy="199.7" r="17.5" fill="#f4f5f7"/>
+<circle cx="870.6" cy="245.9" r="17.5" fill="#f4f5f7"/>
+<circle cx="895.8" cy="311.2" r="17.5" fill="#f4f5f7"/>
+<circle cx="606.5" cy="229.9" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="669.1" cy="174.8" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="750.0" cy="155.0" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="830.9" cy="174.8" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<circle cx="893.5" cy="229.9" r="6" fill="#d33" stroke="#fff" stroke-width="2"/>
+<text x="250" y="40" font-size="22" font-weight="bold" fill="#1b2430" text-anchor="middle">Wrapped around an object</text>
+<text x="250" y="66" font-size="17" fill="#4a5462" text-anchor="middle">flat link edges touch it, near each link's middle</text>
+<text x="750" y="40" font-size="22" font-weight="bold" fill="#1b2430" text-anchor="middle">Pressed into a hollow</text>
+<text x="750" y="66" font-size="17" fill="#4a5462" text-anchor="middle">rounded link ends touch it, at the pins</text>
+<circle cx="390" cy="447" r="6" fill="#d33"/><text x="402" y="453" font-size="16" fill="#4a5462">contact points: pin line offset by the link half-width</text>
+</svg>
