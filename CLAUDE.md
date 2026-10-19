@@ -55,4 +55,4 @@ PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` G
 
 ## Priority
 
-Almost everything is validated only on synthetic photos. The riskiest open item is real-world accuracy: real phone photos (lighting, glare, lens distortion, EXIF focal accuracy) of the printed test plaque. The first real photo (s-curve plaque, ~25° tilt) measured 0.098 mm worst pin; the rest of the test matrix is still to do. See `docs/next-steps.md`, item 1.
+Almost everything is validated only on synthetic photos. The riskiest open item is real-world accuracy: real phone photos (lighting, glare, lens distortion, EXIF focal accuracy) of the printed test plaque. The first real photo (s-curve plaque, ~25° tilt) measured 0.098 mm worst pin; the rest of the test matrix is still to do. The printed O-ring chain has been photographed (all 13 pins found, link lengths within 0.12 mm rms of the pitch) and pasted into Fusion; it has not yet been checked against an object of known size. See `docs/next-steps.md`, item 1.
