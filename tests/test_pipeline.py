@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from splinewire.camera import focal_px_from_35mm, look_at_plane
+from splinewire.contact import contact_points, object_sign
 from splinewire.pipeline import compare_to_truth, measure
 from splinewire.synthetic import LINK_GRAY, circle_wrap_pins, render_photo, s_curve_pins
 from tests.conftest import fit_circle
@@ -112,3 +113,24 @@ def test_sharp_corner_end_to_end(spec):
     m = measure(img, replace(spec, max_bend_deg=125.0), FOCAL)
     assert len(m.order.indices) == spec.n_pins and m.order.gaps == []
     assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.05
+
+
+
+@pytest.mark.parametrize("concave, radius", [(False, 30.0), (True, 45.0)])
+def test_side_picked_by_a_point_in_the_photo(spec, concave, radius):
+    """A point picked on either side of the chain chooses that edge, and the
+    contact edge drawn on the photo lies where the camera sees it."""
+    pins = circle_wrap_pins(spec, radius, concave=concave)
+    img, cam = _photo(spec, pins)
+    mid = pins[len(pins) // 2]
+    toward_center = cam.project(np.array([mid * 0.5]))[0]      # the chain curls toward the center
+    away = cam.project(np.array([mid * 1.5]))[0]
+    for point, expected in ((toward_center, "inside"), (away, "outside")):
+        m = measure(img, spec, FOCAL, side=tuple(point))
+        assert m.object_side == expected and m.side_px == tuple(point)
+        np.testing.assert_allclose(m.contacts_mm, measure(img, spec, FOCAL, side=expected).contacts_mm)
+
+        true_px = cam.project(contact_points(pins, spec.half_width_mm, object_sign(pins, expected)))
+        drawn = m.to_photo_px(m.contacts_mm)
+        # both run along the chain, maybe in opposite directions
+        assert min(np.abs(drawn - true_px).max(), np.abs(drawn[::-1] - true_px).max()) < 2.0

@@ -38,6 +38,24 @@ h1 { font-size: 20px; margin: 4px 0 2px; }
 .bar div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 .tips { color: var(--muted); font-size: 14px; }
 .tips li { margin: 3px 0; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.field > span { font-size: 15px; }
+.stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.stepper button { width: 44px; height: 40px; border: none; background: var(--chip); color: var(--ink); font-size: 22px; }
+.stepper input { width: 56px; height: 40px; border: none; background: var(--panel); color: var(--ink); text-align: center;
+  font: 600 17px -apple-system, system-ui, sans-serif; -moz-appearance: textfield; }
+.stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: none; background: var(--panel); color: var(--ink); padding: 9px 12px; font-size: 14px; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.next-title { font-weight: 600; }
+.fix { grid-column: 1 / -1; }
+.fix svg { display: block; width: 100%; height: auto; max-height: 60vh; border-radius: 10px; background: #14171b; touch-action: manipulation; }
+.ov-link { fill: none; stroke: #f2cc60; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.ov-edge { fill: none; stroke: #e879f9; stroke-width: 3.5px; vector-effect: non-scaling-stroke; }
+.ov-side { fill: #e879f9; stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.ov-tap { fill: none; stroke: #fff; stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-dasharray: 3 3; }
 .problem { background: color-mix(in srgb, var(--bad) 12%, var(--panel)); border-color: var(--bad); }
 </style>
 </head>
@@ -46,6 +64,17 @@ h1 { font-size: 20px; margin: 4px 0 2px; }
 <div class="version">{{VERSION}}</div>
 
 <div id="problem" class="card problem" hidden></div>
+
+<div class="card">
+  <div class="next-title">Next photo</div>
+  <div class="field"><span>Pins in chain</span>
+    <div class="stepper" id="next-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
+      inputmode="numeric" min="3" max="999" aria-label="Pins in chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
+  <div class="field"><span>Object</span>
+    <div class="seg" id="next-side"><button type="button" data-side="inside">Inside bend</button><button type="button" data-side="outside">Outside bend</button></div></div>
+  <div class="hint">Inside: the chain wrapped around it. Outside: the chain pressed into a hollow.
+    After the photo is measured you can tap the exact edge on it.</div>
+</div>
 
 <div class="buttons">
   <label class="big primary">
@@ -101,10 +130,42 @@ function setStatus(div, cls, text, meta) {
   if (meta !== undefined) div.querySelector(".meta").innerHTML = meta;
 }
 
+// What the next photo is measured with. Starts from what the computer last used.
+const next = {n_pins: 13, side: "inside"};
+
+function stepper(el, get, set) {
+  const input = el.querySelector("input");
+  input.value = get();
+  const commit = (n) => {
+    if (!Number.isInteger(n) || n < 3 || n > 999) { input.value = get(); return; }
+    input.value = n; if (n !== get()) set(n);
+  };
+  el.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => commit(get() + Number(b.dataset.step))));
+  input.addEventListener("change", () => commit(Number(input.value)));
+  return input;
+}
+
+const nextPins = stepper($("#next-pins"), () => next.n_pins, (n) => { next.n_pins = n; });
+function showNextSide() {
+  $("#next-side").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.side === next.side));
+}
+$("#next-side").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) { next.side = b.dataset.side; showNextSide(); }
+});
+showNextSide();
+if (TOKEN) {
+  fetch("/api/state", {headers: {"X-Token": TOKEN}}).then((r) => r.ok ? r.json() : null).then((st) => {
+    if (!st || !st.defaults) return;
+    next.n_pins = st.defaults.n_pins; next.side = st.defaults.side;
+    nextPins.value = next.n_pins; showNextSide();
+  }).catch(() => {});
+}
+
 function upload(file) {
   const div = card(file);
   const xhr = new XMLHttpRequest();
-  xhr.open("POST", `/api/upload?name=${encodeURIComponent(file.name || "photo.jpg")}`);
+  xhr.open("POST", `/api/upload?name=${encodeURIComponent(file.name || "photo.jpg")}&pins=${next.n_pins}&side=${next.side}`);
   xhr.setRequestHeader("X-Token", TOKEN);
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) div.querySelector(".bar div").style.width = `${100 * e.loaded / e.total}%`; };
   xhr.onload = () => {
@@ -137,8 +198,11 @@ function describe(p) {
 }
 
 async function watch(div, id) {
+  div.dataset.watching = String(Number(div.dataset.watching || 0) + 1);
+  const mine = div.dataset.watching;
   for (;;) {
     await new Promise((r) => setTimeout(r, 700));
+    if (div.dataset.watching !== mine) return;     // a newer change is being watched
     let p;
     try {
       const res = await fetch(`/api/photo/${id}`, {headers: {"X-Token": TOKEN}});
@@ -151,6 +215,7 @@ async function watch(div, id) {
       setStatus(div, warn ? "warn" : "ok",
         `${warn ? "Measured, with warnings" : "Measured"}: ${r.pins} pins, ${r.curve_points} curve points. It's on your computer now.`,
         describe(p) + (warn ? `<br>${r.warnings.map(esc).join("<br>")}` : ""));
+      showFix(div, p);
       return;
     }
     if (p.status === "error") {
@@ -159,6 +224,86 @@ async function watch(div, id) {
       return;
     }
   }
+}
+
+// After measuring: the photo with the chain and the edge that touched the object.
+// Tap the other side of the chain to use that edge; change the pin count to measure again.
+const SVGNS = "http://www.w3.org/2000/svg";
+
+function showFix(div, p) {
+  const v = p.view;
+  let fix = div.querySelector(".fix");
+  if (!v || !v.pins.length) { if (fix) fix.remove(); return; }
+  if (!fix) {
+    fix = document.createElement("div");
+    fix.className = "fix";
+    fix.innerHTML = `<div class="hint" style="margin:10px 0 6px">Object touched the <b class="side-now"></b>.
+        Tap the photo on the other side of the chain to switch.</div>
+      <svg role="img" aria-label="The photo with the measured chain. Tap the side of the chain that touched the object.">
+        <image x="0" y="0"/><g class="overlay"></g></svg>
+      <div class="field"><span>Pins in chain</span>
+        <div class="stepper"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
+          inputmode="numeric" min="3" max="999" aria-label="Pins in chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>`;
+    div.appendChild(fix);
+    const svg = fix.querySelector("svg");
+    const img = svg.querySelector("image");
+    img.setAttribute("href", `/api/photo/${p.id}/image-small.jpg?t=${encodeURIComponent(TOKEN)}`);
+    img.setAttribute("width", v.width); img.setAttribute("height", v.height);
+    let down = null;
+    svg.addEventListener("pointerdown", (e) => { down = {x: e.clientX, y: e.clientY}; });
+    svg.addEventListener("pointerup", (e) => {
+      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) { down = null; return; }
+      down = null;
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+      fix.tap = [q.x, q.y];
+      draw(fix);
+      change(div, p.id, {side: [q.x, q.y]});
+    });
+    fix.pins = {value: p.n_pins};
+    let timer = null;
+    stepper(fix.querySelector(".stepper"), () => fix.pins.value, (n) => {
+      fix.pins.value = n;
+      clearTimeout(timer);                 // a few taps on +/- in a row measure once
+      timer = setTimeout(() => change(div, p.id, {n_pins: n}), 600);
+    });
+  }
+  fix.view = v; fix.tap = null; fix.pins.value = p.n_pins;
+  fix.querySelector(".stepper input").value = p.n_pins;
+  fix.querySelector(".side-now").textContent =
+    `${p.result.object_side} of the bend${p.side === "picked" ? " (as you tapped)" : ""}`;
+  const svg = fix.querySelector("svg");
+  if (!svg.getAttribute("viewBox")) svg.setAttribute("viewBox", chainBox(v));
+  draw(fix);
+}
+
+function chainBox(v) {
+  const xs = v.pins.map((m) => m.x), ys = v.pins.map((m) => m.y);
+  const w0 = Math.max(...xs) - Math.min(...xs), h0 = Math.max(...ys) - Math.min(...ys);
+  const pad = Math.max(0.15 * Math.max(w0, h0), 5 * v.r);
+  let x = Math.min(...xs) - pad, y = Math.min(...ys) - pad, w = w0 + 2 * pad, h = h0 + 2 * pad;
+  if (h > 1.25 * w) { x -= (h / 1.25 - w) / 2; w = h / 1.25; }   // not too tall for a phone screen
+  return `${x} ${y} ${w} ${h}`;
+}
+
+function draw(fix) {
+  const v = fix.view, out = [];
+  const line = (pts, cls) => `<polyline class="${cls}" points="${pts.map((q) => q.join(",")).join(" ")}"/>`;
+  out.push(line(v.pins.map((m) => [m.x, m.y]), "ov-link"));
+  if (v.curve.length > 1) out.push(line(v.curve, "ov-edge"));
+  if (v.side_px) out.push(`<circle class="ov-side" cx="${v.side_px[0]}" cy="${v.side_px[1]}" r="${v.r * 0.6}"/>`);
+  if (fix.tap) out.push(`<circle class="ov-tap" cx="${fix.tap[0]}" cy="${fix.tap[1]}" r="${v.r * 1.2}"/>`);
+  fix.querySelector(".overlay").innerHTML = out.join("");
+}
+
+async function change(div, id, body) {
+  setStatus(div, "", "Measuring again…");
+  try {
+    const res = await fetch(`/api/photo/${id}/options`, {method: "POST", headers: {"X-Token": TOKEN}, body: JSON.stringify(body)});
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  } catch (e) { setStatus(div, "bad", `Couldn't change it: ${e.message}`); return; }
+  if (body.n_pins) { next.n_pins = body.n_pins; nextPins.value = body.n_pins; }
+  watch(div, id);
 }
 
 for (const id of ["take", "choose"]) {

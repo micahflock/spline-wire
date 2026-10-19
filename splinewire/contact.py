@@ -39,6 +39,29 @@ def object_sign(pins_mm: np.ndarray, side: Side) -> int:
     return toward if side == "inside" else -toward
 
 
+def sign_from_photo_point(pins_px: np.ndarray, point_px) -> int:
+    """Which side of the pin polyline the object is on (+1 left, -1 right, as
+    object_sign), from a point a person picked in the photo on that side.
+
+    The side is read off the link nearest the point. Photo pixels run y-down
+    and pin positions in mm y-up (see Rectification), and deskewing a plane
+    seen from the front keeps its handedness, so the side flips between them.
+    """
+    pins = np.asarray(pins_px, dtype=float)
+    p = np.asarray(point_px, dtype=float)
+    a, b = pins[:-1], pins[1:]
+    d = b - a
+    t = np.clip(np.sum((p - a) * d, axis=1) / np.maximum(np.sum(d * d, axis=1), 1e-12), 0.0, 1.0)
+    k = int(np.argmin(np.linalg.norm(a + t[:, None] * d - p, axis=1)))
+    cross = d[k, 0] * (p[1] - a[k, 1]) - d[k, 1] * (p[0] - a[k, 0])
+    return -1 if cross >= 0 else 1
+
+
+def side_name(pins_mm: np.ndarray, sign: int) -> Side:
+    """The side (inside or outside of the bend) that object_sign maps to `sign`."""
+    return "inside" if object_sign(pins_mm, "inside") == sign else "outside"
+
+
 def contact_points(pins_mm: np.ndarray, half_width_mm: float, sign: int) -> np.ndarray:
     """Points where the target curve touches the chain, in chain order."""
     pins = np.asarray(pins_mm, dtype=float)

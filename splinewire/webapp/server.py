@@ -36,7 +36,7 @@ import sys
 import threading
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -64,6 +64,8 @@ CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inne
 # The chain every earlier version shipped (rings); saved unchanged, it follows the new default.
 OLD_DEFAULT_CHAIN = {"ring_outer_mm": 5.0, "ring_inner_mm": 2.0}
 FULL_FRAME_DIAGONAL_MM = 43.2666
+MAX_PINS = 999
+SIDES = ("inside", "outside")
 DOWNLOADS = {"dxf": "dxf", "csv": "csv", "svg": "svg", "json": "json", "fusion_csv": "fusion-cm.csv"}
 
 
@@ -103,6 +105,11 @@ class Photo:
     view_jpeg: bytes | None = None
     detected: list[Fiducial] | None = None
     detected_for: tuple | None = None       # the fiducial settings `detected` is valid for
+    view_small_jpeg: bytes | None = None    # the photo at phone size, for picking the side there
+    # This photo's own chain length and object side: "inside" or "outside" of
+    # the bend, or (x, y), a photo point on the object's side of the chain.
+    n_pins: int = 13
+    side: str | tuple[float, float] = "inside"
 
 
 class AppState:
@@ -157,12 +164,15 @@ class AppState:
             if "chain" in changes:
                 c = changes["chain"]
                 new["chain"] = {k: float(c.get(k) or 0.0) for k in CHAIN_KEYS if k != "fiducial"}
-                if not c.get("max_bend_deg"):         # a page from before the setting existed
-                    new["chain"]["max_bend_deg"] = float(self.settings["chain"]["max_bend_deg"])
-                new["chain"]["n_pins"] = int(new["chain"]["n_pins"])
+                # Not on every page: the sharpest bend (older pages), the pin
+                # count (now set per photo, next to it).
+                for k in ("max_bend_deg", "n_pins"):
+                    if not c.get(k):
+                        new["chain"][k] = float(self.settings["chain"][k])
+                new["chain"]["n_pins"] = _pin_count(new["chain"]["n_pins"])
                 new["chain"]["fiducial"] = str(c.get("fiducial", "dot"))
             if "side" in changes:
-                if changes["side"] not in ("inside", "outside"):
+                if changes["side"] not in SIDES:
                     raise ValueError("side must be inside or outside")
                 new["side"] = changes["side"]
             for key in ("focal_override_35mm", "phone_focal_35mm"):
@@ -202,7 +212,13 @@ class AppState:
 
     # -- photos ------------------------------------------------------------
 
-    def add_photo(self, name: str, data: bytes, source: str) -> Photo:
+    def add_photo(self, name: str, data: bytes, source: str,
+                  n_pins: int | str | None = None, side: str | None = None) -> Photo:
+        """Store an uploaded photo and queue it. n_pins and side (inside or
+        outside) are this photo's; left out, it takes the last ones used."""
+        pins = _pin_count(n_pins) if n_pins not in (None, "") else None
+        if side not in (None, "") and side not in SIDES:
+            raise ValueError("side must be inside or outside")
         name = _safe_name(name or "photo.jpg")
         if Path(name).suffix.lower() not in PHOTO_SUFFIXES:
             name += ".jpg"
@@ -215,12 +231,61 @@ class AppState:
             n += 1
         path.write_bytes(data)
         with self.lock:
-            photo = Photo(id=str(self._next_id), name=name, path=path, source=source, received=time.time())
+            self._remember(pins, side or None)
+            photo = Photo(id=str(self._next_id), name=name, path=path, source=source, received=time.time(),
+                          n_pins=int(self.settings["chain"]["n_pins"]), side=self.settings["side"])
             self._next_id += 1
             self.photos[photo.id] = photo
             self._changed()
         self._queue.put(photo.id)
         return photo
+
+    def set_options(self, photo_id: str, doc: dict) -> None:
+        """Change a photo's pin count or object side and measure it again.
+
+        doc: {"n_pins": int} and/or {"side": "inside" | "outside" | [x, y]},
+        [x, y] being a point in photo pixels on the object's side of the chain.
+        The pin count, and side when given by name, also become the defaults
+        for the next photos.
+        """
+        if not isinstance(doc, dict):
+            raise ValueError("options must be an object with n_pins and/or side")
+        n = _pin_count(doc["n_pins"]) if doc.get("n_pins") not in (None, "") else None
+        side = doc.get("side")
+        if isinstance(side, dict):
+            side = [side.get("x"), side.get("y")]
+        if isinstance(side, (list, tuple)):
+            if len(side) != 2 or not all(isinstance(v, (int, float)) and np.isfinite(v) for v in side):
+                raise ValueError("side point must be [x, y] in photo pixels")
+            side = (float(side[0]), float(side[1]))
+        elif side is not None and side not in SIDES:
+            raise ValueError("side must be inside, outside or a photo point [x, y]")
+        with self.lock:
+            photo = self.photos.get(photo_id)
+            if photo is None:
+                raise KeyError(photo_id)
+            if isinstance(side, tuple) and photo.image is not None:
+                h, w = photo.image.shape[:2]
+                if not (-w <= side[0] <= 2 * w and -h <= side[1] <= 2 * h):
+                    raise ValueError("side point is outside the photo")
+            if n is not None:
+                photo.n_pins = n
+            if side is not None:
+                photo.side = side
+            self._remember(n, side if isinstance(side, str) else None)
+            photo.status = "queued"
+            self._changed()
+        self._queue.put(photo_id)
+
+    def _remember(self, n_pins: int | None, side: str | None) -> None:
+        """Make these the defaults for the next photo. Call with the lock held."""
+        changed = False
+        if n_pins is not None and n_pins != self.settings["chain"]["n_pins"]:
+            self.settings["chain"]["n_pins"], changed = n_pins, True
+        if side is not None and side != self.settings["side"]:
+            self.settings["side"], changed = side, True
+        if changed:
+            self._save()
 
     def delete_photo(self, photo_id: str) -> None:
         with self.lock:
@@ -258,14 +323,14 @@ class AppState:
                 photo.status = "processing"
                 self._changed()
                 settings = json.loads(json.dumps(self.settings))
-                edits = photo.edits
+                edits, n_pins, side = photo.edits, photo.n_pins, photo.side
             try:
-                spec = spec_from_dict(settings["chain"])
+                spec = replace(spec_from_dict(settings["chain"]), n_pins=n_pins)
                 self._read(photo, spec)
                 truth = settings["truth"]
                 result = process_photo(
                     photo.path, spec, self.workspace / "results",
-                    focal_35mm=settings["focal_override_35mm"], side=settings["side"],
+                    focal_35mm=settings["focal_override_35mm"], side=side,
                     truth_path=Path(truth) if truth and Path(truth).is_file() else None,
                     default_focal_35mm=settings["phone_focal_35mm"],
                     edits=edits, loaded=(photo.image, photo.focal_px), detected=photo.detected,
@@ -293,9 +358,10 @@ class AppState:
         re-orders what was found, so measuring again after one is quick."""
         if photo.image is None:
             image, focal = load_photo(photo.path)
-            view = _jpeg(image, 4096)
+            view, small = _jpeg(image, 4096), _jpeg(image, 1600)
             with self.lock:
-                photo.image, photo.focal_px, photo.view_jpeg = image, focal, view
+                photo.image, photo.focal_px = image, focal
+                photo.view_jpeg, photo.view_small_jpeg = view, small
         key = (spec.fiducial, spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0)
         if photo.detected is None or photo.detected_for != key:
             detected = detect_fiducials(photo.image, spec)
@@ -316,11 +382,12 @@ class AppState:
             self._changed()
         self._queue.put(photo_id)
 
-    def photo_view(self, photo_id: str) -> bytes | None:
-        """The photo itself, upright and unmarked, for the pin editor."""
+    def photo_view(self, photo_id: str, small: bool = False) -> bytes | None:
+        """The photo itself, upright and unmarked, for the pin editor (small:
+        at most 1600 px, for a phone)."""
         with self.lock:
             photo = self.photos.get(photo_id)
-            return photo.view_jpeg if photo else None
+            return (photo.view_small_jpeg if small else photo.view_jpeg) if photo else None
 
     # -- views for the pages -------------------------------------------------
 
@@ -332,6 +399,8 @@ class AppState:
                 "state_version": self.version,
                 "photos": [self._summary(p) for p in reversed(list(self.photos.values()))],
                 "settings": self._public_settings() if local else None,
+                # What the next photo gets, for the phone's controls.
+                "defaults": {"n_pins": self.settings["chain"]["n_pins"], "side": self.settings["side"]},
                 "phone_urls": lan_urls if local else None,
                 "workspace": str(self.workspace) if local else None,
             }
@@ -379,8 +448,10 @@ class AppState:
             pins = [mark(i, k=k) for k, i in enumerate(m.order.indices)]
             unused = [mark(i) for i in m.order.rejected]
             gaps = list(m.order.gaps)
+            # The contact edge, where the object touched the chain, drawn on the photo.
+            curve = _rounded(m.to_photo_px(spline_samples(m.contacts_mm, per_segment=6)), 1)
         else:
-            pins, gaps = [], []
+            pins, gaps, curve = [], [], []
             unused = [marker(f) for f in remove_detections(photo.detected, edits)]
         radii = [p["r"] for p in pins or unused]
         r_default = float(np.median(radii)) if radii else 12.0
@@ -390,6 +461,7 @@ class AppState:
         h, w = photo.image.shape[:2]
         return {
             "width": w, "height": h, "r": r_default, "pins": pins, "gaps": gaps, "unused": unused,
+            "curve": curve, "side_px": list(photo.side) if isinstance(photo.side, tuple) else None,
             "removed": [{"x": x, "y": y, "edit": j} for j, (x, y) in enumerate(edits.remove_px)],
             "edits": edits.to_json(),
         }
@@ -406,7 +478,8 @@ class AppState:
 
     def _summary(self, p: Photo) -> dict:
         out = {"id": p.id, "name": p.name, "source": p.source, "received": p.received,
-               "status": p.status, "error": p.error, "edits": len(p.edits.add_px) + len(p.edits.remove_px)}
+               "status": p.status, "error": p.error, "edits": len(p.edits.add_px) + len(p.edits.remove_px),
+               "n_pins": p.n_pins, "side": p.side if isinstance(p.side, str) else "picked"}
         r = p.result
         if r is not None:
             m, rect = r.measurement, r.measurement.rectification
@@ -547,7 +620,8 @@ class _Handler(BaseHTTPRequestHandler):
             data = self._body()
             if not data:
                 raise ValueError("empty upload")
-            photo = app.add_photo(name, data, "computer" if local else "phone")
+            photo = app.add_photo(name, data, "computer" if local else "phone",
+                                  n_pins=(query.get("pins") or [None])[0], side=(query.get("side") or [None])[0])
             return self._json({"id": photo.id})
 
         if parts[:1] == ["photo"] and len(parts) >= 2:
@@ -560,6 +634,12 @@ class _Handler(BaseHTTPRequestHandler):
                     photo = app.photos.get(pid)
                     data = photo and (photo.preview_jpeg if rest[0] == "preview.jpg" else photo.thumb_jpeg)
                 return self._send(200, data, "image/jpeg") if data else self._error(404, "no preview")
+            # The phone can pick the side and pin count (on a phone-sized photo); editing pins is for the computer.
+            if method == "GET" and rest == ["image-small.jpg"]:
+                data = app.photo_view(pid, small=True)
+                return self._send(200, data, "image/jpeg") if data else self._error(404, "no such photo")
+            if method == "POST" and rest == ["options"]:
+                return self._photo_post(app.set_options, pid)
             if method == "GET" and rest == ["points.tsv"]:
                 text = app.points_text(pid)
                 return self._send(200, text.encode(), "text/plain; charset=utf-8") if text \
@@ -579,11 +659,7 @@ class _Handler(BaseHTTPRequestHandler):
                 data = app.photo_view(pid)
                 return self._send(200, data, "image/jpeg") if data else self._error(404, "no such photo")
             if method == "POST" and rest == ["edits"]:
-                try:
-                    app.set_edits(pid, json.loads(self._body() or b"{}"))
-                except KeyError:
-                    return self._error(404, "no such photo")
-                return self._json({"ok": True})
+                return self._photo_post(app.set_edits, pid)
             if method == "POST" and rest == ["delete"]:
                 app.delete_photo(pid)
                 return self._json({"ok": True})
@@ -629,6 +705,15 @@ class _Handler(BaseHTTPRequestHandler):
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
         return self._error(404, "unknown endpoint")
+
+
+    def _photo_post(self, action, pid: str) -> None:
+        doc = json.loads(self._body() or b"{}")
+        try:
+            action(pid, doc)
+        except KeyError:
+            return self._error(404, "no such photo")
+        return self._json({"ok": True})
 
 
 class SplineWireServer(ThreadingHTTPServer):
@@ -725,8 +810,18 @@ def _jpeg(rgb: np.ndarray, max_side: int) -> bytes:
     return buf.getvalue()
 
 
-def _rounded(pts: np.ndarray) -> list[list[float]]:
-    return [[round(float(x), 4), round(float(y), 4)] for x, y in pts]
+def _rounded(pts: np.ndarray, digits: int = 4) -> list[list[float]]:
+    return [[round(float(x), digits), round(float(y), digits)] for x, y in pts]
+
+
+def _pin_count(value) -> int:
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"number of pins must be a whole number, got {value!r}") from None
+    if not 3 <= n <= MAX_PINS or n != float(value):
+        raise ValueError(f"number of pins must be a whole number from 3 to {MAX_PINS}")
+    return n
 
 
 def _open_folder(folder: Path) -> None:

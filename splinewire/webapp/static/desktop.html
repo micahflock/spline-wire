@@ -107,6 +107,16 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .ov-label { fill: #3fb950; stroke: #0b0e11; paint-order: stroke; stroke-width: 3px; vector-effect: non-scaling-stroke;
   font-weight: 600; pointer-events: none; }
 .ov-label.mine { fill: #58a6ff; }
+.opts { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 10px;
+  border-top: 1px solid var(--line); font-size: 13px; }
+.opts label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.opts input { width: 64px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); text-align: right; }
+.opts .sidebox { display: flex; align-items: center; gap: 6px; }
+.opts .sidebox b { font-weight: 600; }
+.btn.small.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.view svg.editor.picking { cursor: cell; }
+.ov-edge { fill: none; stroke: #e879f9; stroke-width: 3px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ov-side { fill: #e879f9; stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .details { padding: 14px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 24px; }
 .details h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px;
   color: var(--muted); }
@@ -180,15 +190,10 @@ label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
         <span>Fiducial on each pin</span><select name="fiducial"><option value="dot">Dot</option><option value="ring">Ring</option></select>
         <span>Dot or ring diameter (mm)</span><input name="fiducial_mm" inputmode="decimal">
         <span>Ring hole diameter (mm, rings only)</span><input name="ring_inner_mm" inputmode="decimal">
-        <span>Number of pins</span><input name="n_pins" inputmode="numeric">
         <span>Sharpest bend at a pin (°; 80, or 125 for the O-ring chain)</span><input name="max_bend_deg" inputmode="decimal">
       </div>
     </fieldset>
-    <fieldset>
-      <legend>The object was on the…</legend>
-      <label class="radio"><input type="radio" name="side" value="inside"> inside of the bend (chain wrapped around it)</label>
-      <label class="radio"><input type="radio" name="side" value="outside"> outside of the bend (chain pressed into a hollow)</label>
-    </fieldset>
+    <p class="small">The number of pins and the side the object was on are set for each photo, next to it.</p>
     <fieldset>
       <legend>Camera</legend>
       <div class="grid2">
@@ -400,8 +405,12 @@ async function renderMain() {
   const help = `<section class="card empty"><p>Check that the whole chain is in the photo, dots facing up and in focus,
     without glare, and that the chain settings match your chain. Then take the photo again.${
     d && d.view ? " Or, if you can see the dots, click each pin on the photo below." : ""}</p></section>`;
+  const typing = document.activeElement && document.activeElement.id === "opt-pins" ? document.activeElement.value : null;
   main.innerHTML = titleCard(p, d) + (p.status === "error" ? help : "")
     + (d ? viewsCard(p, d) + (d.result ? detailsCard(d) : "") : "");
+  if (typing !== null && $("#opt-pins") && !$("#opt-pins").disabled) {
+    const el = $("#opt-pins"); el.value = typing; el.focus();
+  }
   if (d && d.view) mountEditor(p, d);
 }
 
@@ -416,7 +425,44 @@ function titleCard(p, d) {
       ${ready ? `<button class="btn primary big" id="copy">Copy points</button><span class="hint">then <b>Paste points</b> in a Fusion sketch</span>` : ""}
       ${dl}
       <button class="btn link" id="delete">Remove</button>
-    </div></section>`;
+    </div>
+    ${optionsRow(p, d)}</section>`;
+}
+
+const SIDE_TEXT = {inside: "inside of the bend", outside: "outside of the bend"};
+
+// This photo's own pin count and object side. Changing either measures it again.
+function optionsRow(p, d) {
+  const busy = p.status === "queued" || p.status === "processing";
+  const measured = d && d.result ? d.result.object_side : null;
+  const side = p.side === "picked" ? (measured ? `${SIDE_TEXT[measured]}, picked on the photo` : "picked on the photo")
+    : SIDE_TEXT[p.side];
+  const picking = viewer.mode === "side" && viewer.pid === p.id;
+  return `<div class="opts">
+    <label title="Pins on the chain in this photo (links + 1)">Pins in chain
+      <input type="number" id="opt-pins" min="3" max="999" step="1" value="${p.n_pins}" ${busy ? "disabled" : ""}></label>
+    <span class="sidebox"><span style="color:var(--muted)">Object touched the</span> <b>${esc(side)}</b>
+      <button class="btn small" id="opt-flip" ${busy || !measured ? "disabled" : ""} title="Use the chain's other edge">Flip side</button>
+      ${d && d.view && d.view.pins.length ? `<button class="btn small ${picking ? "on" : ""}" id="opt-pick" ${busy ? "disabled" : ""}
+        title="Click the photo on the side of the chain the object touched">${picking ? "Click the photo…" : "Pick on photo"}</button>` : ""}</span>
+  </div>`;
+}
+
+async function setOptions(pid, body) {
+  try {
+    await api(`/api/photo/${pid}/options`, {method: "POST", body: JSON.stringify(body)});
+  } catch (err) { toast(err.message); render(); return; }
+  await followUp(pid);
+}
+
+// The result is a second away: look often, not every 900 ms.
+async function followUp(pid) {
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 200));
+    try { await refresh(); } catch (e) { return; }
+    const p = state.photos.find((x) => x.id === pid);
+    if (!p || p.status === "done" || p.status === "error") return;
+  }
 }
 
 function viewsCard(p, d) {
@@ -433,7 +479,8 @@ function viewsCard(p, d) {
       <div class="ed-legend"><span><i style="border-color:#3fb950"></i>pin on the chain</span>
         <span><i style="border-color:#58a6ff"></i>pin you added</span>
         <span><i style="border-color:#ff6b6b"></i>left out (click to use)</span>
-        <span><i style="border-color:#c9d1d9;border-style:dashed"></i>removed (click to restore)</span></div>
+        <span><i style="border-color:#c9d1d9;border-style:dashed"></i>removed (click to restore)</span>
+        <span><i style="border-color:#e879f9;border-radius:2px;height:3px;border-width:2px 6px"></i>edge that touched the object</span></div>
     </section>` : "";
   return `<div class="views ${busy ? "busy" : ""}">${curve}${editor}</div>`;
 }
@@ -485,7 +532,7 @@ function detailsCard(d) {
     ${rowHtml("Camera tilt", `${r.tilt_deg}°`)}
     ${rowHtml("Focal length", `${r.focal_35mm} mm <span class="small">${esc(focalSrc)}</span>`)}
     ${rowHtml("Link length error", `rms ${r.link_residual_rms_mm} · max ${r.link_residual_max_mm} mm`)}
-    ${rowHtml("Object side", `${r.object_side} of the bend`)}
+    ${rowHtml("Object side", `${r.object_side} of the bend${d.side === "picked" ? " (picked on the photo)" : ""}`)}
     ${rowHtml("Stray look-alikes ignored", r.rejected)}
     ${d.view && (d.view.edits.add.length || d.view.edits.remove.length)
       ? rowHtml("Edited by hand", `${d.view.edits.add.length} added · ${d.view.edits.remove.length} removed`) : ""}
@@ -522,6 +569,14 @@ document.addEventListener("click", async (ev) => {
   const item = ev.target.closest(".item");
   if (item) { selected = item.dataset.id; render(); return; }
   if (ev.target.id === "copy") return copyPoints();
+  if (ev.target.id === "opt-flip" && selected) {
+    const d = lastDetail[selected];
+    if (d && d.result) return setOptions(selected, {side: d.result.object_side === "inside" ? "outside" : "inside"});
+  }
+  if (ev.target.id === "opt-pick") {
+    viewer.mode = viewer.mode === "side" ? "pins" : "side";
+    render(); return;
+  }
   if (ev.target.id === "ed-undo") return undoEdit();
   if (ev.target.id === "ed-reset") return commitEdits({add: [], remove: []});
   if (ev.target.id === "ed-fit") return zoomTo(chainBox());
@@ -537,6 +592,14 @@ document.addEventListener("keydown", (ev) => {
   const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
   if ((ev.ctrlKey || ev.metaKey) && ev.key === "c" && !typing && !String(getSelection())) { ev.preventDefault(); copyPoints(); }
   if ((ev.ctrlKey || ev.metaKey) && ev.key === "z" && !typing && viewer.svg) { ev.preventDefault(); undoEdit(); }
+  if (ev.key === "Escape" && viewer.mode === "side") { viewer.mode = "pins"; render(); }
+});
+document.addEventListener("change", (ev) => {
+  if (ev.target.id !== "opt-pins" || !selected) return;
+  const n = Number(ev.target.value);
+  const p = state.photos.find((x) => x.id === selected);
+  if (!Number.isInteger(n) || n < 3 || n > 999) { toast("Pins in chain: a whole number from 3 to 999"); ev.target.value = p ? p.n_pins : ""; return; }
+  if (p && n !== p.n_pins) setOptions(selected, {n_pins: n});
 });
 $("#add").onclick = () => $("#file").click();
 $("#file").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
@@ -557,12 +620,13 @@ $("#quit").onclick = async () => {
 // restore it. Edits are sent whole to the app, which measures the photo again. All coordinates
 // are photo pixels; the SVG's own coordinate system is the photo's, so zoom is just its viewBox.
 const SVGNS = "http://www.w3.org/2000/svg";
-const viewer = {pid: null, svg: null, vb: null, view: null, pending: [], history: {}, drag: null};
+const viewer = {pid: null, svg: null, vb: null, view: null, pending: [], history: {}, drag: null, mode: "pins"};
 
 function mountEditor(p, d) {
   const slot = $("#editor-slot");
   if (!slot) return;
   if (viewer.pid !== p.id || !viewer.svg) {
+    if (viewer.pid !== p.id) viewer.mode = "pins";
     viewer.pid = p.id; viewer.view = d.view; viewer.pending = [];
     viewer.svg = createEditorSvg(p.id, d.view);
     slot.appendChild(viewer.svg);
@@ -666,12 +730,15 @@ function hit(at) {
 
 function hint(text) {
   const el = $("#ed-hint");
+  if (el && viewer.mode === "side" && editable()) text = "Click on the side of the chain that touched the object. Esc to cancel.";
   if (el) el.textContent = text ?? (editable() ? "Click a pin to remove it, empty space to add one at the middle of a dot. Scroll to zoom, drag to pan."
                                                : "Measuring…");
 }
 
 function hover(ev) {
   if (!viewer.view) return;
+  viewer.svg.classList.toggle("picking", viewer.mode === "side");
+  if (viewer.mode === "side") return hint();
   const h = hit(toPhoto(ev));
   viewer.svg.classList.toggle("over", !!h && editable());
   viewer.svg.classList.toggle("wait", !editable());
@@ -694,6 +761,12 @@ const editable = () => {
 
 function onEditorClick(at) {
   if (!editable()) return;
+  if (viewer.mode === "side") {
+    viewer.mode = "pins";
+    viewer.pending = [{x: at.x, y: at.y, r: viewer.view.r * 0.6}];
+    drawOverlay();
+    return setOptions(viewer.pid, {side: [at.x, at.y]});
+  }
   const e = JSON.parse(JSON.stringify(viewer.view.edits)), h = hit(at);
   let mark = at;
   if (!h) e.add.push([at.x, at.y]);
@@ -729,12 +802,7 @@ async function sendEdits(next, mark, rollback) {
     viewer.pending = []; drawOverlay(); toast(err.message);
     return;
   }
-  for (let i = 0; i < 40; i++) {         // the result is a second away: look often, not every 900 ms
-    await new Promise((r) => setTimeout(r, 200));
-    try { await refresh(); } catch (e) { return; }
-    const p = state.photos.find((x) => x.id === pid);
-    if (!p || p.status === "done" || p.status === "error") return;
-  }
+  await followUp(pid);
 }
 
 function updateTools() {
@@ -747,6 +815,10 @@ function updateTools() {
 function drawOverlay() {
   const v = viewer.view, g = viewer.svg.querySelector(".overlay");
   const out = [], rr = (m) => (m.r || v.r) * 1.3;
+  if (v.curve && v.curve.length > 1) {
+    out.push(`<polyline class="ov-edge" points="${v.curve.map((q) => q.join(",")).join(" ")}"/>`);
+  }
+  if (v.side_px) out.push(`<circle class="ov-side" cx="${v.side_px[0]}" cy="${v.side_px[1]}" r="${v.r * 0.45}"/>`);
   const circle = (cls, m) => `<circle class="${cls}" cx="${m.x}" cy="${m.y}" r="${rr(m)}"/>`;
   const dot = (cls, m) => `<circle class="ov-dot ${cls}" cx="${m.x}" cy="${m.y}" r="${v.r * 0.09}"/>`;
   v.pins.forEach((m, i) => {
@@ -771,6 +843,7 @@ function drawOverlay() {
   for (const m of viewer.pending) out.push(circle("ov-pending", {...m, r: (m.r || v.r) * 1.05}));
   g.innerHTML = out.join("");
   viewer.svg.classList.toggle("wait", !editable());
+  viewer.svg.classList.toggle("picking", viewer.mode === "side");
   updateTools();
 }
 
@@ -779,7 +852,6 @@ const form = $("#settings-form");
 $("#settings-btn").onclick = () => {
   const s = state.settings;
   for (const [k, v] of Object.entries(s.chain)) if (form.elements[k]) form.elements[k].value = v;
-  form.elements.side.value = s.side;
   form.elements.phone_focal_35mm.value = s.phone_focal_35mm ?? "";
   form.elements.focal_override_35mm.value = s.focal_override_35mm ?? "";
   $("#truth-status").textContent = s.truth_name ? `Comparing every photo to ${s.truth_name}.` :
@@ -791,9 +863,9 @@ $("#settings-btn").onclick = () => {
 $("#settings-save").onclick = async (ev) => {
   ev.preventDefault();
   const e = form.elements;
-  const body = {chain: {}, side: e.side.value, phone_focal_35mm: e.phone_focal_35mm.value.trim(),
+  const body = {chain: {}, phone_focal_35mm: e.phone_focal_35mm.value.trim(),
     focal_override_35mm: e.focal_override_35mm.value.trim()};
-  for (const k of ["pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins", "max_bend_deg"]) body.chain[k] = e[k].value.trim();
+  for (const k of ["pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "max_bend_deg"]) body.chain[k] = e[k].value.trim();
   try {
     await api("/api/settings", {method: "POST", body: JSON.stringify(body)});
     $("#settings").close();
