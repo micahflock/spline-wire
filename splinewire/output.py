@@ -35,6 +35,7 @@ def write_json(path: Path, m: Measurement, extra: dict | None = None) -> None:
             "link_residual_max_mm": round(r.residual_max_mm, 4),
         },
         "warnings": m.warnings,
+        "notes": m.notes,
     }
     if extra:
         doc.update(extra)

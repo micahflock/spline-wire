@@ -322,3 +322,39 @@ def test_settings_keep_the_pin_count_when_the_page_leaves_it_out(served):
     chain = {k: v for k, v in app.settings["chain"].items() if k != "n_pins"}
     assert call(server, "/api/settings", json.dumps({"chain": chain}).encode(), app.token)[0] == 200
     assert app.settings["chain"]["n_pins"] == 21
+
+
+def test_truth_file_is_compared_only_to_photos_of_the_test_part(served, spec, tmp_path):
+    """A truth file left in Settings must not score (or flag) photos of other
+    shapes; each photo can still be compared, or not, by hand."""
+    from splinewire.synthetic import circle_wrap_pins
+
+    app, server = served
+    pins = s_curve_pins(spec)
+    write_synthetic_photo(tmp_path / "p.jpg", pins, spec, (2000, 1500))
+    write_truth(tmp_path / "pipe.json", circle_wrap_pins(spec, 30.0))
+    assert call(server, "/api/truth?name=pipe.json", (tmp_path / "pipe.json").read_bytes(), app.token)[0] == 200
+    pid = json.loads(call(server, "/api/upload?name=p.jpg&via=take",
+                          (tmp_path / "p.jpg").read_bytes(), app.token)[1])["id"]
+    assert app.wait_idle(60)
+    detail = lambda: json.loads(call(server, f"/api/photo/{pid}", token=app.token)[1])
+    options = lambda doc: call(server, f"/api/photo/{pid}/options", json.dumps(doc).encode(), app.token)[0]
+
+    d = detail()
+    assert d["truth_mode"] == "auto" and d["via"] == "Take photo"
+    r = d["result"]
+    assert r["truth"] is None and r["truth_status"] == "shape" and r["warnings"] == []
+    assert any("different shape" in n for n in r["notes"])
+
+    assert options({"truth": "on"}) == 200 and app.wait_idle(60)
+    r = detail()["result"]
+    assert r["truth_status"] == "compared" and r["truth"]["max_error_mm"] > 5
+    assert options({"truth": "off"}) == 200 and app.wait_idle(60)
+    assert detail()["result"]["truth_status"] == "off"
+    assert options({"truth": "maybe"}) == 400
+
+    # a made-up button name is not recorded
+    other = json.loads(call(server, "/api/upload?name=q.jpg&via=hack",
+                            (tmp_path / "p.jpg").read_bytes(), app.token)[1])["id"]
+    assert app.wait_idle(60)
+    assert json.loads(call(server, f"/api/photo/{other}", token=app.token)[1])["via"] is None

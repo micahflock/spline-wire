@@ -96,7 +96,7 @@ def _run(log_path: Path | None) -> int:
             check("upload without metadata", lambda: measure(bare, "default"))
 
             def pin_editing() -> str:
-                client.post("/api/truth/clear", b"")          # a truth file wants every pin
+                client.post("/api/truth/clear", b"")          # removing a pin changes the pin count
                 pid = client.post_json(f"/api/upload?name={jpg.name}", jpg.read_bytes())["id"]
 
                 def measured() -> dict:

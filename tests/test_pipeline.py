@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import cv2
 import numpy as np
 import pytest
@@ -47,7 +49,8 @@ def test_missing_pin_and_stray_ring(spec):
         cv2.circle(img, (150, 150), 8, LINK_GRAY, -1, cv2.LINE_AA)
     m = measure(img, spec, FOCAL)
     assert len(m.order.gaps) == 1 and len(m.order.rejected) == 1
-    assert len(m.warnings) == 2
+    assert len(m.warnings) == 1 and "not detected" in m.warnings[0]
+    assert m.notes == ["ignored 1 look-alike detection(s) not on the chain"]   # a note, not a warning
     kept = np.delete(pins, 6, axis=0)
     assert compare_to_truth(m.pins_mm, kept)["max_error_mm"] < 0.05
 
@@ -69,6 +72,17 @@ def test_ring_sized_look_alike_one_pitch_past_the_end(spec):
     m = measure(img, spec, FOCAL)
     assert len(m.order.indices) == len(pins)
     assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.05
+    assert m.warnings == [] and len(m.notes) == 1      # on the table, not the chain going on
+
+
+def test_pin_count_set_too_low_warns(spec):
+    """Look-alikes left out are only a note, but pins of the chain left out
+    because the pin count is set too low must be a warning."""
+    pins = s_curve_pins(spec)
+    img, _ = _photo(spec, pins, tilt=20.0)
+    m = measure(img, replace(spec, n_pins=len(pins) - 2), FOCAL)
+    assert len(m.order.indices) == len(pins) - 2
+    assert any("go on past its end" in w for w in m.warnings)
 
 
 def test_without_focal_length_warns_but_measures(spec):

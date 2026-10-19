@@ -120,7 +120,7 @@ def _measure(args, spec: ChainSpec) -> int:
     if args.pins is not None:
         spec = replace(spec, n_pins=args.pins)
     result = process_photo(args.photo, spec, args.out, focal_35mm=args.focal_35mm,
-                           side=args.side, truth_path=args.truth)
+                           side=args.side, truth_path=args.truth, compare_truth=True)
     m = result.measurement
     r = m.rectification
     print(f"{len(m.order.indices)} pins found, tilt {r.tilt_deg:.1f} deg, "
@@ -131,6 +131,8 @@ def _measure(args, spec: ChainSpec) -> int:
         print(f"vs truth: max error {t['max_error_mm']:.3f} mm, rms {t['rms_error_mm']:.3f} mm; "
               f"after scale fit {t['max_error_scaled_mm']:.3f} mm "
               f"(measured/true scale {t['scale']:.4f})")
+    for n in m.notes:
+        print(f"note: {n}")
     for w in m.warnings:
         print(f"warning: {w}", file=sys.stderr)
     print(f"wrote {args.out}/{args.photo.stem}.json, -curve.csv, -curve.svg, -preview.jpg")

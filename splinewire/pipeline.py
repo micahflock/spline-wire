@@ -30,10 +30,11 @@ class Measurement:
     rectification: Rectification
     object_side: Side            # inside or outside of the chain's bend
     contacts_mm: np.ndarray      # points on the target curve, in chain order
-    warnings: list[str]
+    warnings: list[str]          # things that may make the measurement wrong: check them
     manual: list[ManualPin] = field(default_factory=list)   # pins a person added
     object_sign: int = 1         # the object's side of the pin line: +1 left, -1 right (y-up, chain order)
     side_px: tuple[float, float] | None = None   # the photo point that picked the side, if one did
+    notes: list[str] = field(default_factory=list)   # for information only, e.g. look-alikes left out
 
     @property
     def pins_mm(self) -> np.ndarray:
@@ -101,6 +102,7 @@ def measure(
     part, and does not change when only the edits do).
     """
     warnings: list[str] = []
+    notes: list[str] = []
     fiducials = list(detected) if detected is not None else detect_fiducials(image, spec)
     manual: list[ManualPin] = []
     if edits:
@@ -132,7 +134,9 @@ def measure(
     by_hand = [mp for mp in manual if not mp.snapped and mp not in left_out]
     skipped = len(order.rejected) - len(left_out)
     if skipped:
-        warnings.append(f"ignored {skipped} look-alike detection(s) not on the chain")
+        # Normal on a busy or dotted background, and the pins on the chain are
+        # checked by the warnings below, so this is not one.
+        notes.append(f"ignored {skipped} look-alike detection(s) not on the chain")
     if left_out:
         warnings.append(f"{len(left_out)} pin(s) you added were left out: each must be about one pitch "
                         "from the pins next to it, in line with the chain")
@@ -142,6 +146,13 @@ def measure(
     if order.gaps:
         warnings.append(f"{len(order.gaps)} pin(s) not detected; the curve bridges those gaps")
     expected = spec.n_pins - len(order.gaps)
+    beyond = _past_the_ends(fiducials, order, rect.pins_mm, spec,
+                            set(order.rejected) - {mp.fiducial for mp in left_out})
+    if beyond and n_on_chain == expected:
+        warnings.append(
+            f"the chain seems to go on past its end ({beyond} more pin(s) about one pitch on); "
+            f"is the pin count ({spec.n_pins}) right?"
+        )
     if n_on_chain != expected:
         warnings.append(
             f"found {n_on_chain} pins on the chain but the spec has {spec.n_pins} "
@@ -169,6 +180,7 @@ def measure(
     return Measurement(
         fiducials=fiducials, order=order, rectification=rect, object_side=side_name(rect.pins_mm, sign),
         contacts_mm=contacts, warnings=warnings, manual=manual, object_sign=sign, side_px=side_px,
+        notes=notes,
     )
 
 
@@ -195,6 +207,45 @@ def _settle_clicked_pins(rect: Rectification, order: ChainOrder, free: list[int]
     res = np.array([np.linalg.norm(pins[b] - pins[a]) - spec.pitch_mm for a, b in order.links])
     return replace(rect, pins_mm=pins, link_residuals_mm=res,
                    residual_rms_mm=float(np.sqrt(np.mean(res ** 2))), residual_max_mm=float(np.max(np.abs(res))))
+
+
+def _past_the_ends(fiducials: list[Fiducial], order: ChainOrder, pins_mm: np.ndarray, spec: ChainSpec,
+                   candidates: set[int]) -> int:
+    """How many chain ends have one of `candidates` (detections left off the
+    chain) just past them, looking like the next pin: the end pin's polarity
+    and size, about one pitch on, within the sharpest bend, and on a link (what
+    surrounds it like what surrounds the pins), not on the table.
+
+    The usual cause is a pin count set lower than the chain has. Look-alikes
+    are left out of the chain all the time, so on their own they are no warning.
+    """
+    idx = order.indices
+    if len(idx) < 3 or not candidates:
+        return 0
+    # How much what surrounds a pin varies along the chain (as in _misfits).
+    surround = np.array([fiducials[i].surround for i in idx])
+    spread = max(5.0, 1.4826 * float(np.median(np.abs(np.diff(surround)))))
+    found = 0
+    for end, prev in ((0, 1), (len(idx) - 1, len(idx) - 2)):
+        e, q = fiducials[idx[end]], fiducials[idx[prev]]
+        # The end link maps photo to plane locally: a scale and a rotation,
+        # as complex numbers (photo y flipped to point up like the plane's).
+        d_px = complex(e.center_px[0] - q.center_px[0], q.center_px[1] - e.center_px[1])
+        d_mm = complex(*(pins_mm[end] - pins_mm[prev]))
+        if abs(d_px) < 1e-9 or abs(d_mm) < 1e-9:
+            continue
+        for c in candidates:
+            f = fiducials[c]
+            if f.polarity != e.polarity or abs(f.outer_axes_px[0] / e.outer_axes_px[0] - 1.0) > 0.25:
+                continue
+            if abs(f.surround - (e.surround + q.surround) / 2) > 3.0 * spread:
+                continue
+            step = complex(f.center_px[0] - e.center_px[0], e.center_px[1] - f.center_px[1]) * d_mm / d_px
+            turn = abs(np.degrees(np.angle(step / d_mm)))
+            if abs(abs(step) / spec.pitch_mm - 1.0) < 0.15 and turn <= spec.max_bend_deg + 10.0:
+                found += 1
+                break
+    return found
 
 
 def _can_order(fiducials: list[Fiducial]) -> bool:

@@ -62,7 +62,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 - [ ] Test with the iPhone:
   - Does the focal length survive the upload? Try both buttons. The phone page and the desktop details show "Focal length in file". If it's missing, set the iPhone focal length in Settings (24 mm for iPhone 14 Pro and iPhone 15 or later, 26 mm for earlier models).
     - First try (2026-10-01): no. The photo arrived as a 4032 × 3024 JPEG with all EXIF gone ("Camera: not recorded", "Focal length in file: missing"). Which button was used is not recorded; try the other one.
-    - Second try (2026-10-19, 0.7.0, two photos of the chain): the same, all EXIF gone. Still to do: one photo with each button, noting which is which.
+    - Second try (2026-10-19, 0.7.0, two photos of the chain): the same, all EXIF gone. Still to do: one photo with each button; the photo's details now show which button sent it.
   - Time from shutter to the photo appearing on the computer.
   - Home Wi-Fi and the phone's hotspot. First try (0.5.0) timed out: Windows Firewall. 0.5.1 detects it and adds **Allow phone connections**; confirm it fixes the timeout.
 - **Exit criterion:** under 15 s from photo to points, no custom phone app.
@@ -75,11 +75,9 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 ## Known issues from the first real-chain photos (2026-10-19)
 
-To fix later:
-
-- **Ignored look-alikes show as a warning.** Any entry in `warnings` turns a photo orange ("Measured, with warnings" on the phone, orange in the desktop list), and "ignored N look-alike detection(s) not on the chain" is one of them (`splinewire/pipeline.py`). On a dotted background every clean measurement shows orange. It should be a note, not a warning.
-- **The truth file applies to every photo.** A truth file set in Settings is compared to every photo with a matching pin count, so a leftover plaque truth file gave real-chain photos a meaningless 28.6 mm "error", flagged them orange and showed a "Compared to test-part truth" section. Compare only photos that are of the test part (per photo, or skip when the shapes clearly don't match).
-- **Phone uploads lose all EXIF** (item 4): the focal length then comes from the iPhone setting.
+- [x] **Ignored look-alikes showed as a warning**, turning every clean photo on a dotted background orange. Now a note (`notes` in the JSON, grey in the app). The one case the old warning caught that mattered, a pin count set lower than the chain has, now has its own warning: a leftover dot like the end pin, about one pitch past it, in line with the chain.
+- [x] **The truth file applied to every photo.** Now a photo is compared only when its shape matches the truth file (pins within half a pitch after fitting position, angle and scale; the leftover plaque file was 28.6 mm off) and its pin count does too; otherwise a note says why. Each photo's details have **Don't compare** / **Compare anyway**. `splinewire measure --truth` always compares, as asked.
+- [ ] **Phone uploads lose all EXIF** (item 4): it's stripped on the phone before upload, so the app can't recover it; the focal length comes from the iPhone setting. To find out whether either button keeps it, the phone page now records which one sent each photo ("Sent from the phone with" in the photo's details).
 
 ## Deferred
 

@@ -162,10 +162,12 @@ if (TOKEN) {
   }).catch(() => {});
 }
 
-function upload(file) {
+// via: which button the photo came from ("take" or "choose"); the computer
+// shows it, to find out which one keeps the focal length.
+function upload(file, via) {
   const div = card(file);
   const xhr = new XMLHttpRequest();
-  xhr.open("POST", `/api/upload?name=${encodeURIComponent(file.name || "photo.jpg")}&pins=${next.n_pins}&side=${next.side}`);
+  xhr.open("POST", `/api/upload?name=${encodeURIComponent(file.name || "photo.jpg")}&pins=${next.n_pins}&side=${next.side}&via=${via}`);
   xhr.setRequestHeader("X-Token", TOKEN);
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) div.querySelector(".bar div").style.width = `${100 * e.loaded / e.total}%`; };
   xhr.onload = () => {
@@ -212,9 +214,11 @@ async function watch(div, id) {
     if (p.status === "done") {
       const r = p.result;
       const warn = r.warnings.length > 0;
+      const notes = r.notes || [];          // information only: not a warning
       setStatus(div, warn ? "warn" : "ok",
         `${warn ? "Measured, with warnings" : "Measured"}: ${r.pins} pins, ${r.curve_points} curve points. It's on your computer now.`,
-        describe(p) + (warn ? `<br>${r.warnings.map(esc).join("<br>")}` : ""));
+        describe(p) + (warn ? `<br>${r.warnings.map(esc).join("<br>")}` : "")
+          + (notes.length ? `<br>${notes.map(esc).join("<br>")}` : ""));
       showFix(div, p);
       return;
     }
@@ -307,7 +311,7 @@ async function change(div, id, body) {
 }
 
 for (const id of ["take", "choose"]) {
-  $("#" + id).addEventListener("change", (e) => { [...e.target.files].forEach(upload); e.target.value = ""; });
+  $("#" + id).addEventListener("change", (e) => { [...e.target.files].forEach((f) => upload(f, id)); e.target.value = ""; });
 }
 </script>
 </body>

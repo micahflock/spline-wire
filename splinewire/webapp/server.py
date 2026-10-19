@@ -66,6 +66,11 @@ OLD_DEFAULT_CHAIN = {"ring_outer_mm": 5.0, "ring_inner_mm": 2.0}
 FULL_FRAME_DIAGONAL_MM = 43.2666
 MAX_PINS = 999
 SIDES = ("inside", "outside")
+# Whether a photo is compared to the truth file: "auto" when its shape matches
+# (so a leftover truth file doesn't score photos of something else), "on", "off".
+TRUTH_MODES = ("auto", "on", "off")
+# The phone page's buttons, recorded because iOS has dropped photos' EXIF on upload.
+VIA = {"take": "Take photo", "choose": "Choose from library"}
 DOWNLOADS = {"dxf": "dxf", "csv": "csv", "svg": "svg", "json": "json", "fusion_csv": "fusion-cm.csv"}
 
 
@@ -110,6 +115,8 @@ class Photo:
     # the bend, or (x, y), a photo point on the object's side of the chain.
     n_pins: int = 13
     side: str | tuple[float, float] = "inside"
+    truth: str = "auto"                     # see TRUTH_MODES
+    via: str | None = None                  # the phone button it came from, see VIA
 
 
 class AppState:
@@ -213,12 +220,15 @@ class AppState:
     # -- photos ------------------------------------------------------------
 
     def add_photo(self, name: str, data: bytes, source: str,
-                  n_pins: int | str | None = None, side: str | None = None) -> Photo:
+                  n_pins: int | str | None = None, side: str | None = None,
+                  via: str | None = None) -> Photo:
         """Store an uploaded photo and queue it. n_pins and side (inside or
-        outside) are this photo's; left out, it takes the last ones used."""
+        outside) are this photo's; left out, it takes the last ones used.
+        via: the phone page button used (a key of VIA), if any."""
         pins = _pin_count(n_pins) if n_pins not in (None, "") else None
         if side not in (None, "") and side not in SIDES:
             raise ValueError("side must be inside or outside")
+        via = via if via in VIA else None
         name = _safe_name(name or "photo.jpg")
         if Path(name).suffix.lower() not in PHOTO_SUFFIXES:
             name += ".jpg"
@@ -233,7 +243,7 @@ class AppState:
         with self.lock:
             self._remember(pins, side or None)
             photo = Photo(id=str(self._next_id), name=name, path=path, source=source, received=time.time(),
-                          n_pins=int(self.settings["chain"]["n_pins"]), side=self.settings["side"])
+                          n_pins=int(self.settings["chain"]["n_pins"]), side=self.settings["side"], via=via)
             self._next_id += 1
             self.photos[photo.id] = photo
             self._changed()
@@ -241,15 +251,19 @@ class AppState:
         return photo
 
     def set_options(self, photo_id: str, doc: dict) -> None:
-        """Change a photo's pin count or object side and measure it again.
+        """Change a photo's pin count, object side or truth comparison and measure it again.
 
-        doc: {"n_pins": int} and/or {"side": "inside" | "outside" | [x, y]},
-        [x, y] being a point in photo pixels on the object's side of the chain.
+        doc: {"n_pins": int}, {"side": "inside" | "outside" | [x, y]}, [x, y]
+        being a point in photo pixels on the object's side of the chain, and/or
+        {"truth": "auto" | "on" | "off"}: whether it is compared to the truth file.
         The pin count, and side when given by name, also become the defaults
         for the next photos.
         """
         if not isinstance(doc, dict):
-            raise ValueError("options must be an object with n_pins and/or side")
+            raise ValueError("options must be an object with n_pins, side and/or truth")
+        truth = doc.get("truth")
+        if truth is not None and truth not in TRUTH_MODES:
+            raise ValueError("truth must be auto, on or off")
         n = _pin_count(doc["n_pins"]) if doc.get("n_pins") not in (None, "") else None
         side = doc.get("side")
         if isinstance(side, dict):
@@ -272,6 +286,8 @@ class AppState:
                 photo.n_pins = n
             if side is not None:
                 photo.side = side
+            if truth is not None:
+                photo.truth = truth
             self._remember(n, side if isinstance(side, str) else None)
             photo.status = "queued"
             self._changed()
@@ -324,6 +340,7 @@ class AppState:
                 self._changed()
                 settings = json.loads(json.dumps(self.settings))
                 edits, n_pins, side = photo.edits, photo.n_pins, photo.side
+                compare = {"auto": None, "on": True, "off": False}[photo.truth]
             try:
                 spec = replace(spec_from_dict(settings["chain"]), n_pins=n_pins)
                 self._read(photo, spec)
@@ -334,6 +351,7 @@ class AppState:
                     truth_path=Path(truth) if truth and Path(truth).is_file() else None,
                     default_focal_35mm=settings["phone_focal_35mm"],
                     edits=edits, loaded=(photo.image, photo.focal_px), detected=photo.detected,
+                    compare_truth=compare,
                 )
                 preview = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 1600)
                 thumb = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 240)
@@ -479,7 +497,8 @@ class AppState:
     def _summary(self, p: Photo) -> dict:
         out = {"id": p.id, "name": p.name, "source": p.source, "received": p.received,
                "status": p.status, "error": p.error, "edits": len(p.edits.add_px) + len(p.edits.remove_px),
-               "n_pins": p.n_pins, "side": p.side if isinstance(p.side, str) else "picked"}
+               "n_pins": p.n_pins, "side": p.side if isinstance(p.side, str) else "picked",
+               "truth_mode": p.truth, "via": VIA.get(p.via) if p.via else None}
         r = p.result
         if r is not None:
             m, rect = r.measurement, r.measurement.rectification
@@ -496,7 +515,9 @@ class AppState:
                 "link_residual_max_mm": round(rect.residual_max_mm, 3),
                 "object_side": m.object_side,
                 "warnings": list(m.warnings),
+                "notes": list(m.notes),
                 "truth": r.truth_comparison,
+                "truth_status": r.truth_status,
             }
             out["info"] = r.info
         return out
@@ -621,7 +642,8 @@ class _Handler(BaseHTTPRequestHandler):
             if not data:
                 raise ValueError("empty upload")
             photo = app.add_photo(name, data, "computer" if local else "phone",
-                                  n_pins=(query.get("pins") or [None])[0], side=(query.get("side") or [None])[0])
+                                  n_pins=(query.get("pins") or [None])[0], side=(query.get("side") or [None])[0],
+                                  via=(query.get("via") or [None])[0])
             return self._json({"id": photo.id})
 
         if parts[:1] == ["photo"] and len(parts) >= 2:

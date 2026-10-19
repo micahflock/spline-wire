@@ -125,6 +125,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .row span:first-child { color: var(--muted); }
 .row span:last-child { text-align: right; }
 .warnings { grid-column: 1 / -1; margin: 6px 0 0; padding-left: 18px; color: var(--warn); }
+.notes { grid-column: 1 / -1; margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
 .error { padding: 16px; color: var(--bad); white-space: pre-wrap; font: 12.5px ui-monospace, Consolas, monospace; }
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink);
   padding: 0; width: min(560px, 94vw); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
@@ -518,13 +519,23 @@ function detailsCard(d) {
   const focalSrc = {exif: "from the photo", override: "override", default: "iPhone setting (photo had none)",
     estimated: "estimated from the chain"}[r.focal_source];
   const t = r.truth;
+  const truthBtn = (mode, label) => `<button class="btn small" data-truth="${mode}">${label}</button>`;
+  // Only photos of the test part are compared: "auto" skips a photo whose shape doesn't match.
   const truth = t ? `<h3>Compared to test-part truth</h3>
       ${rowHtml("Max pin error", `${t.max_error_mm.toFixed(3)} mm`)}
       ${rowHtml("After scale fit", `${t.max_error_scaled_mm.toFixed(3)} mm`)}
       ${rowHtml("Part size vs design", `${((t.scale - 1) * 100).toFixed(2)} %`)}
-      ${rowHtml("RMS pin error", `${t.rms_error_mm.toFixed(3)} mm`)}` : "";
+      ${rowHtml("RMS pin error", `${t.rms_error_mm.toFixed(3)} mm`)}
+      ${rowHtml("Not a photo of the test part?", truthBtn("off", "Don't compare"))}`
+    : r.truth_status === "shape" ? `<h3>Test-part truth</h3>
+      ${rowHtml("Not compared: a different shape", truthBtn("on", "Compare anyway"))}`
+    : r.truth_status === "pins" ? `<h3>Test-part truth</h3>
+      ${rowHtml("Not compared", "a different number of pins")}`
+    : r.truth_status === "off" ? `<h3>Test-part truth</h3>
+      ${rowHtml("Not compared: not the test part", truthBtn("auto", "Compare"))}` : "";
   const camera = [info.make, info.model].filter(Boolean).join(" ") || "not recorded";
   const warn = r.warnings.length ? `<ul class="warnings">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
+  const notes = r.notes && r.notes.length ? `<ul class="notes">${r.notes.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
   return `<section class="card details">
     <h3>Measurement</h3>
     ${rowHtml("Pins found", `${r.pins}${r.missing_pins ? ` (${r.missing_pins} missing)` : ""}`)}
@@ -539,9 +550,11 @@ function detailsCard(d) {
     ${truth}
     <h3>Photo file</h3>
     ${rowHtml("Format", `${esc(info.format)} · ${info.width} × ${info.height}`)}
+    ${d.via ? rowHtml("Sent from the phone with", esc(d.via)) : ""}
     ${rowHtml("Camera", esc(camera))}
     ${rowHtml("Focal length in file", info.focal_35mm ? `${info.focal_35mm} mm (35 mm equiv.)` : '<span style="color:var(--warn)">missing</span>')}
     ${warn}
+    ${notes}
   </section>`;
 }
 
@@ -573,6 +586,8 @@ document.addEventListener("click", async (ev) => {
     const d = lastDetail[selected];
     if (d && d.result) return setOptions(selected, {side: d.result.object_side === "inside" ? "outside" : "inside"});
   }
+  const truthMode = ev.target.dataset && ev.target.dataset.truth;
+  if (truthMode && selected) return setOptions(selected, {truth: truthMode});
   if (ev.target.id === "opt-pick") {
     viewer.mode = viewer.mode === "side" ? "pins" : "side";
     render(); return;
@@ -854,7 +869,7 @@ $("#settings-btn").onclick = () => {
   for (const [k, v] of Object.entries(s.chain)) if (form.elements[k]) form.elements[k].value = v;
   form.elements.phone_focal_35mm.value = s.phone_focal_35mm ?? "";
   form.elements.focal_override_35mm.value = s.focal_override_35mm ?? "";
-  $("#truth-status").textContent = s.truth_name ? `Comparing every photo to ${s.truth_name}.` :
+  $("#truth-status").textContent = s.truth_name ? truthStatus(s.truth_name) :
     "Load the truth file that came with a printed test plaque to see each photo's error.";
   $("#workspace").textContent = state.workspace;
   $("#settings-error").textContent = "";
@@ -872,13 +887,17 @@ $("#settings-save").onclick = async (ev) => {
     toast("Saved. Re-measuring every photo.");
   } catch (err) { $("#settings-error").textContent = err.message; }
 };
+function truthStatus(name) {
+  return `Comparing photos of the test part to ${name}. A photo whose shape doesn't match is left out; ` +
+    "its details have a button to compare it anyway.";
+}
 $("#truth-pick").onclick = () => $("#truth-file").click();
 $("#truth-file").onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = "";
   if (!f) return;
   try {
     await api(`/api/truth?name=${encodeURIComponent(f.name)}`, {method: "POST", body: f});
-    $("#truth-status").textContent = `Comparing every photo to ${f.name}.`;
+    $("#truth-status").textContent = truthStatus(f.name);
   } catch (err) { $("#settings-error").textContent = err.message; }
 };
 $("#truth-clear").onclick = async () => {
