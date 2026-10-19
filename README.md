@@ -67,7 +67,7 @@ Printed links, screwed together. Each joint uses an M3 countersunk screw, a 4 ×
 
 ![Section through one print-in-place joint](docs/img/printed-chain-joint.svg)
 
-Draft design of a print-in-place chain, done by Opus 5.5. I judged it unlikely to work well and not worth the fiddling to fine tune at this point - I will revision a print in place chain at a later date. 
+Draft design of a print-in-place chain, done by Opus 5.5. I judged it unlikely to work well and not worth the fiddling to fine tune at this point - I will revisit a print in place chain at a later date. 
 
 ### The wire
 
