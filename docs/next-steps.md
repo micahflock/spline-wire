@@ -50,7 +50,7 @@ Status doc: items are in risk order and get checked off as they are validated.
 
 - Feasibility study and test protocol: `docs/fusion-import.md`. Fusion can't paste coordinates natively, so the low-friction route is a small add-in.
 - [x] Built: **Copy points** / **Install Fusion add-in…** in SplineWire.exe, the `fusion/SplineWire` add-in (**Paste points** into the sketch being edited, with a spline through the points), plus DXF (mm) and ImportSplineCSV (cm) fallbacks.
-- [ ] Run the test protocol in Fusion. Nothing has been run inside Fusion yet.
+- [x] Tested in Fusion (2026-10-19): Paste points worked with no issues.
 - **Exit criterion:** points appear in the active sketch, correctly scaled in millimeters, within **5 seconds** of clicking Copy points.
 
 ## 4. Phone → computer

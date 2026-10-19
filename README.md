@@ -26,7 +26,7 @@ So I set out to keep what worked and engineer out the friction:
 
 - **The wire became a chain** that holds its shape by friction instead of springing back.
 - **The chain is its own ruler.** Its links are exactly 10 mm, so nothing else has to go in the photo.
-- **Software does the scaling and tracing.** The goal is measurement to solid model in a couple of clicks.
+- **Software does the scaling and tracing.** From photo to sketch is two clicks: Copy points, then Paste points.
 
 Writing that software (computer vision, perspective geometry, a desktop app, a CAD add-in) was a bigger stack than my programming background covers. I wanted to see how far I could get by directing an AI coding agent to build it, while I kept the problem, the design decisions and the hardware.
 
@@ -155,11 +155,11 @@ Each command writes STLs (black and white bodies for the filament changes) plus 
 | | |
 |---|---|
 | ✅ | Detection, ordering, perspective removal and contact offset, validated on simulated photos |
-| ✅ | Windows app with phone upload and pin editing; Fusion add-in, DXF/SVG/CSV export |
+| ✅ | Windows app with phone upload and pin editing; DXF/SVG/CSV export |
+| ✅ | Fusion add-in, tested in Fusion: Copy points → Paste points lands the curve in the sketch |
 | ✅ | First real photo of the printed test plaque: 0.098 mm worst pin |
 | 🔄 | Real-photo test series: angles, lighting, shapes, phones |
 | 🔄 | Test chain printed and assembled; real-world testing under way |
-| ⬜ | Fusion add-in tested inside Fusion |
 | ⬜ | End to end: a real object, measured into a Fusion sketch in under 30 s |
 
 The full plan, in risk order: [docs/next-steps.md](docs/next-steps.md).
