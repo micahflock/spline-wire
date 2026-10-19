@@ -32,7 +32,7 @@ The clipboard idea only works with the add-in; the "table" idea is covered by th
   - Every processed photo also writes `-curve.dxf` (mm, spline + points on separate layers) and `-fusion-cm.csv` (for ImportSplineCSV) as no-install fallbacks.
 - `fusion/SplineWire/` add-in: a **Paste points** button in the sketch Create panel and the Insert menu. It reads the clipboard (tab/comma/space separated, optional header, mm by default, `cm`/`in` headers honored), adds a sketch point at each curve point and a fitted spline through them, in the sketch being edited or a new "Spline Wire" sketch on XY. One undo step. The spline can be deleted to keep only the points.
 
-Tested outside Fusion only: the add-in runs in the test suite against a stand-in for Fusion's API (unit conversion, sketch choice, toolbar registration and cleanup), and the DXF is read back to check units and that the spline passes through every point. Since then it has been tested in Fusion (2026-10-19) and worked with no issues.
+Tested outside Fusion only: the add-in runs in the test suite against a stand-in for Fusion's API (unit conversion, sketch choice, toolbar registration and cleanup), and the DXF is read back to check units and that the spline passes through every point. Since then it has been tested in Fusion (2026-10-19): it worked with no issues, well under the 5 s target.
 
 One API detail is unverified: whether `sketchFittedSplines.add` accepts existing sketch points as fit points (Autodesk's samples pass plain coordinates). The add-in tries sketch points first and falls back to coordinates, which leaves a second coincident point at each spot. Either way the pasted points survive deleting the spline.
 

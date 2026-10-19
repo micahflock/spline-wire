@@ -156,7 +156,7 @@ Each command writes STLs (black and white bodies for the filament changes) plus 
 |---|---|
 | ✅ | Detection, ordering, perspective removal and contact offset, validated on simulated photos |
 | ✅ | Windows app with phone upload and pin editing; DXF/SVG/CSV export |
-| ✅ | Fusion add-in, tested in Fusion: Copy points → Paste points lands the curve in the sketch |
+| ✅ | Fusion add-in, tested in Fusion: Copy points → Paste points lands the curve in the sketch in under 5 s |
 | ✅ | First real photo of the printed test plaque: 0.098 mm worst pin |
 | 🔄 | Real-photo test series: angles, lighting, shapes, phones |
 | 🔄 | Test chain printed and assembled; real-world testing under way |
