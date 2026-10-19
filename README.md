@@ -16,6 +16,20 @@ Pipe bends, moldings, door handles, the inside of a hollow: curves like these ar
 
 Spline Wire aims to get from object to sketch in under a minute: wrap a chain around the object, take a photo, paste the curve.
 
+## Where the idea came from
+
+I needed to measure some molding, and there was a piece of copper wire on my desk. I bent the wire around the molding, laid it down and took a picture. Then I scaled the photo, dropped it into a sketch and traced it with a spline. It worked great.
+
+It was also slow and manual. I had to put something of known size in the photo to scale it, and I traced the curve by hand. The wire itself was a weak point too: a wire springs back a little when you take it off the object.
+
+So I set out to keep what worked and engineer out the friction:
+
+- **The wire became a chain** that holds its shape by friction instead of springing back.
+- **The chain is its own ruler.** Its links are exactly 10 mm, so nothing else has to go in the photo.
+- **Software does the scaling and tracing.** The goal is measurement to solid model in a couple of clicks.
+
+Writing that software (computer vision, perspective geometry, a desktop app, a CAD add-in) was a bigger stack than my programming background covers. I wanted to see how far I could get by directing an AI coding agent to build it, while I kept the problem, the design decisions and the hardware.
+
 ## How you use it
 
 1. **Wrap.** Press the chain around the curve. Its joints are stiff enough to keep the shape.
@@ -57,7 +71,7 @@ Printed links, screwed together. Each joint uses an M3 countersunk screw, a 4 ×
 
 This chain comes off a single-extruder printer already assembled. Print-in-place joints need about 0.3 mm of clearance, and that much play alone would cost about 0.25 mm of accuracy. So after printing, you press each link once. That seats every pin in a rigid V against a printed spring beam, which removes the play, and the same spring provides the friction.
 
-I considered running copper wire through the chain to hold its shape, and rejected it on the numbers. Elastic springback of 0.1–0.2° per joint added up to 0.15–0.6 mm of error in simulation, and the wire would fatigue at tight bends.
+Going back to [where the idea started](#where-the-idea-came-from), I considered running copper wire through the chain to hold its shape, and rejected it on the numbers. Elastic springback of 0.1–0.2° per joint added up to 0.15–0.6 mm of error in simulation, and the wire would fatigue at tight bends.
 
 Full design notes, fits and open risks: [docs/printed-chain.md](docs/printed-chain.md).
 
