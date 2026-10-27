@@ -66,6 +66,8 @@ def fit_rows(spec: ChainSpec, p: OringParams = DEFAULT_PARAMS) -> list[tuple[str
          f"{j.r_hole - sleeve / 2:.2f} mm gap, never touches"),
         ("Screw head in the countersink", f"Ø{p.head_d_mm:.1f} head, 90°, in Ø{2 * j.r_cs:.1f} at the face",
          f"seats on the cone, {p.head_recess_mm:g} mm recessed"),
+        ("Screw in the sleeve's hole", f"M{p.screw_d_mm:g} in Ø{p.pilot_mm:g}",
+         f"cuts its own thread, {(sleeve - p.pilot_mm) / 2:.2f} mm wall"),
         ("Screw length in the sleeve", f"tip at {j.z_tip:.1f}, hole to {j.z_bore:.1f} mm",
          f"{j.z_bore - j.z_tip:.1f} mm spare"),
         ("O-ring squeeze", f"{p.squeeze_mm:g} mm into its seat", "set by the head stop"),

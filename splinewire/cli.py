@@ -92,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--squeeze", type=float, default=0.25,
                    help="how far each O-ring is pressed into its seat, mm; sets the joint friction")
     p.add_argument("--screw-length", type=float, default=6.0, help="M3 countersunk screw length, mm")
+    p.add_argument("--pilot", type=float, default=2.8,
+                   help="screw hole in the outer link's sleeve, as drawn, mm: larger if the M3 won't go in, "
+                        "smaller if it doesn't bite")
 
     args = parser.parse_args(argv)
     spec = load_chain_spec(args.chain)
@@ -201,7 +204,8 @@ def _oring_chain(args, spec: ChainSpec) -> int:
     except ImportError as err:
         print(f"oring-chain needs the dev dependencies (uv sync): {err}", file=sys.stderr)
         return 1
-    params = OringParams(margin=args.margin, squeeze_mm=args.squeeze, screw_len_mm=args.screw_length)
+    params = OringParams(margin=args.margin, squeeze_mm=args.squeeze, screw_len_mm=args.screw_length,
+                         pilot_mm=args.pilot)
     name = "oring-chain" if args.pins is None else f"oring-chain-{args.pins}pins"
     paths = write_oring_chain(args.out, spec, params, n_pins=args.pins, name=name)
     print(paths["instructions"].read_text(encoding="utf-8"))

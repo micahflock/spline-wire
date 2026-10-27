@@ -102,7 +102,7 @@ uv run splinewire oring-chain --pins 4           # two-joint test piece: two out
 uv run splinewire oring-chain --squeeze 0.2 --margin 0.15 --screw-length 5
 ```
 
-Nothing here has been printed yet. Everything below is checked on the geometry only (`tests/test_oring_chain.py`).
+The full 13-pin chain has been printed and assembled (2026-10-18). The fits below are checked on the geometry (`tests/test_oring_chain.py`); the joint's behaviour (play, springback, friction) is still to be checked on the print.
 
 ![Section through two joints, and a joint at its stop](img/oring-chain-joint.svg)
 
@@ -124,7 +124,7 @@ Heights as used, from the table up:
 | O-ring 4 × 1.5 (NBR 70A), on the washer, under a 45° seat in the outer link | from 3.9 |
 | bottom of the white / top of the white / top | 6.1 / 7.3 / 7.7 |
 
-- **No play.** The O-ring pushes the inner link's 90° countersink down onto the screw head's cone, which centres it whatever size the hole printed. The outer link is centred by the screw's thread, which it cuts into a 2.5 mm hole printed with the dot, and squared up by the head it is clamped against. The screw stops when its head reaches the sleeve's end, so the O-ring's squeeze (0.25 mm into its seat) is set by the parts, not by how hard the screw is turned.
+- **No play.** The O-ring pushes the inner link's 90° countersink down onto the screw head's cone, which centres it whatever size the hole printed. The outer link is centred by the screw's thread, which it cuts into a 2.8 mm hole printed with the dot, and squared up by the head it is clamped against. The screw stops when its head reaches the sleeve's end, so the O-ring's squeeze (0.25 mm into its seat) is set by the parts, not by how hard the screw is turned.
 - **Friction without springback.** An O-ring that slipped on a part would first twist, storing a few degrees, and give some back when let go: about 0.4 mm at the next pin for 2°. So no rubber surface slips. The O-ring grips its seat and the washer; the joint turns where the steel washer slides on the inner link's narrow raised ring (r 2.25–2.75) and where the countersink slides on the head. The O-ring still stores twist up to the washer's friction. The countersink holds about 1.5× that (more normal force, from the 45° cone, at a larger radius, with the same steel on PETG), so a bent joint stays put. That 1.5 needs both surfaces to have about the same friction coefficient; it is the number to check first.
 - **Rough numbers:** O-ring force ~9 N (NBR 70A data spread is about 2×), friction ~13 N·mm per joint (countersink 8, washer 5). The chain weighs about 11 g, about half of it steel. Held level by one end, its first joint carries about 7 N·mm, so it holds.
 
@@ -140,7 +140,7 @@ Two joints together can still bring pins a pitch apart. A U-turn of two 90° ben
 
 Everything prints as used, dots up, on one bed, with no supports:
 
-- Outer links stand on their sleeves' ends, the stop posts and, at a chain end, a foot under the free pin. Everything above grows from those at 45°, one 0.2 mm layer at a time. Below the inner links' top it stays out of their way, and around each pin it stays out of the washer and grows over the O-ring as its 45° seat. The only bridge is the 2.5 mm top of each screw hole.
+- Outer links stand on their sleeves' ends, the stop posts and, at a chain end, a foot under the free pin. Everything above grows from those at 45°, one 0.2 mm layer at a time. Below the inner links' top it stays out of their way, and around each pin it stays out of the washer and grows over the O-ring as its 45° seat. The only bridge is the 2.8 mm top of each screw hole.
 - The dots are 0.4 mm deep windows in the black top onto white, as on the plaque. Two filament changes: white from 4.4 mm and black again from 5.6 mm (print heights). The inner links are 3.4 mm tall, so they stay black.
 - Inner links print as used, with the countersink on the bed side as a 45° overhang.
 - An outer link printed dots down would put its sleeve ends at the top of the print, where a cone would print best. Its dots would then be windows on the bed side that the white has to bridge across, sagging and striated. The dots matter more.
@@ -156,7 +156,7 @@ With the turn limit raised, the ordering walk would otherwise be tempted to skip
 - **Springback.** Bend a joint 90°, let go, photograph. The 1.5× margin above rests on equal friction coefficients for the washer and the countersink.
 - **Outer link centring.** It relies on the self-cut thread and the head clamp, not a cone. Check that the pitch over 12 links matches the straight length (128.0 mm), and that a joint shows no play once screwed home.
 - **Squeeze tolerance.** The seat and the stop come from layer heights, ±0.1 mm on a 0.25 mm squeeze. Joints may differ in friction; `--squeeze` regenerates the seat.
-- **Thread in PETG.** An M3 cut into a 2.5 mm hole in 0.75 mm walls; cutting it once before assembly helps. Overtightening past the stop could strip it.
+- **Thread in PETG.** An M3 cut into a 2.8 mm hole in 0.6 mm walls; cutting it once before assembly helps. Overtightening past the stop could strip it. The first print had a 2.5 mm hole (an M3 tap drill size); it came out too small for the screw, since small printed holes shrink ~0.2 mm and a machine screw is not thread-forming. `--pilot` sets the hole: larger if the screw won't go in or the sleeve splits, smaller if it doesn't bite.
 - **Stop post.** A 1.3 mm wide post, 1.65 mm tall below the web, takes the stop load. Forcing a joint past its stop could break it.
 - **Parts.** ISO 7092 M4 washers (8 mm) and 4 × 1.5 O-rings are common in kits but not universal. A larger washer would not fit the 8 mm link.
 - **Thickness.** 7.7 mm with M3 × 6 screws. M3 × 5 (`--screw-length 5`) makes it 6.7 mm.

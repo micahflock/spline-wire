@@ -69,7 +69,10 @@ class OringParams:
     screw_d_mm: float = 3.0       # M3 countersunk, 90° head (ISO 10642 / DIN 7991 / DIN 965)
     head_d_mm: float = 6.0
     screw_len_mm: float = 6.0     # overall length, head included
-    pilot_mm: float = 2.5         # hole the screw cuts its thread into
+    # Hole the screw cuts its thread into. Drawn larger than an M3 tap drill
+    # (2.5): small printed holes come out ~0.2 mm under, and a machine screw
+    # cutting a full thread into 4.5 mm of PETG jams or splits the sleeve.
+    pilot_mm: float = 2.8
     sleeve_mm: float = 4.0        # outer link's sleeve
     washer_id_mm: float = 4.3     # ISO 7092 M4 small washer: 4.3 x 8 x 0.5
     washer_od_mm: float = 8.0
@@ -201,6 +204,11 @@ def _check(j: Joint, spec: ChainSpec) -> None:
         raise ValueError("squeeze_mm must be between 0 and 40% of the O-ring's cross-section")
     if j.z_seat < j.z_washer_top + 0.2:
         raise ValueError("the O-ring's seat runs into the washer")
+    if not 2.2 <= p.pilot_mm <= p.screw_d_mm - 0.1:
+        raise ValueError(f"pilot_mm must be between 2.2 and {p.screw_d_mm - 0.1:g} for an M{p.screw_d_mm:g} "
+                         f"screw to cut a thread, got {p.pilot_mm:g}")
+    if p.sleeve_mm / 2 - p.pilot_mm / 2 < 0.5:
+        raise ValueError("the sleeve's wall around the screw hole is under 0.5 mm")
     if spec.fiducial_mm / 2 + 1.0 > j.R:
         raise ValueError("dot too large for the link")
 
@@ -516,7 +524,11 @@ Each dot is a {p.black_mm:g} mm deep window in the black top onto the white.
 
 Assembly, per joint (outer link dots down on the table):
   1. Cut the thread first: drive a screw into the sleeve until its head
-     touches the sleeve's end, then take it out again.
+     touches the sleeve's end, then take it out again. The hole is drawn
+     {p.pilot_mm:g} mm. If the screw won't start or the sleeve splits,
+     measure the hole with a drill bit's shank and regenerate with a larger
+     --pilot (up to 2.9); if it turns without biting, a smaller one. Holes
+     already printed can be opened with a {p.pilot_mm:g} mm drill, by hand.
   2. Slide an O-ring over the sleeve up into its seat, then a washer.
   3. Put an inner link's hole over the sleeve, raised ring towards the
      washer, countersink facing you.

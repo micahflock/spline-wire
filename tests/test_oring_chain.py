@@ -174,6 +174,15 @@ def test_bad_parameters_are_refused(chain):
         joint_geometry(spec, OringParams(squeeze_mm=0.8))
     with pytest.raises(ValueError):
         joint_geometry(spec, OringParams(margin=0.5))
+    with pytest.raises(ValueError):
+        joint_geometry(spec, OringParams(pilot_mm=3.0))     # no thread to cut
+    with pytest.raises(ValueError):
+        joint_geometry(spec, OringParams(pilot_mm=2.0))
+
+
+def test_screw_hole_is_drawn_open_for_a_printed_hole():
+    # Small printed holes shrink ~0.2 mm; a 2.5 mm (tap drill) hole came out too tight for an M3.
+    assert 2.7 <= OringParams().pilot_mm < 3.0
 
 
 def test_write_files(tmp_path, chain):
