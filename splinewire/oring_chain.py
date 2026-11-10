@@ -11,12 +11,15 @@ docs/printed-chain.md.
   dots and a sleeve under each pin. Inner links: a bottom plate with a
   countersunk hole at each end.
 - At each joint the screw comes up from below, through the inner link's
-  countersink, and cuts its thread into the outer link's sleeve until the
-  sleeve's flat end stops on the screw head. The O-ring, squeezed between a
-  45° seat under the outer plate and a washer resting on the inner link,
-  presses the inner link's countersink down onto the head's cone, which
-  centres it without play whatever the hole's printed size. The outer link
-  is centred by the screw's thread, squared up by the head it is clamped to.
+  countersink, and forms its thread in the outer link's sleeve until the
+  sleeve's flat end stops on the screw head. The hole it goes into tapers:
+  as wide as the screw where it enters, so it starts by hand and stands
+  square, and down to pilot_mm at its tip, so it bites more with every
+  turn. The O-ring, squeezed between a 45° seat under the outer plate and
+  a washer resting on the inner link, presses the inner link's countersink
+  down onto the head's cone, which centres it without play whatever the
+  hole's printed size. The outer link is centred by the screw's thread,
+  squared up by the head it is clamped to.
 - No rubber surface slips. The O-ring grips its seat and the washer; the
   joint turns where the steel washer slides on a narrow ring on the inner
   link and where the countersink slides on the screw head. Rubber that
@@ -57,6 +60,8 @@ from splinewire.printed_chain import (
 )
 
 MU_STEEL_PETG = 0.25
+PILOT_MIN_MM = 2.4      # an M3's core: a smaller hole cannot take the screw at all
+GAUGE_PILOTS_MM = (2.6, 2.7, 2.8, 2.9, 3.0)
 ORING_N_PER_MM = 0.6    # NBR 70A at 20% squeeze, per mm of circumference (rough mid-range)
 
 
@@ -69,9 +74,15 @@ class OringParams:
     screw_d_mm: float = 3.0       # M3 countersunk, 90° head (ISO 10642 / DIN 7991 / DIN 965)
     head_d_mm: float = 6.0
     screw_len_mm: float = 6.0     # overall length, head included
-    # Hole the screw cuts its thread into. Drawn larger than an M3 tap drill
-    # (2.5): small printed holes come out ~0.2 mm under, and a machine screw
-    # cutting a full thread into 4.5 mm of PETG jams or splits the sleeve.
+    # Hole the screw forms its thread in, as drawn, at the screw's tip. It
+    # tapers to there from the screw's own diameter at the sleeve's end (see
+    # Joint.lead_mm). A machine screw forms a thread, it does not cut one:
+    # the plastic it pushes aside has to fit in its thread's roots, which it
+    # does in a hole of about the thread's pitch diameter (2.7 for M3) and
+    # no smaller. Small printed holes come out 0.1-0.3 mm under, so the
+    # hole is drawn that much over. A constant 2.5 (the tap drill) printed
+    # too tight for the screw to start. splinewire oring-chain also writes
+    # a gauge of five holes to pick this from (screw_gauge).
     pilot_mm: float = 2.8
     sleeve_mm: float = 4.0        # outer link's sleeve
     washer_id_mm: float = 4.3     # ISO 7092 M4 small washer: 4.3 x 8 x 0.5
@@ -126,6 +137,12 @@ class Joint:
     def black_from(self) -> float:
         """Back to black from here to the top."""
         return round(self.top - self.p.black_mm, 6)
+
+    @property
+    def lead_mm(self) -> float:
+        """Screw hole's diameter where the screw enters, at the sleeve's end:
+        the screw's own, so the hole's edge still stops on the head."""
+        return self.p.screw_d_mm
 
     @property
     def oring_centre(self) -> tuple[float, float]:
@@ -204,10 +221,10 @@ def _check(j: Joint, spec: ChainSpec) -> None:
         raise ValueError("squeeze_mm must be between 0 and 40% of the O-ring's cross-section")
     if j.z_seat < j.z_washer_top + 0.2:
         raise ValueError("the O-ring's seat runs into the washer")
-    if not 2.2 <= p.pilot_mm <= p.screw_d_mm - 0.1:
-        raise ValueError(f"pilot_mm must be between 2.2 and {p.screw_d_mm - 0.1:g} for an M{p.screw_d_mm:g} "
-                         f"screw to cut a thread, got {p.pilot_mm:g}")
-    if p.sleeve_mm / 2 - p.pilot_mm / 2 < 0.5:
+    if not PILOT_MIN_MM <= p.pilot_mm <= p.screw_d_mm:
+        raise ValueError(f"pilot_mm must be between {PILOT_MIN_MM:g} and {p.screw_d_mm:g} for an M{p.screw_d_mm:g} "
+                         f"screw to form a thread, got {p.pilot_mm:g}")
+    if p.sleeve_mm / 2 - j.lead_mm / 2 < 0.5 - 1e-9:
         raise ValueError("the sleeve's wall around the screw hole is under 0.5 mm")
     if spec.fiducial_mm / 2 + 1.0 > j.R:
         raise ValueError("dot too large for the link")
@@ -229,18 +246,42 @@ def outer_link(j: Joint, spec: ChainSpec, sockets: tuple[bool, ...]):
     move under the plate: the inner links (below z_clear), and around each
     pin the washer and the O-ring under its 45° seat.
     """
+    body = _plate_on_sleeves(j, sockets, (j.p.pilot_mm,) * len(sockets))
+    pins = [(0.0, 0.0), (j.pitch, 0.0)][:len(sockets)]
+    for at in pins:
+        body -= _extrude(_window(spec, j.p.segments, at), j.black_from, j.top + 1.0)
+    return body
+
+
+def screw_gauge(j: Joint, pilots_mm: tuple[float, ...] = GAUGE_PILOTS_MM):
+    """A strip to find the screw hole that suits a printer, before the chain
+    is printed: a solid foot, then one sleeve per size in pilots_mm, the
+    smallest next to the foot. Each sleeve is an outer link's, with its
+    O-ring seat, the plate over it and a stop post either side, so the holes
+    print as the chain's will. No dots: one colour."""
+    for d in pilots_mm:
+        if not PILOT_MIN_MM <= d <= j.p.screw_d_mm:
+            raise ValueError(f"gauge holes must be between {PILOT_MIN_MM:g} and {j.p.screw_d_mm:g} mm, got {d:g}")
+    return _plate_on_sleeves(j, (False,) + (True,) * len(pilots_mm), (0.0,) + tuple(pilots_mm))
+
+
+def _plate_on_sleeves(j: Joint, sockets: tuple[bool, ...], pilots_mm: tuple[float, ...]):
+    """A plate over pins one pitch apart along +x, grown at 45° from what
+    stands on the bed: a sleeve under each pin that is a socket (with a
+    screw hole of that pin's pilot), a foot under each that is not, and a
+    stop post between each pair."""
     import shapely
+    from shapely import affinity
     from shapely.geometry import Point
     from shapely.ops import unary_union
 
     p, seg, P = j.p, j.p.segments, j.pitch
     q = seg // 4
-    pins = [(0.0, 0.0), (P, 0.0)][:len(sockets)]
+    pins = [(k * P, 0.0) for k in range(len(sockets))]
     outline = _stadium(pins[0], pins[-1], j.R, seg)
     rs = p.sleeve_mm / 2
     base = [Point(at).buffer(rs if s else j.R, quad_segs=q) for at, s in zip(pins, sockets)]
-    if len(pins) == 2:
-        base.append(post_outline(j))
+    base += [affinity.translate(post_outline(j), k * P, 0.0) for k in range(len(pins) - 1)]
     base = unary_union(base)
     socket_pins = [at for at, s in zip(pins, sockets) if s]
     n = round((j.top - j.z_bed) / LAYER_MM)
@@ -265,11 +306,12 @@ def outer_link(j: Joint, spec: ChainSpec, sockets: tuple[bool, ...]):
     for z0, geom in layers:
         slab = _extrude(geom, z0, z0 + LAYER_MM)
         body = slab if body is None else body + slab
-    bore = _revolve(_bore_profile(j), seg)
-    for at in socket_pins:
-        body -= bore.translate((at[0], at[1], 0))
-    for at in pins:
-        body -= _extrude(_window(spec, seg, at), j.black_from, j.top + 1.0)
+    bores: dict = {}
+    for at, s, d in zip(pins, sockets, pilots_mm):
+        if s:
+            if d not in bores:
+                bores[d] = _revolve(_bore_profile(j, d), seg)
+            body -= bores[d].translate((at[0], at[1], 0))
     return body
 
 
@@ -282,10 +324,16 @@ def post_outline(j: Joint):
     return LineString([(c[0], -j.post_a), (c[0], j.post_a)]).buffer(j.post_r, quad_segs=16)
 
 
-def _bore_profile(j: Joint):
-    from shapely.geometry import box
+def _bore_profile(j: Joint, pilot_mm: float | None = None):
+    """Screw hole, (r, z): lead_mm wide at the sleeve's end, tapering to the
+    pilot at the screw's tip, and that size on to the hole's top."""
+    from shapely.geometry import Polygon
 
-    return box(0.0, j.z_bed - 1.0, j.p.pilot_mm / 2, j.z_bore)
+    r_tip = (j.p.pilot_mm if pilot_mm is None else pilot_mm) / 2
+    r_lead = j.lead_mm / 2
+    below = r_lead + (r_lead - r_tip) / (j.z_tip - j.z_bed)     # the same cone, on to 1 mm under the sleeve's end
+    return Polygon([(0.0, j.z_bed - 1.0), (below, j.z_bed - 1.0), (r_tip, j.z_tip), (r_tip, j.z_bore),
+                    (0.0, j.z_bore)])
 
 
 def inner_link(j: Joint):
@@ -468,6 +516,7 @@ def write_oring_chain(out_dir: Path, spec: ChainSpec, p: OringParams = DEFAULT_P
         "black": out_dir / f"{name}-black.stl",
         "white": out_dir / f"{name}-white.stl",
         "assembled": out_dir / f"{name}-assembled.stl",
+        "gauge": out_dir / f"{name}-screw-gauge.stl",
         "instructions": out_dir / f"{name}-PRINTING.txt",
         "drawing": out_dir / f"{name}-joint.svg",
         "viewer": out_dir / f"{name}-viewer.html",
@@ -477,6 +526,7 @@ def write_oring_chain(out_dir: Path, spec: ChainSpec, p: OringParams = DEFAULT_P
     to_trimesh(split["black"]).export(paths["black"])
     to_trimesh(split["white"]).export(paths["white"])
     to_trimesh(assembled).export(paths["assembled"])
+    to_trimesh(screw_gauge(j).translate((0, 0, -j.z_bed))).export(paths["gauge"])
     n = max(max(pt.pins) for pt in parts) + 1
     paths["instructions"].write_text(print_instructions(name, j, parts, n), encoding="utf-8")
     paths["drawing"].write_text(joint_svg(spec, p), encoding="utf-8")
@@ -494,6 +544,7 @@ def print_instructions(name: str, j: Joint, parts: list[Part], n_pins: int) -> s
     n_joints = c.get("screw", 0)
     n_outer = c.get("outer", 0) + c.get("button", 0)
     button = ", one of them the round button for the last pin" if c.get("button") else ""
+    sizes = ", ".join(f"{d:.1f}" for d in GAUGE_PILOTS_MM[:-1]) + f" and {GAUGE_PILOTS_MM[-1]:.1f}"
     return f"""Spline Wire O-ring chain: {name}
 {n_pins} pins, pitch {j.pitch:g} mm, {length:.1f} x {2 * j.R:.1f} x {j.top:.1f} mm assembled.
 Each joint bends up to {180 - j.stop_deg:.0f} deg either way: the links close to {j.stop_deg:.0f} deg at the
@@ -504,6 +555,21 @@ Hardware for {n_joints} joints, from assortment boxes:
   {n_joints} x M3 x {p.screw_len_mm:g} countersunk screw, 90 deg head (ISO 10642, DIN 7991 or DIN 965)
   {n_joints} x O-ring {p.oring_id_mm:g} x {p.oring_cs_mm:g} mm (ID x cross-section), NBR 70A
   {n_joints} x M4 small washer, {p.washer_id_mm:g} x {p.washer_od_mm:g} x {p.washer_mm:g} mm (ISO 7092 / DIN 433), steel
+
+Screw fit first: print {name}-screw-gauge.stl (15 minutes, one colour, the
+settings below). It saves reprinting the chain: how small a hole comes out
+differs from printer to printer by more than an M3 forgives.
+  The gauge is a strip with a solid foot at one end and {len(GAUGE_PILOTS_MM)} sleeves like the
+  chain's. Their screw holes are drawn {sizes} mm
+  at the screw's tip, counting from the foot. Lay it sleeves up and drive a
+  screw into each until its head touches the sleeve's end.
+    Right:     starts by hand, turns firmly without forcing, stops hard at
+               the end, and does not move when you pull on its head.
+    Too tight: needs force, the sleeve twists or turns pale, or the
+               screwdriver slips. Stop there: a sleeve twists off.
+    Too loose: keeps turning at the end, or pulls out.
+  Use the smallest hole that is right. This chain is drawn with {p.pilot_mm:g} mm. For
+  another size: splinewire oring-chain --pilot <size> (up to {p.screw_d_mm:g}).
 
 Printing (PETG; matte if you can: a lamp reflected in shiny filament washes
 the dots out, docs/cv-robustness.md):
@@ -523,12 +589,12 @@ the dots out, docs/cv-robustness.md):
 Each dot is a {p.black_mm:g} mm deep window in the black top onto the white.
 
 Assembly, per joint (outer link dots down on the table):
-  1. Cut the thread first: drive a screw into the sleeve until its head
-     touches the sleeve's end, then take it out again. The hole is drawn
-     {p.pilot_mm:g} mm. If the screw won't start or the sleeve splits,
-     measure the hole with a drill bit's shank and regenerate with a larger
-     --pilot (up to 2.9); if it turns without biting, a smaller one. Holes
-     already printed can be opened with a {p.pilot_mm:g} mm drill, by hand.
+  1. Form the thread first: drive a screw into the sleeve until its head
+     touches the sleeve's end, then take it out again. The hole is as wide
+     as the screw ({j.lead_mm:g} mm) where it enters and narrows to {p.pilot_mm:g} mm at the
+     screw's tip, so the screw starts by hand, stands square, and gets
+     firmer with every turn. If it needs force, stop and pick a larger hole
+     from the gauge; if it turns without biting, a smaller one.
   2. Slide an O-ring over the sleeve up into its seat, then a washer.
   3. Put an inner link's hole over the sleeve, raised ring towards the
      washer, countersink facing you.

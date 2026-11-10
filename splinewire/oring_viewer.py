@@ -66,8 +66,8 @@ def fit_rows(spec: ChainSpec, p: OringParams = DEFAULT_PARAMS) -> list[tuple[str
          f"{j.r_hole - sleeve / 2:.2f} mm gap, never touches"),
         ("Screw head in the countersink", f"Ø{p.head_d_mm:.1f} head, 90°, in Ø{2 * j.r_cs:.1f} at the face",
          f"seats on the cone, {p.head_recess_mm:g} mm recessed"),
-        ("Screw in the sleeve's hole", f"M{p.screw_d_mm:g} in Ø{p.pilot_mm:g}",
-         f"cuts its own thread, {(sleeve - p.pilot_mm) / 2:.2f} mm wall"),
+        ("Screw in the sleeve's hole", f"M{p.screw_d_mm:g} in Ø{j.lead_mm:g} tapering to Ø{p.pilot_mm:g}",
+         f"starts by hand, forms its own thread; {(sleeve - j.lead_mm) / 2:.2f} mm wall at the end"),
         ("Screw length in the sleeve", f"tip at {j.z_tip:.1f}, hole to {j.z_bore:.1f} mm",
          f"{j.z_bore - j.z_tip:.1f} mm spare"),
         ("O-ring squeeze", f"{p.squeeze_mm:g} mm into its seat", "set by the head stop"),
@@ -89,7 +89,7 @@ def viewer_html(spec: ChainSpec, p: OringParams = DEFAULT_PARAMS) -> str:
     rows = "\n".join(f'            <tr><td>{escape(a)}</td><td class="num">{escape(b)}</td>'
                      f'<td class="ok">{escape(c)}</td></tr>' for a, b, c in fit_rows(spec, p))
     fill = {"ORING": f"{p.oring_id_mm:g} × {p.oring_cs_mm:g}", "TURN": f"{180 - j.stop_deg:.1f}",
-            "BETWEEN": f"{j.stop_deg:.1f}", "BETWEEN_ROUND": f"{j.stop_deg:.0f}", "PILOT": f"{p.pilot_mm:g}",
+            "BETWEEN": f"{j.stop_deg:.1f}", "BETWEEN_ROUND": f"{j.stop_deg:.0f}", "PILOT": f"{p.pilot_mm:g}", "LEAD": f"{j.lead_mm:g}",
             "SLEEVE": f"{p.sleeve_mm:.1f}", "WASHER_ID": f"{p.washer_id_mm:g}", "HOLE": f"{2 * j.r_hole:g}"}
     page = TEMPLATE.read_text(encoding="utf-8")
     for key, value in fill.items():

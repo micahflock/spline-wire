@@ -19,6 +19,7 @@ from splinewire.oring_chain import (
     posed,
     print_heights,
     print_layout,
+    screw_gauge,
     stop_angle_deg,
     to_trimesh,
     turns_at_stop,
@@ -115,23 +116,75 @@ def test_parts_print_without_support(chain):
     screw hole at its top."""
     _, j, parts = chain
     for pt in parts:
-        if not pt.printed:
-            continue
-        solid = pt.solid.translate((0, 0, -j.z_bed)) if pt.kind != "inner" else pt.solid
-        assert solid.bounding_box()[2] == pytest.approx(0.0, abs=1e-6)
-        n = round(solid.bounding_box()[5] / LAYER_MM)
-        assert n * LAYER_MM == pytest.approx(solid.bounding_box()[5], abs=1e-6)
-        bores = shapely.ops.unary_union([shapely.geometry.Point(x, 0).buffer(j.p.pilot_mm / 2 + 0.01)
-                                         for x in (0.0, j.pitch)])
-        prev = None
-        for i in range(n):
-            here = _polys_to_shapely(solid.slice((i + 0.5) * LAYER_MM).to_polygons())
-            if prev is not None:
-                for piece in getattr(here, "geoms", [here]):
-                    assert piece.area < 1e-3 or piece.intersects(prev)
-                hanging = here.difference(prev.buffer(LAYER_MM + 0.02)).difference(bores)
-                assert hanging.area < 1e-3, (pt.kind, i)
-            prev = here
+        if pt.printed:
+            solid = pt.solid.translate((0, 0, -j.z_bed)) if pt.kind != "inner" else pt.solid
+            _assert_prints_without_support(solid, j, [(0.0, j.p.pilot_mm), (j.pitch, j.p.pilot_mm)], pt.kind)
+
+
+def _assert_prints_without_support(solid, j, bores, what):
+    """solid on the bed; bores: (x, diameter) of the screw holes' bridged tops."""
+    assert solid.bounding_box()[2] == pytest.approx(0.0, abs=1e-6)
+    n = round(solid.bounding_box()[5] / LAYER_MM)
+    assert n * LAYER_MM == pytest.approx(solid.bounding_box()[5], abs=1e-6)
+    bridges = shapely.ops.unary_union([shapely.geometry.Point(x, 0).buffer(d / 2 + 0.01) for x, d in bores])
+    prev = None
+    for i in range(n):
+        here = _polys_to_shapely(solid.slice((i + 0.5) * LAYER_MM).to_polygons())
+        if prev is not None:
+            for piece in getattr(here, "geoms", [here]):
+                assert piece.area < 1e-3 or piece.intersects(prev)
+            hanging = here.difference(prev.buffer(LAYER_MM + 0.02)).difference(bridges)
+            assert hanging.area < 1e-3, (what, i)
+        prev = here
+
+
+def _hole_diameter(solid, x, z):
+    """Diameter of the round hole around (x, 0) in the solid's section at height z."""
+    section = _polys_to_shapely(solid.slice(z).to_polygons())
+    holes = [ring for poly in getattr(section, "geoms", [section]) for ring in poly.interiors
+             if shapely.geometry.Polygon(ring).contains(shapely.geometry.Point(x, 0))]
+    assert len(holes) == 1
+    return 2 * math.sqrt(shapely.geometry.Polygon(holes[0]).area / math.pi)
+
+
+def test_screw_hole_tapers_from_the_screw_to_the_pilot(chain):
+    """The screw has to start by hand in a printed hole and then bite: the
+    hole is the screw's diameter at the sleeve's end, the pilot at its tip."""
+    _, j, parts = chain
+    outer, p = parts[0].solid, j.p
+    assert j.lead_mm == pytest.approx(p.screw_d_mm) and p.pilot_mm < j.lead_mm
+    assert _hole_diameter(outer, j.pitch, j.z_bed + 0.01) == pytest.approx(j.lead_mm, abs=0.01)
+    assert _hole_diameter(outer, j.pitch, j.z_tip - 0.01) == pytest.approx(p.pilot_mm, abs=0.01)
+    assert _hole_diameter(outer, j.pitch, j.z_bore - 0.01) == pytest.approx(p.pilot_mm, abs=0.01)
+    mid = _hole_diameter(outer, j.pitch, (j.z_bed + j.z_tip) / 2)
+    assert mid == pytest.approx((j.lead_mm + p.pilot_mm) / 2, abs=0.01)
+    assert (p.sleeve_mm - j.lead_mm) / 2 >= 0.5 - 1e-9           # a wall the slicer still prints
+
+
+def test_screw_gauge_has_the_chains_sleeves_in_five_sizes(chain):
+    spec, j, parts = chain
+    sizes = (2.6, 2.7, 2.8, 2.9, 3.0)
+    gauge = screw_gauge(j)
+    assert to_trimesh(gauge).is_watertight
+    assert j.p.pilot_mm in sizes
+    for k, d in enumerate(sizes, start=1):
+        assert _hole_diameter(gauge, k * j.pitch, j.z_tip - 0.01) == pytest.approx(d, abs=0.01)
+        assert _hole_diameter(gauge, k * j.pitch, j.z_bed + 0.01) == pytest.approx(j.lead_mm, abs=0.01)
+    # A sleeve of the gauge is a sleeve of the chain: same section through the seat, hole aside.
+    outer = parts[2].solid                                      # pins 2 and 3: a sleeve at its first pin
+    k = sizes.index(j.p.pilot_mm) + 1
+    near = shapely.geometry.Point(0, 0).buffer(3.0)
+    for z in (j.z_bed + 0.1, j.z_seat - 0.1, j.z_seat + 0.5):
+        a = _polys_to_shapely(outer.slice(z).to_polygons()).intersection(near)
+        b = _polys_to_shapely(gauge.translate((-k * j.pitch, 0, 0)).slice(z).to_polygons()).intersection(near)
+        assert a.area > 5.0 and a.symmetric_difference(b).area < 0.05     # the outlines are simplified to 0.005
+    # The foot marks the end with the smallest hole: solid down to the bed.
+    foot = _polys_to_shapely(gauge.slice(j.z_bed + 0.1).to_polygons())
+    assert foot.contains(shapely.geometry.Point(0, 0)) and not foot.contains(shapely.geometry.Point(j.pitch, 0))
+    _assert_prints_without_support(gauge.translate((0, 0, -j.z_bed)), j,
+                                   [(k * j.pitch, d) for k, d in enumerate(sizes, start=1)], "gauge")
+    with pytest.raises(ValueError):
+        screw_gauge(j, (2.8, 3.2))
 
 
 def test_one_bed_and_colours(chain):
@@ -175,13 +228,14 @@ def test_bad_parameters_are_refused(chain):
     with pytest.raises(ValueError):
         joint_geometry(spec, OringParams(margin=0.5))
     with pytest.raises(ValueError):
-        joint_geometry(spec, OringParams(pilot_mm=3.0))     # no thread to cut
+        joint_geometry(spec, OringParams(pilot_mm=3.1))     # wider than the screw: no thread
     with pytest.raises(ValueError):
-        joint_geometry(spec, OringParams(pilot_mm=2.0))
+        joint_geometry(spec, OringParams(pilot_mm=2.3))     # under the screw's core: it cannot go in
+    joint_geometry(spec, OringParams(pilot_mm=3.0))         # a straight hole, for printers whose holes shrink most
 
 
 def test_screw_hole_is_drawn_open_for_a_printed_hole():
-    # Small printed holes shrink ~0.2 mm; a 2.5 mm (tap drill) hole came out too tight for an M3.
+    # Small printed holes shrink 0.1-0.3 mm; a 2.5 mm (tap drill) hole came out too tight for an M3.
     assert 2.7 <= OringParams().pilot_mm < 3.0
 
 
@@ -194,11 +248,14 @@ def test_write_files(tmp_path, chain):
     h = print_heights(joint_geometry(spec))
     assert f"{h['white']:.1f} mm" in text and f"{h['black']:.1f} mm" in text
     assert "2 x M3 x 6 countersunk" in text
+    assert "test-screw-gauge.stl" in text and "2.6, 2.7, 2.8, 2.9 and 3.0 mm" in text
+    import trimesh
+    gauge = trimesh.load(paths["gauge"])
+    assert gauge.is_watertight and gauge.bounds[0][2] == pytest.approx(0.0, abs=1e-6)
     assert paths["drawing"].read_text(encoding="utf-8").startswith("<svg")
     page = paths["viewer"].read_text(encoding="utf-8")
     assert page.startswith("<!doctype html>") and "{{" not in page and "<!--FIT_ROWS-->" not in page
     assert "window.CHAIN=" in page and "106.3" in page and "Ø4.5 on Ø4.0" in page
-    import trimesh
     model = trimesh.load(paths["model"])
     assert len(model.geometry) == 9                      # 2 outer, 1 inner, 2 x (screw, washer, O-ring)
 

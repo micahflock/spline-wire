@@ -97,12 +97,13 @@ The next-steps item 2 exit test applies unchanged. Wrap a gauge of known radius,
 The same chain (10 mm pitch, 8 mm links, 5 mm dots, 13 pins), printed in separate parts in PETG and screwed together. Each joint takes one M3 countersunk screw, one O-ring and one small steel washer, all from assortment boxes, about $0.05 a joint. Code: `splinewire/oring_chain.py`.
 
 ```bash
-uv run splinewire oring-chain                    # out/oring-chain/oring-chain.stl, -black/-white.stl, -assembled.stl, -PRINTING.txt, -joint.svg, -viewer.html, -assembly.glb
+uv run splinewire oring-chain                    # out/oring-chain/oring-chain.stl, -black/-white.stl, -screw-gauge.stl, -assembled.stl, -PRINTING.txt, -joint.svg, -viewer.html, -assembly.glb
 uv run splinewire oring-chain --pins 4           # two-joint test piece: two outer links, one inner link
 uv run splinewire oring-chain --squeeze 0.2 --margin 0.15 --screw-length 5
+uv run splinewire oring-chain --pilot 2.9        # the screw hole size that fitted in the printed gauge
 ```
 
-The full 13-pin chain has been printed and assembled (2026-10-18). The fits below are checked on the geometry (`tests/test_oring_chain.py`); the joint's behaviour (play, springback, friction) is still to be checked on the print.
+The full 13-pin chain has been printed (2026-10-18) and photographed, but it did not go together as designed: the M3 screws were too tight in the sleeves to form a thread. The screw hole has been redrawn since (see [The screw hole](#the-screw-hole)) and that version has not been printed yet. The fits below are checked on the geometry (`tests/test_oring_chain.py`); the joint's behaviour (play, springback, friction) is still to be checked on a print.
 
 ![Section through two joints, and a joint at its stop](img/oring-chain-joint.svg)
 
@@ -124,9 +125,26 @@ Heights as used, from the table up:
 | O-ring 4 × 1.5 (NBR 70A), on the washer, under a 45° seat in the outer link | from 3.9 |
 | bottom of the white / top of the white / top | 6.1 / 7.3 / 7.7 |
 
-- **No play.** The O-ring pushes the inner link's 90° countersink down onto the screw head's cone, which centres it whatever size the hole printed. The outer link is centred by the screw's thread, which it cuts into a 2.8 mm hole printed with the dot, and squared up by the head it is clamped against. The screw stops when its head reaches the sleeve's end, so the O-ring's squeeze (0.25 mm into its seat) is set by the parts, not by how hard the screw is turned.
+- **No play.** The O-ring pushes the inner link's 90° countersink down onto the screw head's cone, which centres it whatever size the hole printed. The outer link is centred by the screw's thread, which it forms in a hole printed with the dot, and squared up by the head it is clamped against. The screw stops when its head reaches the sleeve's end, so the O-ring's squeeze (0.25 mm into its seat) is set by the parts, not by how hard the screw is turned.
 - **Friction without springback.** An O-ring that slipped on a part would first twist, storing a few degrees, and give some back when let go: about 0.4 mm at the next pin for 2°. So no rubber surface slips. The O-ring grips its seat and the washer; the joint turns where the steel washer slides on the inner link's narrow raised ring (r 2.25–2.75) and where the countersink slides on the head. The O-ring still stores twist up to the washer's friction. The countersink holds about 1.5× that (more normal force, from the 45° cone, at a larger radius, with the same steel on PETG), so a bent joint stays put. That 1.5 needs both surfaces to have about the same friction coefficient; it is the number to check first.
 - **Rough numbers:** O-ring force ~9 N (NBR 70A data spread is about 2×), friction ~13 N·mm per joint (countersink 8, washer 5). The chain weighs about 11 g, about half of it steel. Held level by one end, its first joint carries about 7 N·mm, so it holds.
+
+## The screw hole
+
+The screw is an ordinary M3 machine screw, and the sleeve it goes into is 4 mm across (the O-ring's and the washer's bore), so there is 0.5 mm of plastic around the thread. A machine screw forms a thread by pushing plastic aside. That plastic has to fit into the thread's roots, which it does in a hole of about the thread's pitch diameter (2.7 mm for M3) and no smaller. Below the screw's core (2.4 mm) the screw cannot enter at all.
+
+Small printed holes come out 0.1–0.3 mm under their drawn size, by an amount that depends on the printer, the slicer and the filament. The first print had a constant 2.5 mm hole (the M3 tap drill): the screws would not go in. It was then redrawn at a constant 2.8 mm, a guess at one printer's shrinkage, and still with no way in for the screw: the hole starts on the bed layer, where it prints smallest, and an M3 × 6 has a blunt end.
+
+The hole is now a taper:
+
+- **3.0 mm where the screw enters** (the sleeve's end, 0.5 mm wall). The screw starts by hand and stands square before it has to form anything. The edge of the hole still stops on the head's cone, so the O-ring's squeeze is unchanged.
+- **2.8 mm at the screw's tip** (`--pilot`), 4.5 mm further in, and that size for the 0.3 mm beyond it. The thread deepens with every turn, so the torque rises gradually, and the deepest thread is past the top of the sleeve, in the solid plastic under the dot.
+
+On a printer whose holes come out 0.2 mm under, that is 2.8 → 2.6 mm: from a light thread to nearly a full one. At 0.05 mm under, the top half still holds; at 0.35 mm under it is stiff but stays above the screw's core.
+
+**The gauge.** `-screw-gauge.stl` settles the size on the printer in hand, in about 15 minutes, before the chain is printed. It is a strip with a solid foot at one end and five sleeves, each one an outer link's sleeve with its seat, plate and stop posts, so the holes print as the chain's will. Their holes are drawn 2.6, 2.7, 2.8, 2.9 and 3.0 mm at the tip, counting from the foot. Drive a screw into each: the smallest one it goes into firmly without forcing, and that holds when the head is pulled, is the `--pilot` to print the chain with. 3.0 is a straight hole, for printers whose holes shrink most.
+
+The same hardware as before: M3 × 6 countersunk screws, 4 × 1.5 O-rings, M4 small washers.
 
 ## Stop at 74°
 
@@ -140,7 +158,7 @@ Two joints together can still bring pins a pitch apart. A U-turn of two 90° ben
 
 Everything prints as used, dots up, on one bed, with no supports:
 
-- Outer links stand on their sleeves' ends, the stop posts and, at a chain end, a foot under the free pin. Everything above grows from those at 45°, one 0.2 mm layer at a time. Below the inner links' top it stays out of their way, and around each pin it stays out of the washer and grows over the O-ring as its 45° seat. The only bridge is the 2.8 mm top of each screw hole.
+- Outer links stand on their sleeves' ends, the stop posts and, at a chain end, a foot under the free pin. Everything above grows from those at 45°, one 0.2 mm layer at a time. Below the inner links' top it stays out of their way, and around each pin it stays out of the washer and grows over the O-ring as its 45° seat. The only bridge is the 2.8 mm top of each screw hole. The sleeve's end, where the screw goes in, is on the bed: use the slicer's elephant-foot compensation, or the first layer closes the hole a little.
 - The dots are 0.4 mm deep windows in the black top onto white, as on the plaque. Two filament changes: white from 4.4 mm and black again from 5.6 mm (print heights). The inner links are 3.4 mm tall, so they stay black.
 - Inner links print as used, with the countersink on the bed side as a 45° overhang.
 - An outer link printed dots down would put its sleeve ends at the top of the print, where a cone would print best. Its dots would then be windows on the bed side that the white has to bridge across, sagging and striated. The dots matter more.
@@ -156,7 +174,7 @@ With the turn limit raised, the ordering walk would otherwise be tempted to skip
 - **Springback.** Bend a joint 90°, let go, photograph. The 1.5× margin above rests on equal friction coefficients for the washer and the countersink.
 - **Outer link centring.** It relies on the self-cut thread and the head clamp, not a cone. Check that the pitch over 12 links matches the straight length (128.0 mm), and that a joint shows no play once screwed home.
 - **Squeeze tolerance.** The seat and the stop come from layer heights, ±0.1 mm on a 0.25 mm squeeze. Joints may differ in friction; `--squeeze` regenerates the seat.
-- **Thread in PETG.** An M3 cut into a 2.8 mm hole in 0.6 mm walls; cutting it once before assembly helps. Overtightening past the stop could strip it. The first print had a 2.5 mm hole (an M3 tap drill size); it came out too small for the screw, since small printed holes shrink ~0.2 mm and a machine screw is not thread-forming. `--pilot` sets the hole: larger if the screw won't go in or the sleeve splits, smaller if it doesn't bite.
+- **Thread in PETG.** An M3 forming its thread in a sleeve with 0.5–0.6 mm walls. The tapered hole and the gauge (above) are untested on a print. Too tight a hole can twist the sleeve off its plate, and overtightening past the stop could strip the thread: print the gauge first and use the `--pilot` that fits. If no size both goes in and holds, the sleeve is too thin for a formed thread on that printer, and the fix is an M3 × 8 screw into a taller plate (`--screw-length 8`, 2 mm thicker), which puts more of the thread in solid plastic.
 - **Stop post.** A 1.3 mm wide post, 1.65 mm tall below the web, takes the stop load. Forcing a joint past its stop could break it.
 - **Parts.** ISO 7092 M4 washers (8 mm) and 4 × 1.5 O-rings are common in kits but not universal. A larger washer would not fit the 8 mm link.
 - **Thickness.** 7.7 mm with M3 × 6 screws. M3 × 5 (`--screw-length 5`) makes it 6.7 mm.

@@ -93,8 +93,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="how far each O-ring is pressed into its seat, mm; sets the joint friction")
     p.add_argument("--screw-length", type=float, default=6.0, help="M3 countersunk screw length, mm")
     p.add_argument("--pilot", type=float, default=2.8,
-                   help="screw hole in the outer link's sleeve, as drawn, mm: larger if the M3 won't go in, "
-                        "smaller if it doesn't bite")
+                   help="screw hole in the outer link's sleeve at the screw's tip, as drawn, mm (it tapers to "
+                        "there from 3.0 at the sleeve's end): the size that fits in the printed screw gauge; "
+                        "larger if the M3 is too tight, smaller if it doesn't bite")
 
     args = parser.parse_args(argv)
     spec = load_chain_spec(args.chain)
