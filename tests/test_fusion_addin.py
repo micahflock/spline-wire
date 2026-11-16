@@ -185,6 +185,10 @@ def test_run_adds_promoted_buttons_and_stop_removes_them(addin):
     ("x_cm,y_cm,z_cm\n1,2,0\n3,4,0\n", [(10, 20), (30, 40)]),    # cm header, xyz
     ("1.5 -2e1\n.5 3\n", [(1.5, -20), (0.5, 3)]),                # spaces, exponents
     ("X (in);Y (in)\n1;0\n0;1\n", [(25.4, 0), (0, 25.4)]),       # inches, semicolons
+    ("Inches\n1 0\n0 1\n", [(25.4, 0), (0, 25.4)]),
+    ("points in mm\n1\t2\n3\t4\n", [(1, 2), (3, 4)]),             # "in" the word, not the unit
+    ("x in cm, y in cm\n1,2\n3,4\n", [(10, 20), (30, 40)]),
+    ("1\t2\n3\t4\nx_cm\ty_cm\n5\t6\n", [(1, 2), (3, 4), (5, 6)]),   # units are set by a header, not mid-table
 ])
 def test_parse_points_formats(addin, text, expected):
     import numpy as np
