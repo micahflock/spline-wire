@@ -30,6 +30,19 @@ def test_concave_contacts_lie_on_the_target_circle():
     np.testing.assert_allclose(np.linalg.norm(c[[0, -1]], axis=1), 40.0, atol=0.05)
 
 
+@pytest.mark.parametrize("concave, side, radius", [(False, "inside", 25.0), (True, "outside", 40.0)])
+def test_round_contact_touches_at_every_pin(concave, side, radius):
+    """Round sleeves about the pins (the snap-fit chain): one contact per
+    pin, end pins included, whichever way the chain bends."""
+    spec = _spec(pitch_mm=13.0, half_width_mm=4.68, contact="round")
+    pins = circle_wrap_pins(spec, radius_mm=radius, concave=concave)
+    c = contact_points(pins, spec.half_width_mm, object_sign(pins, side), round_contact=True)
+    assert len(c) == spec.n_pins
+    np.testing.assert_allclose(np.linalg.norm(c, axis=1), radius, atol=1e-9)
+    straight = np.c_[np.arange(5) * 13.0, np.zeros(5)]
+    np.testing.assert_allclose(contact_points(straight, 4.68, 1, round_contact=True), straight + [0, 4.68])
+
+
 def test_object_side():
     pins = circle_wrap_pins(_spec(), radius_mm=25.0)   # counter-clockwise: curls left
     assert object_sign(pins, "inside") == 1

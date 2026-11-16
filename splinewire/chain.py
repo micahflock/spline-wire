@@ -10,17 +10,22 @@ import yaml
 
 
 FIDUCIALS = ("dot", "ring")
+# What touches the target: "edge", a link's straight edge between round
+# ends, or "round", a round sleeve about every pin with the link between
+# them narrower (the snap-fit chain).
+CONTACTS = ("edge", "round")
 
 
 @dataclass(frozen=True)
 class ChainSpec:
     pitch_mm: float       # pin-to-pin distance
-    half_width_mm: float  # pin line to the contact edge of a link
+    half_width_mm: float  # pin line to the contact edge of a link (round contact: the sleeve's radius)
     fiducial_mm: float    # outer diameter of the fiducial centred on each pin
     n_pins: int
     fiducial: str = "dot"         # "dot" (solid light disc) or "ring" (light annulus)
     ring_inner_mm: float = 0.0    # a ring's hole diameter; 0 for a dot
     max_bend_deg: float = 80.0    # sharpest turn at a pin the ordering accepts, as seen in the photo
+    contact: str = "edge"         # what touches the target: see CONTACTS
 
     def __post_init__(self) -> None:
         if self.pitch_mm <= 0:
@@ -29,6 +34,8 @@ class ChainSpec:
             raise ValueError(f"half_width_mm must be >= 0, got {self.half_width_mm}")
         if self.fiducial not in FIDUCIALS:
             raise ValueError(f"fiducial must be one of {FIDUCIALS}, got {self.fiducial!r}")
+        if self.contact not in CONTACTS:
+            raise ValueError(f"contact must be one of {CONTACTS}, got {self.contact!r}")
         if self.fiducial_mm <= 0:
             raise ValueError(f"fiducial_mm must be positive, got {self.fiducial_mm}")
         if self.fiducial == "ring" and not 0 < self.ring_inner_mm < self.fiducial_mm:
@@ -53,6 +60,15 @@ def default_chain_path() -> Path:
     return root / "data" / "chain.yaml"
 
 
+def chain_presets() -> dict[str, Path]:
+    """The chains that ship with the app, by name: data/chain.yaml is
+    "default", data/chain-<name>.yaml is <name>."""
+    folder = default_chain_path().parent
+    found = {"default": default_chain_path()}
+    found.update({p.stem[len("chain-"):]: p for p in sorted(folder.glob("chain-*.yaml"))})
+    return found
+
+
 def load_chain_spec(path: Path) -> ChainSpec:
     with Path(path).open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
@@ -74,6 +90,7 @@ def spec_from_dict(raw: dict) -> ChainSpec:
         fiducial=str(kind),
         ring_inner_mm=float(raw.get("ring_inner_mm") or 0.0) if kind == "ring" else 0.0,
         max_bend_deg=float(raw.get("max_bend_deg") or ChainSpec.max_bend_deg),
+        contact=str(raw.get("contact") or "edge"),
     )
 
 

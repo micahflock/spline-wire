@@ -46,7 +46,7 @@ import numpy as np
 from PIL import Image
 
 from splinewire import __version__, version_string
-from splinewire.chain import spec_from_dict, ChainSpec, default_chain_path, load_chain_spec
+from splinewire.chain import spec_from_dict, ChainSpec, chain_presets, default_chain_path, load_chain_spec
 from splinewire.contact import spline_samples
 from splinewire.detect import Fiducial, detect_fiducials
 from splinewire.edits import Edits, remove_detections
@@ -60,7 +60,9 @@ from splinewire.webapp.firewall import Firewall
 DEFAULT_PORT = 8765
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 STATIC = Path(__file__).resolve().parent / "static"
-CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins", "max_bend_deg")
+CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins", "max_bend_deg",
+              "contact")
+CHAIN_TEXT_KEYS = ("fiducial", "contact")
 # The chain every earlier version shipped (rings); saved unchanged, it follows the new default.
 OLD_DEFAULT_CHAIN = {"ring_outer_mm": 5.0, "ring_inner_mm": 2.0}
 FULL_FRAME_DIAGONAL_MM = 43.2666
@@ -82,6 +84,19 @@ def _migrate_chain(saved: dict) -> dict:
         else:
             saved.update(fiducial="ring", fiducial_mm=float(outer))
     return saved
+
+
+def _chain_presets() -> dict[str, dict]:
+    """The chains that ship with the app, for the settings page to fill in:
+    every chain setting but the pin count, which belongs to each photo."""
+    out = {}
+    for name, path in chain_presets().items():
+        try:
+            spec = load_chain_spec(path)
+        except (OSError, KeyError, ValueError):
+            continue
+        out[name] = {k: getattr(spec, k) for k in CHAIN_KEYS if k != "n_pins"}
+    return out
 
 
 @dataclass
@@ -142,7 +157,7 @@ class AppState:
             chain = {k: getattr(base, k) for k in CHAIN_KEYS}
         except (OSError, KeyError, ValueError):
             chain = {"pitch_mm": 10.0, "half_width_mm": 4.0, "fiducial": "dot", "fiducial_mm": 5.0,
-                     "ring_inner_mm": 0.0, "n_pins": 13, "max_bend_deg": 80.0}
+                     "ring_inner_mm": 0.0, "n_pins": 13, "max_bend_deg": 80.0, "contact": "edge"}
         s["chain"] = {**chain, **_migrate_chain(s.get("chain", {}))}
         s.setdefault("side", "inside")
         s.setdefault("focal_override_35mm", None)
@@ -163,14 +178,16 @@ class AppState:
             new = json.loads(json.dumps(self.settings))
             if "chain" in changes:
                 c = changes["chain"]
-                new["chain"] = {k: float(c.get(k) or 0.0) for k in CHAIN_KEYS if k != "fiducial"}
-                # Not on every page: the sharpest bend (older pages), the pin
-                # count (now set per photo, next to it).
+                new["chain"] = {k: float(c.get(k) or 0.0) for k in CHAIN_KEYS if k not in CHAIN_TEXT_KEYS}
+                # Not on every page: the sharpest bend and what touches the
+                # object (older pages), the pin count (now set per photo,
+                # next to it).
                 for k in ("max_bend_deg", "n_pins"):
                     if not c.get(k):
                         new["chain"][k] = float(self.settings["chain"][k])
                 new["chain"]["n_pins"] = _pin_count(new["chain"]["n_pins"])
                 new["chain"]["fiducial"] = str(c.get("fiducial", "dot"))
+                new["chain"]["contact"] = str(c.get("contact") or self.settings["chain"]["contact"])
             if "side" in changes:
                 if changes["side"] not in SIDES:
                     raise ValueError("side must be inside or outside")
@@ -474,6 +491,7 @@ class AppState:
     def _public_settings(self) -> dict:
         s = {k: v for k, v in self.settings.items() if k != "token"}
         s["truth_name"] = Path(s["truth"]).name if s.get("truth") else None
+        s["chain_presets"] = _chain_presets()
         return s
 
     def _summary(self, p: Photo) -> dict:

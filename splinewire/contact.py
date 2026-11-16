@@ -11,6 +11,11 @@ touches the chain along an edge w away from the pins:
   the straight edges bridge across and the rounded link ends touch the
   target. Contact point: pin offset by w along the bisector of its two links.
 
+A chain with round contact (ChainSpec.contact, the snap-fit chain) touches
+the target with a round sleeve of radius w about every pin instead, the
+link between them being narrower. Its contact point is always the pin
+offset by w along the bisector, whichever way the chain bends.
+
 Contact points are exact for circular arcs and a close approximation for
 curves whose radius changes slowly relative to the pitch.
 """
@@ -62,8 +67,11 @@ def side_name(pins_mm: np.ndarray, sign: int) -> Side:
     return "inside" if object_sign(pins_mm, "inside") == sign else "outside"
 
 
-def contact_points(pins_mm: np.ndarray, half_width_mm: float, sign: int) -> np.ndarray:
-    """Points where the target curve touches the chain, in chain order."""
+def contact_points(pins_mm: np.ndarray, half_width_mm: float, sign: int, round_contact: bool = False) -> np.ndarray:
+    """Points where the target curve touches the chain, in chain order.
+
+    round_contact: the chain touches with round sleeves about its pins, not
+    with its links' straight edges: one point per pin."""
     pins = np.asarray(pins_mm, dtype=float)
     d = np.diff(pins, axis=0)
     d /= np.linalg.norm(d, axis=1)[:, None]
@@ -76,14 +84,22 @@ def contact_points(pins_mm: np.ndarray, half_width_mm: float, sign: int) -> np.n
     away = np.r_[False, turns < -_STRAIGHT_TOL, False]
     if len(away) > 2:
         away[0], away[-1] = away[1], away[-2]
+    # A sleeve at an end pin touches where the curve carries on as at the
+    # joint next to it: half that joint's turn beyond the end link's normal.
+    end_turn = (0.0, 0.0)
+    if round_contact:
+        away[:] = True
+        if len(pins) > 2:
+            t = _turns(pins)
+            end_turn = (t[0] / 2, t[-1] / 2)
 
     out: list[np.ndarray] = []
     for i in range(len(pins)):
         if away[i]:
             if i == 0:
-                normal = left[0]
+                normal = _rotated(left[0], -end_turn[0])
             elif i == len(pins) - 1:
-                normal = left[-1]
+                normal = _rotated(left[-1], end_turn[1])
             else:
                 normal = left[i - 1] + left[i]
                 normal /= np.linalg.norm(normal)
@@ -105,6 +121,11 @@ def spline_samples(points_mm: np.ndarray, per_segment: int = 12) -> np.ndarray:
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))]
     spline = CubicSpline(s, pts, bc_type="not-a-knot")
     return spline(np.linspace(0.0, s[-1], per_segment * (len(pts) - 1) + 1))
+
+
+def _rotated(v: np.ndarray, angle: float) -> np.ndarray:
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([c * v[0] - s * v[1], s * v[0] + c * v[1]])
 
 
 def _turns(pins_mm: np.ndarray) -> np.ndarray:

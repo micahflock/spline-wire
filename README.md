@@ -183,6 +183,7 @@ The full plan, in risk order: [docs/next-steps.md](docs/next-steps.md).
 | [`splinewire/`](splinewire/) | The pipeline (`detect` → `order` → `rectify` → `contact`), the app (`webapp/`), the photo simulator (`scene`) and the chain generators (`oring_chain`, `printed_chain`, `plaque`) |
 | [`fusion/SplineWire/`](fusion/SplineWire/) | The Fusion add-in (Paste points) |
 | [`data/chain.yaml`](data/chain.yaml) | The chain's physical parameters |
+| [`data/chain-snap.yaml`](data/chain-snap.yaml) | The same for the snap-fit chain ([docs/snap-chain.md](docs/snap-chain.md)) |
 | [`tests/`](tests/) | pytest suite, end to end on synthetic photos |
 | [`experiments/`](experiments/) | Standalone studies: detection benchmark, fiducial designs, lens distortion, deskew accuracy |
 | [`packaging/`](packaging/) | Windows build (PyInstaller); built, tested and released by GitHub Actions |

@@ -21,6 +21,7 @@ def test_spec_file_loads():
     ({"fiducial": "square"}, "fiducial"),
     ({"n_pins": 2}, "n_pins"),
     ({"max_bend_deg": 170.0}, "max_bend_deg"),
+    ({"contact": "point"}, "contact"),
 ])
 def test_spec_rejects_bad_values(kwargs, match):
     base = dict(pitch_mm=10.0, half_width_mm=4.0, fiducial_mm=5.0, n_pins=13)
@@ -33,7 +34,7 @@ def test_older_ring_spec_still_loads():
     s = spec_from_dict(old)
     assert (s.fiducial, s.fiducial_mm, s.ring_inner_mm) == ("ring", 5.0, 2.0)
     assert spec_from_dict({**old, "fiducial_mm": 5.0, "fiducial": "dot"}).fiducial == "dot"
-    assert s.max_bend_deg == 80.0                                    # files from before the setting
+    assert s.max_bend_deg == 80.0 and s.contact == "edge"            # files from before the settings
     assert spec_from_dict({**old, "max_bend_deg": 125}).max_bend_deg == 125.0
 
 

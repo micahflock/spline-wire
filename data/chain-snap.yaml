@@ -1,0 +1,35 @@
+# The snap-fit printed chain: one part per link, no hardware. All lengths in mm.
+# Use it with --chain data/chain-snap.yaml, or pick "snap" in the app's settings.
+#
+# Each link is a pin hanging from a bridge at its head and a split sleeve at
+# its tail that clips round the next link's pin. The sleeves, round and
+# centred on the pins, are what touches the target; the arm between them is
+# narrower. A white rim on top of every pin is the fiducial.
+
+# Pin axis to sleeve axis of one link.
+pitch_mm: 13.0
+
+# The sleeve's outer radius at its widest (measure a printed sleeve across
+# and halve it).
+half_width_mm: 4.68
+
+# What touches the target: the round sleeves at the pins, not a straight
+# link edge.
+contact: round
+
+# The rim on each pin: 7.2 mm across, 0.86 mm wide (two perimeters), printed
+# in white from z = 12.
+fiducial: ring
+fiducial_mm: 7.2
+ring_inner_mm: 5.48
+
+# Number of pins with a rim (one per link).
+n_pins: 13
+
+# The joint turns 98 degrees one way and 127 the other before the links
+# collide, and perspective adds up to ~11 degrees in the photo. 110 covers
+# the 98 degree side. Past ~105 degrees the pins either side of a joint come
+# within 1.2 pitches of each other and at 120 they are one pitch apart, as
+# if joined by a link, so sharper bends are not accepted: the chain then
+# reads as broken there instead of in the wrong order.
+max_bend_deg: 110
