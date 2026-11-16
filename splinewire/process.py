@@ -5,14 +5,13 @@ Shared by the CLI and the web app.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
-
 from PIL import Image
 
-from splinewire.camera import focal_px_from_35mm
+from splinewire.camera import EXIF_IFD, TAG_FOCAL_LENGTH_35MM, focal_px_from_35mm
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side
 from splinewire.detect import Fiducial
@@ -30,16 +29,15 @@ class PhotoResult:
     photo: Path
     measurement: Measurement
     image: np.ndarray                       # grayscale photo, upright
-    preview: np.ndarray                     # BGR photo with detections drawn on
+    preview: np.ndarray | None              # BGR photo with detections drawn on (the app drops it once shown)
     truth_comparison: dict | None = None
     outputs: dict[str, Path] = field(default_factory=dict)
     focal_source: str = "exif"    # "exif", "override", "default" or "estimated"
     info: dict = field(default_factory=dict)   # what the photo file carried; see photo_info
 
 
-_EXIF_IFD = 0x8769
 _TAGS = {"make": 0x010F, "model": 0x0110}
-_EXIF_TAGS = {"focal_mm": 0x920A, "focal_35mm": 0xA405}
+_EXIF_TAGS = {"focal_mm": 0x920A, "focal_35mm": TAG_FOCAL_LENGTH_35MM}
 
 
 def photo_info(path: Path) -> dict:
@@ -50,7 +48,7 @@ def photo_info(path: Path) -> dict:
     """
     with Image.open(path) as im:
         exif = im.getexif()
-        sub = exif.get_ifd(_EXIF_IFD)
+        sub = exif.get_ifd(EXIF_IFD)
         info = {"format": im.format, "width": im.size[0], "height": im.size[1]}
         for key, tag in _TAGS.items():
             value = exif.get(tag)
@@ -103,8 +101,14 @@ def process_photo(
     truth_comparison = None
     if truth_path is not None:
         truth = np.array(json.loads(Path(truth_path).read_text(encoding="utf-8"))["pin_points"])
-        truth_comparison = compare_to_truth(m.pins_mm, truth)
-        extra["truth_comparison"] = truth_comparison
+        if len(truth) == len(m.pins_mm):
+            truth_comparison = compare_to_truth(m.pins_mm, truth)
+            extra["truth_comparison"] = truth_comparison
+        else:
+            # Still a measurement, with its files: a pin was missed, or this
+            # photo is of another chain than the truth file's.
+            m = replace(m, warnings=[*m.warnings, f"not compared to the truth file: it has {len(truth)} pins "
+                                                  f"and {len(m.pins_mm)} were measured"])
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

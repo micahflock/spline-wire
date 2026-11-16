@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 try:  # HEIC/HEIF, the iPhone default photo format
     from pillow_heif import register_heif_opener
@@ -20,7 +20,11 @@ from splinewire.contact import Side, contact_points, object_sign, side_name, sig
 from splinewire.detect import Fiducial, detect_fiducials
 from splinewire.edits import Edits, ManualPin, add_pins, pin_to_pitch, remove_detections
 from splinewire.order import ChainOrder, order_chain
-from splinewire.rectify import Rectification, rectify_chain
+from splinewire.rectify import Rectification, min_links, rectify_chain
+
+# How many times pins that turn out not to belong on the chain are dropped
+# and the chain solved again.
+_MISFIT_ROUNDS = 4
 
 
 @dataclass(frozen=True)
@@ -76,11 +80,21 @@ def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
     """Grayscale pixels (upright per EXIF orientation) and EXIF focal length in px.
 
     Rotating to upright keeps the image diagonal, so the focal length holds.
+    Raises ValueError, with a message for the person, if the file is not a
+    photo or is damaged.
     """
-    with Image.open(path) as im:
-        focal = focal_px_from_exif(im)
-        upright = ImageOps.exif_transpose(im)
-        return np.asarray(upright.convert("L")), focal
+    try:
+        with Image.open(path) as im:
+            focal = focal_px_from_exif(im)
+            upright = ImageOps.exif_transpose(im)
+            return np.asarray(upright.convert("L")), focal
+    except FileNotFoundError:
+        raise
+    except UnidentifiedImageError:
+        raise ValueError(f"{Path(path).name} is not a photo this program can read "
+                         "(JPEG, HEIC, PNG, TIFF, BMP or WebP)") from None
+    except OSError as err:              # a file cut short in transfer, or damaged
+        raise ValueError(f"could not read the photo {Path(path).name}: {err}") from None
 
 
 def measure(
@@ -115,24 +129,41 @@ def measure(
     h, w = image.shape[:2]
     centers = np.array([r.center_px for r in fiducials])
     excluded: set[int] = set()
-    for _ in range(4):
+    surplus = 0                 # pins dropped for being more than the chain is set to have
+    for attempt in range(_MISFIT_ROUNDS + 1):
         order = _order(fiducials, spec, excluded)
         # Fit the plane from links between pins that were measured, not clicked.
         links = _measured_links(order, by_click)
+        need = min_links(focal_known=focal_px is not None)
+        if len(links) < need:
+            raise ValueError(
+                f"found {len(order.indices)} pins in a row, joined by {len(links)} links; taking the "
+                f"perspective out needs at least {need} links ({need + 1} pins)"
+                + ("" if focal_px is not None else " when the focal length is unknown")
+                + ". Is the whole chain in the photo?")
         rect = rectify_chain(centers[order.indices], links, spec.pitch_mm, (w, h), focal_px)
-        misfits = _misfits(fiducials, replace(order, links=links), rect, spec, keep)
+        if attempt == _MISFIT_ROUNDS:
+            break                       # solved without the last misfits; stop looking for more
+        misfits, too_many = _misfits(fiducials, replace(order, links=links), rect, spec, keep)
         if not misfits:
             break
         excluded |= misfits
+        surplus += len(misfits) if too_many else 0
     free = [k for k, i in enumerate(order.indices) if i in by_click]
     if free:
         rect = _settle_clicked_pins(rect, order, free, spec)
     n_on_chain = len(order.indices)
     left_out = [mp for mp in manual if mp.fiducial in order.rejected]
     by_hand = [mp for mp in manual if not mp.snapped and mp not in left_out]
-    skipped = len(order.rejected) - len(left_out)
-    if skipped:
-        warnings.append(f"ignored {skipped} look-alike detection(s) not on the chain")
+    # Detections left off the chain (look-alikes on the table) are not worth a
+    # warning: on a dotted mousepad there are hundreds in every good photo.
+    # They are counted in order.rejected and drawn on the preview. Ones in
+    # line with the chain, left out only for being one too many, are.
+    if surplus:
+        warnings.append(
+            f"the chain looks {surplus} pin(s) longer than the {spec.n_pins} it is set to have: the end "
+            "detection(s) least like the rest were left out. If they are pins, raise the pin count"
+        )
     if left_out:
         warnings.append(f"{len(left_out)} pin(s) you added were left out: each must be about one pitch "
                         "from the pins next to it, in line with the chain")
@@ -144,13 +175,14 @@ def measure(
     expected = spec.n_pins - len(order.gaps)
     if n_on_chain != expected:
         warnings.append(
-            f"found {n_on_chain} pins on the chain but the spec has {spec.n_pins} "
-            f"({len(order.gaps)} gap(s)); is the whole chain in the photo, and free of glare "
-            "(a lamp's reflection on the links)?"
+            f"found {n_on_chain} pins on the chain, which is set to have {spec.n_pins}"
+            + (f" ({len(order.gaps)} more missed in between)" if order.gaps else "")
+            + "; is the whole chain in the photo, free of glare (a lamp's reflection on the links), "
+            "and is the pin count right?"
         )
     if focal_px is None:
         warnings.append(
-            "no focal length (EXIF or --focal-35mm); estimating it from the chain, "
+            "no focal length (none in the photo's EXIF, and none set); estimating it from the chain, "
             "which is unreliable for nearly straight chains"
         )
     if rect.residual_max_mm > 0.05 * spec.pitch_mm:
@@ -165,7 +197,7 @@ def measure(
     else:
         side_px = (float(side[0]), float(side[1]))
         sign = sign_from_photo_point(centers[order.indices], side_px)
-    contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign, spec.contact == "round")
+    contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign, spec.contact == "round", gaps=order.gaps)
     return Measurement(
         fiducials=fiducials, order=order, rectification=rect, object_side=side_name(rect.pins_mm, sign),
         contacts_mm=contacts, warnings=warnings, manual=manual, object_sign=sign, side_px=side_px,
@@ -233,7 +265,7 @@ def _order(fiducials: list[Fiducial], spec: ChainSpec, excluded: set[int]) -> Ch
 
 
 def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, spec: ChainSpec,
-             keep: frozenset[int] | set[int] = frozenset()) -> set[int]:
+             keep: frozenset[int] | set[int] = frozenset()) -> tuple[set[int], bool]:
     """Pins that do not belong on the chain, judged after deskewing.
 
     - A fiducial whose physical size differs from its chain neighbours' by more
@@ -244,11 +276,13 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
     - With more pins than the spec's chain has, whichever end looks least
       like the rest of the chain.
 
-    Pins in `keep` (added by hand) are never named.
+    Pins in `keep` (added by hand) are never named. Returns the pins, and
+    whether they were named by the last rule: for being one too many, not
+    for anything wrong with them (so the pin count may be what is wrong).
     """
     idx = order.indices
     if len(idx) < 6:
-        return set()
+        return set(), False
     major = np.array([fiducials[i].outer_axes_px[0] for i in idx])
     size_mm = major * rect.depth_mm / rect.focal_px
     bad = set()
@@ -273,7 +307,7 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
         ends = [k for k in (0, len(idx) - 1) if idx[k] not in keep]
         if ends:
             bad.add(idx[max(ends, key=oddness)])
-        return bad
+        return bad, True
     res = rect.link_residuals_mm
     links = order.links
     if links and len(links) >= 6:
@@ -284,7 +318,7 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
                 continue            # the end is across a gap, or added by hand; leave it
             if abs(res[end_link]) > 0.08 * spec.pitch_mm and abs(res[end_link]) >= 0.999 * worst:
                 bad.add(idx[end_pin])
-    return bad
+    return bad, False
 
 
 def compare_to_truth(pins_mm: np.ndarray, truth_mm: np.ndarray) -> dict[str, float]:

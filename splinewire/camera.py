@@ -8,10 +8,10 @@ import numpy as np
 from PIL import Image
 
 # Diagonal of a 36 x 24 mm frame, which defines "35 mm equivalent" focal length.
-_FULL_FRAME_DIAGONAL_MM = math.hypot(36.0, 24.0)
+FULL_FRAME_DIAGONAL_MM = math.hypot(36.0, 24.0)
 
-_EXIF_IFD = 0x8769
-_TAG_FOCAL_LENGTH_35MM = 0xA405
+EXIF_IFD = 0x8769                 # the Exif sub-IFD, where cameras record lens data
+TAG_FOCAL_LENGTH_35MM = 0xA405    # FocalLengthIn35mmFilm
 
 
 def intrinsics(focal_px: float, image_size: tuple[int, int]) -> np.ndarray:
@@ -26,7 +26,13 @@ def intrinsics(focal_px: float, image_size: tuple[int, int]) -> np.ndarray:
 
 def focal_px_from_35mm(focal_35mm: float, image_size: tuple[int, int]) -> float:
     w, h = image_size
-    return focal_35mm * math.hypot(w, h) / _FULL_FRAME_DIAGONAL_MM
+    return focal_35mm * math.hypot(w, h) / FULL_FRAME_DIAGONAL_MM
+
+
+def focal_35mm_from_px(focal_px: float, image_size: tuple[int, int]) -> float:
+    """The 35 mm-equivalent focal length of a focal length in pixels."""
+    w, h = image_size
+    return focal_px * FULL_FRAME_DIAGONAL_MM / math.hypot(w, h)
 
 
 def focal_px_from_exif(image: Image.Image) -> float | None:
@@ -36,7 +42,7 @@ def focal_px_from_exif(image: Image.Image) -> float | None:
     needs the physical sensor size, which EXIF does not record.
     """
     exif = image.getexif()
-    f35 = exif.get_ifd(_EXIF_IFD).get(_TAG_FOCAL_LENGTH_35MM) or exif.get(_TAG_FOCAL_LENGTH_35MM)
+    f35 = exif.get_ifd(EXIF_IFD).get(TAG_FOCAL_LENGTH_35MM) or exif.get(TAG_FOCAL_LENGTH_35MM)
     if not f35:
         return None
     return focal_px_from_35mm(float(f35), image.size)

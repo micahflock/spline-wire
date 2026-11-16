@@ -70,8 +70,15 @@ def chain_presets() -> dict[str, Path]:
 
 
 def load_chain_spec(path: Path) -> ChainSpec:
+    """The chain a YAML file describes. Raises ValueError if the file is not
+    YAML settings or a value is out of range, KeyError if one is missing."""
     with Path(path).open("r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
+        try:
+            raw = yaml.safe_load(f)
+        except yaml.YAMLError as err:
+            raise ValueError(f"{Path(path).name} is not valid YAML: {err}") from None
+    if not isinstance(raw, dict):
+        raise ValueError(f"{Path(path).name} must hold the chain's settings (pitch_mm: 10.0, ...)")
     return spec_from_dict(raw)
 
 

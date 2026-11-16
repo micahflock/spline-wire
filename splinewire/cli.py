@@ -97,10 +97,18 @@ def main(argv: list[str] | None = None) -> int:
                         "smaller if it doesn't bite")
 
     args = parser.parse_args(argv)
-    spec = load_chain_spec(args.chain)
     commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque,
                 "print-chain": _print_chain, "oring-chain": _oring_chain}
-    return commands[args.command](args, spec)
+    # ValueErrors carry the program's own messages for people (a photo with no
+    # chain in it, a setting out of range): show the message, not a traceback.
+    try:
+        spec = load_chain_spec(args.chain)
+        return commands[args.command](args, spec)
+    except KeyError as err:
+        print(f"error: {args.chain} has no {err.args[0]}", file=sys.stderr)
+    except (ValueError, OSError) as err:
+        print(f"error: {err}", file=sys.stderr)
+    return 1
 
 
 def _presets() -> dict:
@@ -126,7 +134,10 @@ def _measure(args, spec: ChainSpec) -> int:
                            side=args.side, truth_path=args.truth)
     m = result.measurement
     r = m.rectification
-    print(f"{len(m.order.indices)} pins found, tilt {r.tilt_deg:.1f} deg, "
+    stray = len(m.order.rejected)
+    print(f"{len(m.order.indices)} pins found"
+          + (f" ({stray} look-alike detection(s) off the chain ignored)" if stray else "")
+          + f", tilt {r.tilt_deg:.1f} deg, "
           f"focal {r.focal_px:.0f} px{' (estimated)' if r.focal_estimated else ''}, "
           f"link residual rms {r.residual_rms_mm:.3f} mm")
     if result.truth_comparison:
@@ -136,7 +147,7 @@ def _measure(args, spec: ChainSpec) -> int:
               f"(measured/true scale {t['scale']:.4f})")
     for w in m.warnings:
         print(f"warning: {w}", file=sys.stderr)
-    print(f"wrote {args.out}/{args.photo.stem}.json, -curve.csv, -curve.svg, -preview.jpg")
+    print("wrote " + ", ".join(p.name for p in result.outputs.values()) + f" in {args.out}")
     return 0
 
 

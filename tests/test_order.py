@@ -101,6 +101,21 @@ def test_orders_sharp_bends(turns_deg, tilt_deg):
         assert order.gaps == []
 
 
+@pytest.mark.parametrize("seed", [142, 291, 539, 545, 572])
+def test_walks_over_the_same_pins_are_not_told_apart_by_rounding(seed):
+    """A walk that doubles back over a sharp bend visits the same pins as the
+    chain. The two tie on how much their detections stand out, and the walk
+    with fewer steps off the pitch wins; summed in walk order, the contrasts
+    differed in their last bit and that decided instead (8 zigzags in 1000)."""
+    rng = np.random.default_rng(seed)
+    turns = SHARP * np.array([(-1) ** k for k in range(11)])
+    pins = pins_from_turns(40.0, np.radians(turns), heading_rad=rng.uniform(0, 2 * np.pi))
+    pins = pins * [1.0, np.cos(np.radians(25.0))] + rng.normal(0, 0.3, pins.shape)
+    contrast = rng.uniform(80, 180, len(pins))
+    order = order_chain(pins, max_turn_deg=125.0, strength=contrast)
+    assert order.indices in (list(range(13)), list(range(12, -1, -1)))
+
+
 def test_sharp_bends_need_the_raised_turn_limit():
     pins = pins_from_turns(40.0, np.radians(np.r_[np.zeros(5), SHARP, np.zeros(5)]))
     assert len(order_chain(pins).indices) < len(pins)                  # default 80°: stops at the corner
