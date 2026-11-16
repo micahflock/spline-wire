@@ -355,6 +355,39 @@ def test_pins_can_be_added_and_removed_by_hand(served, dot_spec, tmp_path):
     assert detail()["result"]["pins"] == before["result"]["pins"]
 
 
+def test_a_photo_changed_while_it_is_measured_is_not_called_done_early(served, dot_spec, tmp_path, monkeypatch):
+    """Options changed while a photo is being measured queue it again. What was
+    being measured is then already out of date: the photo stays queued until
+    the last change has been measured, so whoever waits for "done" (the phone
+    page, wait_idle) gets that result and not the one before it."""
+    app, server = served
+    write_synthetic_photo(tmp_path / "p.jpg", s_curve_pins(dot_spec), dot_spec, (2000, 1500))
+    pid = json.loads(call(server, "/api/upload?name=p.jpg", (tmp_path / "p.jpg").read_bytes(), app.token)[1])["id"]
+    assert app.wait_idle(60)
+
+    measuring, go_on = threading.Event(), threading.Event()
+    real = server_module.process_photo
+
+    def held_up(*args, **kwargs):
+        measuring.set()
+        go_on.wait(20)
+        return real(*args, **kwargs)
+
+    seen = []
+    changed = app._changed
+    monkeypatch.setattr(app, "_changed", lambda: (seen.append((app.photos[pid].status, app._queue.qsize())), changed()))
+    monkeypatch.setattr(server_module, "process_photo", held_up)
+    app.set_options(pid, {"n_pins": 11})
+    assert measuring.wait(20)                                  # being measured as an 11-pin chain...
+    monkeypatch.setattr(server_module, "process_photo", real)
+    app.set_options(pid, {"n_pins": dot_spec.n_pins})          # ...when it is changed back
+    go_on.set()
+    assert app.wait_idle(60)
+    assert ("done", 1) not in seen                             # never done with a change still waiting
+    result = json.loads(call(server, f"/api/photo/{pid}", token=app.token)[1])["result"]
+    assert result["pins"] == dot_spec.n_pins and result["warnings"] == []
+
+
 def test_bad_edits_are_refused(served, dot_spec, tmp_path):
     spec = dot_spec
     app, server = served
@@ -460,36 +493,3 @@ def test_settings_keep_the_pin_count_when_the_page_leaves_it_out(served):
     chain = {k: v for k, v in app.settings["chain"].items() if k != "n_pins"}
     assert call(server, "/api/settings", json.dumps({"chain": chain}).encode(), app.token)[0] == 200
     assert app.settings["chain"]["n_pins"] == 21
-
-
-def test_a_photo_changed_while_it_is_measured_is_not_called_done_early(served, dot_spec, tmp_path, monkeypatch):
-    """Options changed while a photo is being measured queue it again. What was
-    being measured is then already out of date: the photo stays queued until
-    the last change has been measured, so whoever waits for "done" (the phone
-    page, wait_idle) gets that result and not the one before it."""
-    app, server = served
-    write_synthetic_photo(tmp_path / "p.jpg", s_curve_pins(dot_spec), dot_spec, (2000, 1500))
-    pid = json.loads(call(server, "/api/upload?name=p.jpg", (tmp_path / "p.jpg").read_bytes(), app.token)[1])["id"]
-    assert app.wait_idle(60)
-
-    measuring, go_on = threading.Event(), threading.Event()
-    real = server_module.process_photo
-
-    def held_up(*args, **kwargs):
-        measuring.set()
-        go_on.wait(20)
-        return real(*args, **kwargs)
-
-    seen = []
-    changed = app._changed
-    monkeypatch.setattr(app, "_changed", lambda: (seen.append((app.photos[pid].status, app._queue.qsize())), changed()))
-    monkeypatch.setattr(server_module, "process_photo", held_up)
-    app.set_options(pid, {"n_pins": 11})
-    assert measuring.wait(20)                                  # being measured as an 11-pin chain...
-    monkeypatch.setattr(server_module, "process_photo", real)
-    app.set_options(pid, {"n_pins": dot_spec.n_pins})          # ...when it is changed back
-    go_on.set()
-    assert app.wait_idle(60)
-    assert ("done", 1) not in seen                             # never done with a change still waiting
-    result = json.loads(call(server, f"/api/photo/{pid}", token=app.token)[1])["result"]
-    assert result["pins"] == dot_spec.n_pins and result["warnings"] == []

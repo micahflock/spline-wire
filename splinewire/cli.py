@@ -134,10 +134,7 @@ def _measure(args, spec: ChainSpec) -> int:
                            side=args.side, truth_path=args.truth)
     m = result.measurement
     r = m.rectification
-    stray = len(m.order.rejected)
-    print(f"{len(m.order.indices)} pins found"
-          + (f" ({stray} look-alike detection(s) off the chain ignored)" if stray else "")
-          + f", tilt {r.tilt_deg:.1f} deg, "
+    print(f"{len(m.order.indices)} pins found, tilt {r.tilt_deg:.1f} deg, "
           f"focal {r.focal_px:.0f} px{' (estimated)' if r.focal_estimated else ''}, "
           f"link residual rms {r.residual_rms_mm:.3f} mm")
     if result.truth_comparison:

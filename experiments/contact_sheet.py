@@ -2,6 +2,7 @@
 
     uv run python experiments/cv_benchmark.py            # renders the cache first
     uv run python experiments/contact_sheet.py docs/img/environments.jpg
+    uv run python experiments/contact_sheet.py rings.jpg ring     # the cache of --fiducial ring
 """
 from __future__ import annotations
 
@@ -12,18 +13,25 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from splinewire.chain import default_chain_path, load_chain_spec
+
+# cv_benchmark.py keeps one cache per fiducial: out/cv-benchmark/dot, .../ring.
 CACHE = Path(__file__).resolve().parent.parent / "out" / "cv-benchmark"
 SCENES = ["daylight-0", "shadow-1", "glare-0", "glare-matte-0", "black-table-1", "wood-0",
           "cutting-mat-0", "text-1", "clutter-0", "fabric-0", "terrazzo-0", "worst-0"]
 
 
-def main(out: Path, tile=(360, 270), cols=4) -> None:
+def main(out: Path, fiducial: str | None = None, tile=(360, 270), cols=4) -> None:
+    cache = CACHE / (fiducial or load_chain_spec(default_chain_path()).fiducial)
+    missing = [sid for sid in SCENES if not (cache / f"{sid}.json").is_file()]
+    if missing:
+        raise SystemExit(f"{cache} lacks {', '.join(missing)}: run experiments/cv_benchmark.py first")
     tw, th = tile
     rows = (len(SCENES) + cols - 1) // cols
     sheet = np.full((rows * (th + 26), cols * tw), 255, np.uint8)
     for k, sid in enumerate(SCENES):
-        meta = json.loads((CACHE / f"{sid}.json").read_text(encoding="utf-8"))
-        img = cv2.imread(str(CACHE / f"{sid}.png"), cv2.IMREAD_GRAYSCALE)
+        meta = json.loads((cache / f"{sid}.json").read_text(encoding="utf-8"))
+        img = cv2.imread(str(cache / f"{sid}.png"), cv2.IMREAD_GRAYSCALE)
         p = np.array(meta["pins_px"])
         c = p.mean(axis=0)
         half = max(np.ptp(p[:, 0]) / 2 / tw * th, np.ptp(p[:, 1]) / 2) + 14 * meta["px_per_mm"]
@@ -41,4 +49,4 @@ def main(out: Path, tile=(360, 270), cols=4) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(Path(sys.argv[1]), *sys.argv[2:3])

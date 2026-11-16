@@ -24,6 +24,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from scipy.optimize import least_squares
 
+from splinewire.chain import ChainSpec
 from splinewire.detect import Fiducial, snap_fiducial
 
 MAX_EDITS = 300
@@ -92,7 +93,7 @@ def remove_detections(fiducials: list[Fiducial], edits: Edits) -> list[Fiducial]
 def add_pins(
     image: np.ndarray,
     fiducials: list[Fiducial],
-    spec,
+    spec: ChainSpec,
     edits: Edits,
     chain: list[int],
 ) -> tuple[list[Fiducial], list[ManualPin]]:
@@ -165,7 +166,7 @@ def _like(p, refs: list[Fiducial], centers: np.ndarray) -> Fiducial:
     )
 
 
-def _from_spacing(points, spec) -> Fiducial:
+def _from_spacing(points, spec: ChainSpec) -> Fiducial:
     """With no detections to learn from, a fiducial as big as the spacing of the
     added pins says: neighbours are one pitch apart and the fiducial is a known
     fraction of that."""

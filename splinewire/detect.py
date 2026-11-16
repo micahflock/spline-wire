@@ -39,6 +39,8 @@ from dataclasses import dataclass, replace
 import cv2
 import numpy as np
 
+from splinewire.chain import ChainSpec
+
 
 @dataclass(frozen=True)
 class Fiducial:
@@ -70,7 +72,7 @@ _MAX_SCALE = 8          # coarsest level: 1/8 resolution
 THIN_RING = 0.6
 
 
-def detect_fiducials(image: np.ndarray, spec) -> list[Fiducial]:
+def detect_fiducials(image: np.ndarray, spec: ChainSpec) -> list[Fiducial]:
     """The fiducials a ChainSpec describes: dots, rings or thin rims."""
     if spec.fiducial == "dot":
         return detect_dots(image)
@@ -309,7 +311,7 @@ def _fit_once(gray, ellipse, inner_ratio, polarity) -> dict | None:
     # than a large one's, roughly in proportion to 1/radius.
     wo = n_o / max(res_o, 0.05) ** 2 * eo[1][0] * eo[1][1]
     wi = n_i / max(res_i, 0.05) ** 2 * ei[1][0] * ei[1][1]
-    center =((wo * eo[0][0] + wi * ei[0][0]) / (wo + wi), (wo * eo[0][1] + wi * ei[0][1]) / (wo + wi))
+    center = ((wo * eo[0][0] + wi * ei[0][0]) / (wo + wi), (wo * eo[0][1] + wi * ei[0][1]) / (wo + wi))
     return {
         "outer": eo, "inner": ei, "center": center,
         "inner_ratio": math.sqrt(ei[1][0] * ei[1][1] / (eo[1][0] * eo[1][1])),
@@ -599,7 +601,7 @@ def _refine_rim(gray: np.ndarray, inverted: np.ndarray, hole: _Candidate, ratio:
 def snap_fiducial(
     image: np.ndarray,
     point_px: tuple[float, float],
-    spec,
+    spec: ChainSpec,
     like: Fiducial,
 ) -> Fiducial | None:
     """The fiducial a person pointed at, found and refined like any detection;

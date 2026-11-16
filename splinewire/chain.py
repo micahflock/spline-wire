@@ -85,7 +85,7 @@ def load_chain_spec(path: Path) -> ChainSpec:
 def spec_from_dict(raw: dict) -> ChainSpec:
     """ChainSpec from chain.yaml or saved settings. Older files describe a
     ring as ring_outer_mm + ring_inner_mm, with no `fiducial` key."""
-    if "fiducial_mm" in raw:
+    if "fiducial_mm" in raw or "ring_outer_mm" not in raw:     # with neither, it is fiducial_mm that is missing
         size, kind = raw["fiducial_mm"], raw.get("fiducial", "dot")
     else:
         size, kind = raw["ring_outer_mm"], raw.get("fiducial", "ring")

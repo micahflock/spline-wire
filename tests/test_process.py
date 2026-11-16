@@ -19,6 +19,23 @@ def test_process_photo_writes_outputs_and_compares_truth(spec, tmp_path):
     assert doc["truth_comparison"] == res.truth_comparison
 
 
+def test_a_file_that_is_not_a_photo_or_is_cut_short_is_said_to_be(spec, tmp_path):
+    import pytest
+
+    from splinewire.pipeline import load_photo
+
+    photo = tmp_path / "p.jpg"
+    write_synthetic_photo(photo, s_curve_pins(spec), spec, (800, 600))
+    (tmp_path / "half.jpg").write_bytes(photo.read_bytes()[: photo.stat().st_size // 2])
+    (tmp_path / "notes.jpg").write_text("not a photo")
+    with pytest.raises(ValueError, match="could not read the photo half.jpg"):
+        load_photo(tmp_path / "half.jpg")
+    with pytest.raises(ValueError, match="notes.jpg is not a photo this program can read"):
+        load_photo(tmp_path / "notes.jpg")
+    with pytest.raises(FileNotFoundError):
+        load_photo(tmp_path / "missing.jpg")
+
+
 def test_heic_photo_with_exif(spec, tmp_path):
     pins = s_curve_pins(spec)
     jpg = tmp_path / "p.jpg"

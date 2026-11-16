@@ -5,7 +5,7 @@ Shared by the CLI and the web app.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -101,14 +101,8 @@ def process_photo(
     truth_comparison = None
     if truth_path is not None:
         truth = np.array(json.loads(Path(truth_path).read_text(encoding="utf-8"))["pin_points"])
-        if len(truth) == len(m.pins_mm):
-            truth_comparison = compare_to_truth(m.pins_mm, truth)
-            extra["truth_comparison"] = truth_comparison
-        else:
-            # Still a measurement, with its files: a pin was missed, or this
-            # photo is of another chain than the truth file's.
-            m = replace(m, warnings=[*m.warnings, f"not compared to the truth file: it has {len(truth)} pins "
-                                                  f"and {len(m.pins_mm)} were measured"])
+        truth_comparison = compare_to_truth(m.pins_mm, truth)
+        extra["truth_comparison"] = truth_comparison
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

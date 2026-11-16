@@ -308,7 +308,7 @@ def measure_design(design: str, img, focal_px, image_size):
             break                                        # ids leave nothing to second-guess
         rings = [SimpleNamespace(outer_axes_px=tuple(s), surround=p[1]) for s, p in zip(sizes, pols)]
         order = ChainOrder(indices=chain_idx, links=links, gaps=[], rejected=[])
-        misfits, _ = _misfits(rings, order, rect, SPEC)
+        misfits = _misfits(rings, order, rect, SPEC)
         if not misfits:
             break
         excluded |= misfits

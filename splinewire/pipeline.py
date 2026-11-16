@@ -129,7 +129,6 @@ def measure(
     h, w = image.shape[:2]
     centers = np.array([r.center_px for r in fiducials])
     excluded: set[int] = set()
-    surplus = 0                 # pins dropped for being more than the chain is set to have
     for attempt in range(_MISFIT_ROUNDS + 1):
         order = _order(fiducials, spec, excluded)
         # Fit the plane from links between pins that were measured, not clicked.
@@ -144,26 +143,19 @@ def measure(
         rect = rectify_chain(centers[order.indices], links, spec.pitch_mm, (w, h), focal_px)
         if attempt == _MISFIT_ROUNDS:
             break                       # solved without the last misfits; stop looking for more
-        misfits, too_many = _misfits(fiducials, replace(order, links=links), rect, spec, keep)
+        misfits = _misfits(fiducials, replace(order, links=links), rect, spec, keep)
         if not misfits:
             break
         excluded |= misfits
-        surplus += len(misfits) if too_many else 0
     free = [k for k, i in enumerate(order.indices) if i in by_click]
     if free:
         rect = _settle_clicked_pins(rect, order, free, spec)
     n_on_chain = len(order.indices)
     left_out = [mp for mp in manual if mp.fiducial in order.rejected]
     by_hand = [mp for mp in manual if not mp.snapped and mp not in left_out]
-    # Detections left off the chain (look-alikes on the table) are not worth a
-    # warning: on a dotted mousepad there are hundreds in every good photo.
-    # They are counted in order.rejected and drawn on the preview. Ones in
-    # line with the chain, left out only for being one too many, are.
-    if surplus:
-        warnings.append(
-            f"the chain looks {surplus} pin(s) longer than the {spec.n_pins} it is set to have: the end "
-            "detection(s) least like the rest were left out. If they are pins, raise the pin count"
-        )
+    skipped = len(order.rejected) - len(left_out)
+    if skipped:
+        warnings.append(f"ignored {skipped} look-alike detection(s) not on the chain")
     if left_out:
         warnings.append(f"{len(left_out)} pin(s) you added were left out: each must be about one pitch "
                         "from the pins next to it, in line with the chain")
@@ -265,7 +257,7 @@ def _order(fiducials: list[Fiducial], spec: ChainSpec, excluded: set[int]) -> Ch
 
 
 def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, spec: ChainSpec,
-             keep: frozenset[int] | set[int] = frozenset()) -> tuple[set[int], bool]:
+             keep: frozenset[int] | set[int] = frozenset()) -> set[int]:
     """Pins that do not belong on the chain, judged after deskewing.
 
     - A fiducial whose physical size differs from its chain neighbours' by more
@@ -276,13 +268,11 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
     - With more pins than the spec's chain has, whichever end looks least
       like the rest of the chain.
 
-    Pins in `keep` (added by hand) are never named. Returns the pins, and
-    whether they were named by the last rule: for being one too many, not
-    for anything wrong with them (so the pin count may be what is wrong).
+    Pins in `keep` (added by hand) are never named.
     """
     idx = order.indices
     if len(idx) < 6:
-        return set(), False
+        return set()
     major = np.array([fiducials[i].outer_axes_px[0] for i in idx])
     size_mm = major * rect.depth_mm / rect.focal_px
     bad = set()
@@ -307,7 +297,7 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
         ends = [k for k in (0, len(idx) - 1) if idx[k] not in keep]
         if ends:
             bad.add(idx[max(ends, key=oddness)])
-        return bad, True
+        return bad
     res = rect.link_residuals_mm
     links = order.links
     if links and len(links) >= 6:
@@ -318,7 +308,7 @@ def _misfits(fiducials: list[Fiducial], order: ChainOrder, rect: Rectification, 
                 continue            # the end is across a gap, or added by hand; leave it
             if abs(res[end_link]) > 0.08 * spec.pitch_mm and abs(res[end_link]) >= 0.999 * worst:
                 bad.add(idx[end_pin])
-    return bad, False
+    return bad
 
 
 def compare_to_truth(pins_mm: np.ndarray, truth_mm: np.ndarray) -> dict[str, float]:
