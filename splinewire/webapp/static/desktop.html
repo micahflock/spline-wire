@@ -277,6 +277,7 @@ async function refresh() {
   $("#offline").classList.remove("show");
   renderNetwork(s.network, s.phone_urls);
   if (!state || s.state_version !== state.state_version) {
+    detailCache = {};                    // its keys carry the state version: older ones are never asked for again
     const newest = s.photos[0];
     if (s.photos.length > lastCount && newest) selected = newest.id;   // follow new uploads
     lastCount = s.photos.length;

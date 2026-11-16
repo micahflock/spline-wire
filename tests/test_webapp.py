@@ -1,6 +1,8 @@
 """The local web app over real HTTP."""
 import io
 import json
+import socket
+import threading
 import urllib.error
 import urllib.request
 
@@ -13,6 +15,7 @@ from splinewire.camera import focal_px_from_35mm, look_at_plane
 from splinewire.synthetic import (
     LINK_GRAY, render_photo, s_curve_pins, save_photo, write_synthetic_photo, write_truth,
 )
+from splinewire.webapp import server as server_module
 from splinewire.webapp.server import AppState, _safe_name, start_server
 
 
@@ -37,6 +40,23 @@ def call(server, path, data=None, token=None, host=None, ip="127.0.0.1"):
             return resp.status, resp.read()
     except urllib.error.HTTPError as err:
         return err.code, err.read()
+
+
+def raw(server, request: bytes) -> bytes:
+    """Send bytes as they are and return everything the server answers,
+    for requests no well-behaved client makes (a body cut short)."""
+    with socket.create_connection(("127.0.0.1", server.port), timeout=20) as s:
+        s.sendall(request)
+        s.shutdown(socket.SHUT_WR)
+        answer = b""
+        while chunk := s.recv(65536):
+            answer += chunk
+    return answer
+
+
+def upload_request(server, app, name: str, length: int) -> bytes:
+    return (f"POST /api/upload?name={name} HTTP/1.1\r\nHost: 127.0.0.1:{server.port}\r\n"
+            f"X-Token: {app.token}\r\nContent-Length: {length}\r\n\r\n").encode()
 
 
 def test_upload_measure_and_fetch_results(served, spec, tmp_path):
@@ -64,6 +84,43 @@ def test_upload_measure_and_fetch_results(served, spec, tmp_path):
     assert status == 200 and tsv.decode().startswith("x_mm\ty_mm")
     assert call(server, f"/api/photo/{pid}/preview.jpg?t={app.token}")[1][:2] == b"\xff\xd8"
     assert call(server, f"/api/photo/{pid}/download/dxf?t={app.token}")[0] == 200
+    # Shown as JPEGs only: the full-size drawing (37 MB for a 12 MP photo) is not kept per photo.
+    assert app.photos[pid].result.preview is None and app.photos[pid].preview_jpeg
+
+
+def test_an_upload_cut_short_is_refused_and_not_saved(served, dot_spec, tmp_path):
+    """A phone that drops off the Wi-Fi mid-upload must not leave half a photo in the list."""
+    app, server = served
+    write_synthetic_photo(tmp_path / "p.jpg", s_curve_pins(dot_spec), dot_spec, (2000, 1500))
+    data = (tmp_path / "p.jpg").read_bytes()
+    answer = raw(server, upload_request(server, app, "cut.jpg", len(data)) + data[: len(data) // 2])
+    assert answer.startswith(b"HTTP/1.1 400") and b"cut off" in answer
+    assert app.photos == {} and not list((tmp_path / "ws").rglob("*cut.jpg"))
+    assert call(server, "/api/upload?name=whole.jpg", data, app.token)[0] == 200     # and whole, it is taken
+    assert app.wait_idle(60)
+
+
+def test_an_upload_over_the_limit_gets_an_answer_not_a_broken_connection(served, monkeypatch):
+    app, server = served
+    monkeypatch.setattr(server_module, "MAX_UPLOAD_BYTES", 1000)
+    status, body = call(server, "/api/upload?name=big.jpg", b"x" * 3000, app.token)
+    assert status == 400 and b"too large" in body and app.photos == {}
+    # Its body was read and dropped, so the same connection carries on with the next request.
+    again = (f"GET /api/ping HTTP/1.1\r\nHost: 127.0.0.1:{server.port}\r\n\r\n").encode()
+    answer = raw(server, upload_request(server, app, "big.jpg", 3000) + b"x" * 3000 + again)
+    assert answer.count(b"HTTP/1.1 400") == 1 and answer.count(b"HTTP/1.1 200") == 1
+    # One far over the limit is not read at all: answered, then hung up on.
+    answer = raw(server, upload_request(server, app, "huge.jpg", 10**9) + b"x" * 100 + again)
+    assert answer.count(b"HTTP/1.1") == 1 and b"Connection: close" in answer
+
+
+def test_a_file_that_is_not_a_photo_says_so(served):
+    app, server = served
+    pid = json.loads(call(server, "/api/upload?name=notes.txt", b"not an image at all", app.token)[1])["id"]
+    assert app.wait_idle(30)
+    detail = json.loads(call(server, f"/api/photo/{pid}", token=app.token)[1])
+    assert detail["status"] == "error" and "is not a photo this program can read" in detail["error"]
+    assert str(app.workspace) not in detail["error"]                 # a message, not a traceback with paths
 
 
 def test_bad_photo_reports_a_readable_error(served, tmp_path):
@@ -101,6 +158,63 @@ def test_settings_are_validated(served):
     older_page = {"chain": {k: v for k, v in app.settings["chain"].items() if k != "max_bend_deg"}}
     assert call(server, "/api/settings", json.dumps(older_page).encode(), app.token)[0] == 200
     assert app.spec().max_bend_deg == 125.0                     # kept, not zeroed
+
+
+@pytest.mark.parametrize("path, body", [
+    ("/api/settings", b"[1, 2]"),
+    ("/api/settings", b'{"chain": "x"}'),
+    ("/api/settings", b'{"chain": {"pitch_mm": "wide"}}'),
+    ("/api/settings", b'{"phone_focal_35mm": [24]}'),
+    ("/api/settings", b"\xff\xfe"),
+    ("/api/truth?name=t.json", b"[1, 2]"),
+    ("/api/truth?name=t.json", b'{"pin_points": [[0, 0], [1, 1]]}'),
+    ("/api/truth?name=t.json", b'{"pin_points": [[0, 0], [1, "a"], [2, 2]]}'),
+    ("/api/truth?name=t.json", b"\xff\xfe"),
+    ("/api/open-folder", b'"photos"'),
+])
+def test_malformed_requests_are_refused_with_a_message(served, path, body):
+    """Anything a page could not have sent is a 400 with a reason, never a crash (500)."""
+    app, server = served
+    before = json.dumps(app.settings, sort_keys=True)
+    status, answer = call(server, path, body, app.token)
+    assert status == 400 and json.loads(answer)["error"]
+    assert json.dumps(app.settings, sort_keys=True) == before
+
+
+@pytest.mark.parametrize("saved", [
+    None, [], "text", {"token": 5}, {"token": ""}, {"chain": []}, {"chain": {"pitch_mm": "abc"}},
+    {"chain": {"pitch_mm": -1}}, {"chain": {"n_pins": 1.5}}, {"side": "left"}, {"phone_focal_35mm": "24"},
+    {"focal_override_35mm": 4000}, {"truth": 7},
+])
+def test_a_damaged_settings_file_does_not_stop_the_app(tmp_path, saved, dot_spec):
+    """Settings are a convenience. Whatever is in the file (an older version's,
+    hand-edited, cut short), the app starts, with defaults for what it can't use."""
+    app = AppState(tmp_path / "ws", settings=saved, persist=False)
+    assert isinstance(app.token, str) and len(app.token) >= 16
+    assert app.spec() == dot_spec
+    assert app.settings["side"] == "inside" and app.settings["truth"] is None
+    assert app.settings["phone_focal_35mm"] is None and app.settings["focal_override_35mm"] is None
+
+
+def test_settings_that_are_fine_are_kept(tmp_path):
+    saved = {"token": "a-token-from-last-time", "side": "outside", "phone_focal_35mm": 24, "truth": "t.json",
+             "chain": {"pitch_mm": 12.5, "n_pins": 21, "max_bend_deg": 80}}
+    app = AppState(tmp_path / "ws", settings=saved, persist=False)
+    assert app.token == "a-token-from-last-time" and app.settings["side"] == "outside"
+    assert app.settings["phone_focal_35mm"] == 24 and app.settings["truth"] == "t.json"
+    spec = app.spec()
+    assert (spec.pitch_mm, spec.n_pins, spec.max_bend_deg, spec.fiducial) == (12.5, 21, 80.0, "dot")
+
+
+def test_settings_from_before_the_dot_are_brought_forward(tmp_path):
+    """Every earlier version saved a ring, ring_outer_mm by ring_inner_mm. Left at the
+    old default, the chain follows today's (a dot); a ring set up on purpose stays one."""
+    old_default = {"pitch_mm": 10.0, "half_width_mm": 4.0, "ring_outer_mm": 5.0, "ring_inner_mm": 2.0, "n_pins": 13}
+    spec = AppState(tmp_path / "a", settings={"chain": old_default}, persist=False).spec()
+    assert (spec.fiducial, spec.fiducial_mm, spec.ring_inner_mm) == ("dot", 5.0, 0.0)
+    custom = {**old_default, "ring_outer_mm": 6.0, "ring_inner_mm": 2.4}
+    spec = AppState(tmp_path / "b", settings={"chain": custom}, persist=False).spec()
+    assert (spec.fiducial, spec.fiducial_mm, spec.ring_inner_mm) == ("ring", 6.0, 2.4)
 
 
 def test_chain_presets_and_what_touches_the_object(served):
@@ -156,10 +270,18 @@ def test_network_status_for_the_desktop_page(served):
     ("../../evil.jpg", "evil.jpg"),
     ("C:\\Users\\x\\photo.jpg", "photo.jpg"),
     ("photo<>:*?.jpg", "photo_.jpg"),
+    ("100%41.jpg", "100_41.jpg"),
     ("", "photo"),
 ])
 def test_upload_names_are_made_safe(name, safe):
     assert _safe_name(name) == safe
+
+
+def test_an_upload_name_is_decoded_once(served):
+    app, server = served
+    pid = json.loads(call(server, "/api/upload?name=100%2541%20mm.jpg", b"x", app.token)[1])["id"]
+    assert app.photos[pid].name == "100_41 mm.jpg"            # %25 is a percent sign, not the start of %41 = "A"
+    assert app.wait_idle(30)
 
 
 def _photo_with_glare(spec, path, hidden):
@@ -338,3 +460,36 @@ def test_settings_keep_the_pin_count_when_the_page_leaves_it_out(served):
     chain = {k: v for k, v in app.settings["chain"].items() if k != "n_pins"}
     assert call(server, "/api/settings", json.dumps({"chain": chain}).encode(), app.token)[0] == 200
     assert app.settings["chain"]["n_pins"] == 21
+
+
+def test_a_photo_changed_while_it_is_measured_is_not_called_done_early(served, dot_spec, tmp_path, monkeypatch):
+    """Options changed while a photo is being measured queue it again. What was
+    being measured is then already out of date: the photo stays queued until
+    the last change has been measured, so whoever waits for "done" (the phone
+    page, wait_idle) gets that result and not the one before it."""
+    app, server = served
+    write_synthetic_photo(tmp_path / "p.jpg", s_curve_pins(dot_spec), dot_spec, (2000, 1500))
+    pid = json.loads(call(server, "/api/upload?name=p.jpg", (tmp_path / "p.jpg").read_bytes(), app.token)[1])["id"]
+    assert app.wait_idle(60)
+
+    measuring, go_on = threading.Event(), threading.Event()
+    real = server_module.process_photo
+
+    def held_up(*args, **kwargs):
+        measuring.set()
+        go_on.wait(20)
+        return real(*args, **kwargs)
+
+    seen = []
+    changed = app._changed
+    monkeypatch.setattr(app, "_changed", lambda: (seen.append((app.photos[pid].status, app._queue.qsize())), changed()))
+    monkeypatch.setattr(server_module, "process_photo", held_up)
+    app.set_options(pid, {"n_pins": 11})
+    assert measuring.wait(20)                                  # being measured as an 11-pin chain...
+    monkeypatch.setattr(server_module, "process_photo", real)
+    app.set_options(pid, {"n_pins": dot_spec.n_pins})          # ...when it is changed back
+    go_on.set()
+    assert app.wait_idle(60)
+    assert ("done", 1) not in seen                             # never done with a change still waiting
+    result = json.loads(call(server, f"/api/photo/{pid}", token=app.token)[1])["result"]
+    assert result["pins"] == dot_spec.n_pins and result["warnings"] == []
