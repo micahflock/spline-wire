@@ -1,7 +1,7 @@
 """Write splinewire/_build.py with the CI run number and commit.
 
-splinewire.version_string() shows it in the app's title bar so it's easy to
-tell which build is running. Run by the Windows workflow before packaging.
+splinewire.version_string() shows it on the app's pages and in its console
+window so it's easy to tell which build is running. Run by the Windows workflow before packaging.
 """
 import os
 from pathlib import Path

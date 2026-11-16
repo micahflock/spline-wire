@@ -21,23 +21,26 @@ Unresolved design questions. Cross-reference `next-steps.md`; several get answer
 - How much joint friction, and does it drift with use?
 - Fiducial construction on real links: a window in a thin black top layer over white (as on the test plaque, ≤0.4 mm deep), a light pin head, a label? Contrast and edge sharpness matter more than exact size; keep any relief shallow. Simulated for a 0.4 mm nozzle (`docs/cv-robustness.md` §5): a plain dot or ring beats a bullseye, a checker-corner centre and ArUco tags. The chain uses a 5 mm dot; keep ≥1.5 mm of black around it, make its centre the pin's (print it with the pin hole; a pin head sits wherever its clearance lets it), and use matte black filament.
 - Length: is ~120 mm right, or should there be short and long chains? The software handles any pin count: set it per photo in the app (or `--pins`; `n_pins` in the YAML is the default).
-- Physical joint limit: ordering assumes no joint bends more than 80°.
+- Physical joint limit: the ordering accepts turns up to the chain's `max_bend_deg` (125° O-ring chain, 110° snap-fit, 80° print-in-place). The known failure is a zigzag with every joint at its stop, seen at a 35° tilt (`docs/printed-chain.md`); the snap-fit chain has no stop yet, and a bend past its limit reads as a cut chain (`docs/snap-chain.md`).
+- Minimum length: taking the perspective out needs 5 links (6 pins), 6 without a focal length, so the short test pieces cannot be measured. Is a shorter chain ever wanted (it would need a known camera angle, or a reference in the photo)?
 
 ## Contact model
 
 - The model assumes stadium-shaped links (semicircular ends centered on the pins). If the real links differ, the concave-contact rule needs updating.
 - Near inflection points, and where curvature changes quickly relative to the pitch, contact points are approximate. How large is the error on real molding profiles?
+- Where a pin is missed the curve bridges the gap (0.16 mm off on a 30 mm radius). The missing pin could instead be placed from its two neighbours (one pitch from each, on the side that keeps the bend smooth), as a pin clicked by hand already is. Worth it, or is "add it on the photo" enough?
 - The object side must be right. The app now draws the contact edge on the photo and lets you pick the side there; does that make mistakes rare in practice?
 
 ## Workflow and CAD
 
 - Hand-placed pins: when no dot is visible to snap to (a lamp's reflection), a pin is its click fitted to the pitch of its links. Simulated, from a click up to 3 px off, the median error is 0.03 mm for one hidden pin and 0.1 mm for two in a row (worst of 12 trials: 0.23 and 0.19 mm), but how well do people click on real glare-damaged photos, and is "zoom in and click the middle of where the dot should be" enough guidance? Photos where every dot is washed out leave the plane fit with no measured links, so it falls back to fitting from the clicks.
 
-- Fusion: script vs add-in — which is lower friction to install and re-run?
-- Does Fusion's Insert SVG keep 1:1 mm scale for our SVG, or is a JSON-reading script required?
 - Origin and orientation in CAD: currently the first pin, with axes following the photo. Should the user be able to pick them, or align them to something?
-- Phone → computer transport: local web upload vs cloud folder; it must preserve EXIF.
+- Does `sketchFittedSplines.add` take the pasted sketch points as its fit points, or does the add-in fall back to plain coordinates and leave a second point at each spot (`docs/fusion-import.md`)? Paste points works in Fusion either way; which it is has not been looked at.
+- The app's photo list starts empty every time it is started, though the photos and results stay in `Documents\SplineWire`. Should it show earlier sessions?
+
+Answered since: the add-in, not a script, is the way into Fusion (tested 2026-10-19, `docs/fusion-import.md`); Insert SVG is avoided for its scale problems, with DXF as the file fallback; photos come by local web upload, which does not keep the iPhone's EXIF so far (`next-steps.md` item 4).
 
 ## Naming
 
-- Tentative rename from `spline-wire` to `spline-link` (noted 2026-04-22). Decide before anything ships.
+- Tentative rename from `spline-wire` to `spline-link` (noted 2026-04-22). Decide before anything ships. (Releases 0.6.0 and 0.7.0 have since gone out as SplineWire; the add-in, settings folder and firewall rule carry the name too.)

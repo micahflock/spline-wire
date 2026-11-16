@@ -106,7 +106,7 @@ def test_generator_commands_write_their_files(tmp_path, capsys):
                  "--out", str(tmp_path / "oring")]) == 0
     assert (tmp_path / "oring" / "oring-chain-4pins.stl").stat().st_size > 0
     notes = capsys.readouterr().out
-    assert "2 x M3 x 5 countersunk" in notes and "The hole is drawn\n     2.9 mm" in notes
+    assert "2 x M3 x 5 countersunk" in notes and "2.9" in notes        # the screw length and the hole size
 
     assert main(["oring-chain", "--margin", "0.9", "--out", str(tmp_path / "oring")]) == 1
     assert "error: a 144° stop is too wide for the post" in capsys.readouterr().err

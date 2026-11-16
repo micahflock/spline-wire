@@ -3,8 +3,10 @@
 Starts the web app on a spare port with a temporary workspace, uploads
 synthetic chain photos over HTTP (JPEG with EXIF, HEIC, and one with its
 metadata stripped), checks the measurements against truth, edits pins by
-hand, fetches both pages and the images, checks the security rules, installs the Fusion
-add-in into a temporary folder and reads the Windows Firewall settings. Exit code 0 means every check passed.
+hand, fetches both pages and the images, checks that the chain presets are in
+the build, checks the security rules, installs the Fusion add-in into a
+temporary folder and reads the Windows Firewall settings. Exit code 0 means
+every check passed.
 """
 from __future__ import annotations
 
@@ -138,6 +140,15 @@ def _run(log_path: Path | None) -> int:
                 return "desktop, phone, QR"
 
             check("pages", pages)
+
+            def presets() -> str:
+                # data/ is bundled whole; a chain that is not in the build can't be picked in Settings
+                found = client.get_json("/api/state")["settings"]["chain_presets"]
+                if not {"default", "snap"} <= set(found):
+                    raise AssertionError(f"chain presets missing from the build: {sorted(found)}")
+                return ", ".join(sorted(found))
+
+            check("chain presets", presets)
 
             def security() -> str:
                 refused = [

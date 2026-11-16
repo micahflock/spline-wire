@@ -23,8 +23,7 @@ def main() -> None:
         "--console",            # the window says the app is running; closing it quits
         "--noconfirm",
         "--clean",
-        "--add-data", f"{ROOT / 'data' / 'chain.yaml'}{os.pathsep}data",
-        "--add-data", f"{ROOT / 'data' / 'chain-snap.yaml'}{os.pathsep}data",
+        "--add-data", f"{ROOT / 'data'}{os.pathsep}data",      # chain.yaml and every chain-*.yaml preset
         "--add-data", f"{ROOT / 'fusion' / 'SplineWire'}{os.pathsep}fusion/SplineWire",
         "--add-data", f"{ROOT / 'splinewire' / 'webapp' / 'static'}{os.pathsep}splinewire/webapp/static",
         "--exclude-module", "tkinter",

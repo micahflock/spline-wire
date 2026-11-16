@@ -34,11 +34,18 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 - `docs/next-steps.md` — status and near-term tasks, in risk order.
 - `docs/open-questions.md` — unresolved design questions.
 
+## Conventions
+
+- **Errors for people are `ValueError`s.** The pipeline raises `ValueError` with a message a person can act on ("found 4 pins in a row…"); the CLI prints it and exits 1, the app shows it on the photo. Anything else is a bug and is shown with its type.
+- **Every accuracy claim has a number behind it.** Check a suspected problem with an experiment before changing the code, and a change to `detect`/`order`/`pipeline` with `experiments/cv_benchmark.py --baseline <rev>` (per-photo records with `--json`). The benchmark's figures in the docs were measured at `max_bend_deg: 80`.
+- **Look for unmerged work first.** Finished branches are sometimes left on the remote without a pull request (`git ls-remote --heads origin`). Before reworking a file, check whether one of them changes it, and keep them mergeable (`git merge-tree --write-tree HEAD <branch>`).
+- `oring_chain.py` borrows `printed_chain.py`'s private helpers (`_extrude`, `_revolve`, `_stadium`, …). They belong in a shared module; that move was left until the O-ring branch in flight is merged or dropped, because it renames calls throughout both files.
+
 ## Commands
 
 ```bash
 uv sync                                   # install
-uv run pytest                             # tests (~1 min)
+uv run pytest                             # tests (~2 min)
 uv run splinewire synth --shape pipe      # synthetic photo + truth -> out/synth/
 uv run splinewire synth --env shadow      # realistic printed plaque in a simulated environment
 uv run splinewire synth --chain data/chain-snap.yaml --shape pipe   # the snap-fit chain (also on measure)
@@ -53,7 +60,7 @@ uv run splinewire-app --selftest log.txt  # headless check over HTTP, also run o
 uv sync --group build && uv run python packaging/build_exe.py   # dist/SplineWire(.exe)
 ```
 
-PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` GitHub Actions workflow (artifact `SplineWire-windows`). The web pages in `splinewire/webapp/static` are bundled as data files; the selftest fetches them from the packaged build. The title and pages show the version and CI build (`packaging/stamp_build.py`).
+PyInstaller can't cross-compile: the Windows .exe comes from the `Windows app` GitHub Actions workflow (artifact `SplineWire-windows`). The web pages in `splinewire/webapp/static` are bundled as data files; the selftest fetches them from the packaged build. The pages and the console window show the version and CI build (`packaging/stamp_build.py`). `packaging/build_exe.py` bundles the whole `data/` folder, so a new `chain-<name>.yaml` preset ships without listing it.
 
 ## Priority
 
