@@ -6,99 +6,138 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Spline Wire</title>
 <style>
+/* Test bench, phone: two numbered steps (set up, shoot), then each photo's result. Same tokens as the desktop page. */
+@font-face { font-family: "Plex Cond"; font-weight: 400; src: url("/fonts/plex-sans-condensed-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Cond"; font-weight: 600; src: url("/fonts/plex-sans-condensed-600.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Cond"; font-weight: 700; src: url("/fonts/plex-sans-condensed-700.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Mono"; font-weight: 500; src: url("/fonts/plex-mono-500.woff2") format("woff2"); font-display: swap; }
 :root {
-  --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2024; --muted: #636b75; --line: #dde1e6;
-  --accent: #1f6feb; --accent-ink: #ffffff; --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --chip: #eef1f4;
+  --paper: #e9e7e0; --panel: #f3f1eb; --panel-2: #dedbd2; --ink: #1d2023; --muted: #64625b; --line: #b4b0a5; --sel: #d3e4df;
+  --screen: #f8f7f3; --key: #f2b705; --key-ink: #1d2023; --key-edge: #a87e00; --brand: #0f6e6a; --brand-dot: #f3f1eb;
+  --ok: #2c7a4b; --warn: #b26a00; --bad: #c0392b; --lamp-off: #9a978e;
+  --ov-link: #f2cc60; --ov-edge: #ff5fd2;
+  --f-ui: "Plex Cond", "IBM Plex Sans Condensed", -apple-system, system-ui, sans-serif;
+  --f-data: "Plex Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #0f1216; --panel: #171b21; --ink: #e6e9ed; --muted: #9aa4af; --line: #2a313a;
-    --accent: #4c8dff; --accent-ink: #0b1220; --ok: #3fb950; --warn: #d29922; --bad: #f85149; --chip: #222932;
-    color-scheme: dark; }
+  :root { --paper: #161918; --panel: #1d2120; --panel-2: #262b29; --ink: #e5e3dc; --muted: #8e938e; --line: #353c39; --sel: #20332f;
+    --screen: #0a0d0c; --key-edge: #8a6700; --brand: #3fb8ae; --brand-dot: #161918;
+    --ok: #4cc27a; --warn: #e3a134; --bad: #f0675a; --lamp-off: #5d625f; color-scheme: dark; }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-body { margin: 0; background: var(--bg); color: var(--ink);
-  font: 16px/1.45 -apple-system, system-ui, sans-serif;
-  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
-h1 { font-size: 20px; margin: 4px 0 2px; }
-.version { color: var(--muted); font-size: 12px; }
-.buttons { display: grid; gap: 12px; margin: 18px 0; }
-.big { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px; border-radius: 14px;
-  font-size: 18px; font-weight: 600; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
-.big.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.big svg { width: 24px; height: 24px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
-.upload { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: start; }
-.upload img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; background: var(--chip); }
-.upload .name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status { font-size: 15px; margin-top: 2px; }
-.status.ok { color: var(--ok); } .status.warn { color: var(--warn); } .status.bad { color: var(--bad); }
-.meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
-.bar { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; margin-top: 8px; }
-.bar div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
-.tips { color: var(--muted); font-size: 14px; }
-.tips li { margin: 3px 0; }
-.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
-.field > span { font-size: 15px; }
-.stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.stepper button { width: 44px; height: 40px; border: none; background: var(--chip); color: var(--ink); font-size: 22px; }
-.stepper input { width: 56px; height: 40px; border: none; background: var(--panel); color: var(--ink); text-align: center;
-  font: 600 17px -apple-system, system-ui, sans-serif; -moz-appearance: textfield; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.4 var(--f-ui);
+  padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+button, input { font: inherit; color: inherit; }
+.top { display: flex; align-items: center; gap: 10px; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 12px max(18px, env(safe-area-inset-left)); }
+.top h1 { margin: 0; font: 700 14px/1 var(--f-ui); letter-spacing: .14em; text-transform: uppercase; }
+.top .spacer { flex: 1; }
+.version { font: 10px/1 var(--f-data); color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
+.lamp { width: 8px; height: 8px; border-radius: 50%; background: var(--lamp-off); }
+.lamp.ok { background: var(--ok); }
+.wrap { padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left)); }
+h3 { margin: 18px 0 10px; font: 600 11px/1 var(--f-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+h3 .no { font: 500 11px/1 var(--f-data); background: var(--ink); color: var(--paper); width: 18px; height: 18px; display: inline-grid; place-items: center; border-radius: 50%; letter-spacing: 0; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.field > span { font-size: 16px; }
+.stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+.stepper button { width: 46px; height: 44px; border: none; background: none; font-size: 22px; }
+.stepper button:active { background: var(--panel-2); }
+.stepper input { width: 56px; height: 44px; border: none; border-inline: 1px solid var(--line); background: var(--panel); text-align: center;
+  font: 500 20px var(--f-data); -moz-appearance: textfield; border-radius: 0; }
 .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.seg button { border: none; background: var(--panel); color: var(--ink); padding: 9px 12px; font-size: 14px; }
-.seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
-.next-title { font-weight: 600; }
-.fix { grid-column: 1 / -1; }
-.fix svg { display: block; width: 100%; height: auto; max-height: 60vh; border-radius: 10px; background: #14171b; touch-action: manipulation; }
-.ov-link { fill: none; stroke: #f2cc60; stroke-width: 2px; vector-effect: non-scaling-stroke; }
-.ov-edge { fill: none; stroke: #e879f9; stroke-width: 3.5px; vector-effect: non-scaling-stroke; }
-.ov-side { fill: #e879f9; stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tile { border: 1.5px solid var(--line); background: var(--panel); padding: 10px 10px 9px; text-align: left; display: grid; gap: 4px; border-radius: 3px; color: var(--ink); }
+.tile svg { width: 100%; height: 50px; color: var(--muted); }
+.tile b { font-size: 15px; font-weight: 600; }
+.tile span { font-size: 12px; color: var(--muted); line-height: 1.25; }
+.tile[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); background: var(--sel); }
+.tile[aria-pressed="true"] svg { color: var(--brand); }
+.shoot { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 18px; background: var(--key); color: var(--key-ink);
+  border-bottom: 4px solid var(--key-edge); font: 700 20px/1 var(--f-ui); letter-spacing: .04em; border-radius: 3px; }
+.shoot:active { transform: translateY(2px); border-bottom-width: 2px; }
+.lib { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 8px; padding: 13px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--panel); font-size: 16px; }
+.shoot svg, .lib svg { width: 22px; height: 22px; }
+.problem { margin-top: 14px; padding: 10px 12px; border-left: 4px solid var(--bad); background: var(--panel); font-size: 14px; }
+.problem[hidden] { display: none; }
+
+/* one result per photo, newest first */
+.upload { margin-top: 18px; padding-top: 10px; border-top: 2px solid var(--ink); }
+.upload .hd { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; }
+.upload img.th { width: 52px; height: 52px; object-fit: cover; border-radius: 2px; background: var(--panel-2); }
+.upload .name { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload .meta { font: 11.5px/1.35 var(--f-data); color: var(--muted); margin-top: 2px; }
+.tag { font: 600 10.5px/1 var(--f-data); letter-spacing: .06em; padding: 3px 5px 2px; border-radius: 2px; color: var(--panel); background: var(--muted); }
+.tag.ok { background: var(--ok); } .tag.chk { background: var(--warn); } .tag.bad { background: var(--bad); }
+.status { font-size: 15px; margin-top: 8px; }
+.status b { display: block; }
+.status .why { color: var(--muted); font-size: 14px; }
+.bar { height: 4px; background: var(--panel-2); overflow: hidden; margin-top: 8px; }
+.bar div { height: 100%; width: 0; background: var(--key-edge); transition: width .15s; }
+.fix svg { display: block; width: 100%; height: auto; max-height: 60vh; border-radius: 3px; background: var(--screen); border: 1px solid var(--line);
+  touch-action: manipulation; margin-top: 8px; }
+.fix .hint { font-size: 13px; color: var(--muted); margin: 6px 0 10px; }
+.fix .field { margin-top: 10px; }
+.ov-link { fill: none; stroke: var(--ov-link); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.ov-edge { fill: none; stroke: var(--ov-edge); stroke-width: 3.5px; vector-effect: non-scaling-stroke; }
+.ov-side { fill: var(--ov-edge); stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
 .ov-tap { fill: none; stroke: #fff; stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-dasharray: 3 3; }
-.problem { background: color-mix(in srgb, var(--bad) 12%, var(--panel)); border-color: var(--bad); }
+.tips { margin-top: 22px; font-size: 14px; color: var(--muted); }
+.tips summary { color: var(--ink); font-weight: 600; cursor: pointer; }
+.tips ul { margin: 6px 0 0; padding-left: 18px; } .tips li { margin: 3px 0; }
 </style>
 </head>
 <body>
-<h1>Spline Wire</h1>
-<div class="version">{{VERSION}}</div>
-
-<div id="problem" class="card problem" hidden></div>
-
-<div class="card">
-  <div class="next-title">Next photo</div>
-  <div class="field"><span>Pins in chain</span>
-    <div class="stepper" id="next-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
-      inputmode="numeric" min="3" max="999" aria-label="Pins in chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
-  <div class="field"><span>Object</span>
-    <div class="seg" id="next-side"><button type="button" data-side="inside">Inside bend</button><button type="button" data-side="outside">Outside bend</button></div></div>
-  <div class="hint">Inside: the chain wrapped around it. Outside: the chain pressed into a hollow.
-    After the photo is measured you can tap the exact edge on it.</div>
+<div class="top">
+  <svg width="36" height="13" viewBox="0 0 24 12" aria-hidden="true">
+    <rect x="1" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/><rect x="10" y="2.2" width="13" height="7.6" rx="3.8" fill="var(--brand)" opacity=".75"/>
+    <circle cx="5.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="14.8" cy="6" r="2" fill="var(--brand-dot)"/>
+  </svg>
+  <h1>Spline Wire</h1><span class="version">{{VERSION}}</span>
+  <span class="spacer"></span>
+  <span class="chip"><span class="lamp" id="lamp"></span><span id="link">Connecting…</span></span>
 </div>
 
-<div class="buttons">
-  <label class="big primary">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-    Take photo
-    <input type="file" accept="image/*" capture="environment" hidden id="take">
-  </label>
-  <label class="big">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 5 5 3-3 5 5"/></svg>
-    Choose from library
-    <input type="file" accept="image/*" multiple hidden id="choose">
-  </label>
+<div class="wrap">
+<div id="problem" class="problem" hidden></div>
+
+<h3><span class="no">1</span>Set up the next photo</h3>
+<div class="field"><span>Pins in chain</span>
+  <div class="stepper" id="next-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
+    inputmode="numeric" min="3" max="999" aria-label="Pins in chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
+<div class="tiles" id="next-side">
+  <button type="button" class="tile" data-side="inside"><svg viewBox="0 0 60 40" aria-hidden="true"><circle cx="30" cy="24" r="10" fill="currentColor" opacity=".35"/><path d="M14 32 A17 17 0 0 1 46 32" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>
+    <b>Around it</b><span>Chain wrapped around the object</span></button>
+  <button type="button" class="tile" data-side="outside"><svg viewBox="0 0 60 40" aria-hidden="true"><path d="M4 10 H18 A12 12 0 0 0 42 10 H56 V38 H4Z" fill="currentColor" opacity=".35"/><path d="M12 5 H17 A13 13 0 0 0 43 5 H48" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>
+    <b>Into a hollow</b><span>Chain pressed into a cove or groove</span></button>
 </div>
+
+<h3><span class="no">2</span>Shoot</h3>
+<label class="shoot">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+  Take photo
+  <input type="file" accept="image/*" capture="environment" hidden id="take">
+</label>
+<label class="lib">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 5 5 3-3 5 5"/></svg>
+  Choose from library
+  <input type="file" accept="image/*" multiple hidden id="choose">
+</label>
 
 <div id="uploads"></div>
 
-<div class="card tips">
-  <b style="color:var(--ink)">For a good measurement</b>
-  <ul style="margin:6px 0 0; padding-left: 18px">
+<details class="tips" open>
+  <summary>For a good photo</summary>
+  <ul>
     <li>Lay the chain flat on a plain surface, dots facing up.</li>
     <li>Get the whole chain in the frame and fill most of it.</li>
     <li>Shoot at 1× (no zoom). A slight angle is fine.</li>
     <li>Avoid glare and hard shadows on the chain.</li>
   </ul>
+</details>
 </div>
 
 <script>
@@ -109,27 +148,56 @@ let TOKEN = null;
 const m = location.hash.match(/t=([^&]+)/);
 if (m) { TOKEN = decodeURIComponent(m[1]); try { localStorage.setItem("sw-token", TOKEN); } catch (e) {} }
 if (!TOKEN) { try { TOKEN = localStorage.getItem("sw-token"); } catch (e) {} }
-if (!TOKEN) showProblem("This page needs the link from the QR code. Scan the QR code on your computer's Spline Wire page again.");
+if (!TOKEN) showProblem("<b>This page needs the link from the QR code.</b><br>Scan the QR code on your computer's Spline Wire page again.");
 
 function showProblem(html) { const p = $("#problem"); p.innerHTML = html; p.hidden = false; }
+function linked(ok) { $("#lamp").className = "lamp " + (ok ? "ok" : ""); $("#link").textContent = ok ? "Linked" : "Not linked"; }
 
 function card(file) {
   const div = document.createElement("div");
-  div.className = "card upload";
-  div.innerHTML = `<img alt=""><div style="min-width:0"><div class="name"></div>
-    <div class="status">Uploading…</div><div class="bar"><div></div></div><div class="meta"></div></div>`;
+  div.className = "upload";
+  div.innerHTML = `<div class="hd"><img class="th" alt=""><div style="min-width:0"><div class="name"></div><div class="meta"></div></div><span class="tag">SENDING</span></div>
+    <div class="status">Sending…</div><div class="bar"><div></div></div>`;
   div.querySelector(".name").textContent = file.name;
   try { div.querySelector("img").src = URL.createObjectURL(file); } catch (e) {}
   $("#uploads").prepend(div);
   return div;
 }
 
-function setStatus(div, cls, text, meta) {
-  const s = div.querySelector(".status");
-  s.className = "status " + cls; s.textContent = text;
+// tag: "" (busy), ok, chk or bad. html is already escaped.
+function setStatus(div, tag, label, html, meta) {
+  const t = div.querySelector(".tag");
+  t.className = "tag " + tag; t.textContent = label;
+  div.querySelector(".status").innerHTML = html;
   if (meta !== undefined) div.querySelector(".meta").innerHTML = meta;
 }
 
+// Plain words for what the measuring code reports (the computer shows the same).
+function readWarning(w) {
+  let m;
+  if (/^ignored \d+ look-alike/.test(w)) return null;                 // stray dots on the table: normal
+  if ((m = w.match(/^(\d+) pin\(s\) not detected/))) return `${m[1]} pin${m[1] === "1" ? "" : "s"} not found; the curve bridges the gap.`;
+  if ((m = w.match(/^found (\d+) pins on the chain(?:,| but)[^\d]*(\d+)/))) return `Found ${m[1]} pins, expected ${m[2]}.`;
+  if (/^the chain seems to go on past its end/.test(w)) return "The chain seems to go on past its end. Is the pin count right?";
+  if (/^no focal length/.test(w)) return "The focal length was estimated. Set your iPhone's focal length in Settings on the computer.";
+  if ((m = w.match(/^link lengths deviate from the pitch by up to ([\d.]+) mm/))) return `A link is ${m[1]} mm off its length. Check the pins on the computer.`;
+  if (/you added/.test(w)) return "Some pins added by hand need a look on the computer.";
+  return w;
+}
+function readError(raw) {
+  const e = (raw || "").split("\n").pop();
+  let m;
+  if ((m = e.match(/found (\d+) fiducials/)) || (m = e.match(/need at least 3 detections to find a chain, got (\d+)/)))
+    return +m[1] < 3 ? ["No chain found in this photo.", "Get the whole chain in the frame, dots facing up."]
+      : [`Only ${m[1]} dots found.`, "Get the whole chain in the frame, dots facing up, in focus."];
+  if ((m = e.match(/found (\d+) pins in a row, joined by/))) return [`Only ${m[1]} pins in a row.`, "Get the whole chain in the frame. Glare or shadow may hide dots: move the lamp or turn the chain. Or click the pins by hand on the computer."];
+  if (/is not a photo this program can read|could not read the photo/.test(e)) return ["Couldn't read this photo.", "Send it again as a normal camera photo."];
+  if (/links to rectify/.test(e)) return ["Glare or shadow is hiding the dots.", "Move the lamp or turn the chain, then take it again. Or click the pins by hand on the computer."];
+  return ["Couldn't measure this photo.", e];
+}
+
+// via: which button the photo came from ("take" or "choose"); the computer
+// shows it, to find out which one keeps the focal length.
 // What the next photo is measured with. Starts from what the computer last used.
 const next = {n_pins: 13, side: "inside"};
 
@@ -147,7 +215,7 @@ function stepper(el, get, set) {
 
 const nextPins = stepper($("#next-pins"), () => next.n_pins, (n) => { next.n_pins = n; });
 function showNextSide() {
-  $("#next-side").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.side === next.side));
+  $("#next-side").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.side === next.side));
 }
 $("#next-side").addEventListener("click", (e) => {
   const b = e.target.closest("button");
@@ -155,15 +223,13 @@ $("#next-side").addEventListener("click", (e) => {
 });
 showNextSide();
 if (TOKEN) {
-  fetch("/api/state", {headers: {"X-Token": TOKEN}}).then((r) => r.ok ? r.json() : null).then((st) => {
+  fetch("/api/state", {headers: {"X-Token": TOKEN}}).then((r) => { linked(r.ok); return r.ok ? r.json() : null; }).then((st) => {
     if (!st || !st.defaults) return;
     next.n_pins = st.defaults.n_pins; next.side = st.defaults.side;
     nextPins.value = next.n_pins; showNextSide();
-  }).catch(() => {});
-}
+  }).catch(() => linked(false));
+} else linked(false);
 
-// via: which button the photo came from ("take" or "choose"); the computer
-// shows it, to find out which one keeps the focal length.
 function upload(file, via) {
   const div = card(file);
   const xhr = new XMLHttpRequest();
@@ -175,14 +241,16 @@ function upload(file, via) {
     if (xhr.status !== 200) {
       let msg = xhr.statusText;
       try { msg = JSON.parse(xhr.responseText).error; } catch (e) {}
-      setStatus(div, "bad", xhr.status === 403 ? "Not allowed. Scan the QR code on your computer again." : `Upload failed: ${msg}`);
+      setStatus(div, "bad", "FAILED", xhr.status === 403 ? "Not allowed. Scan the QR code on your computer again." : `Upload failed: ${esc(msg)}`);
       return;
     }
-    setStatus(div, "", "Measuring…", `Sent ${(file.size / 1e6).toFixed(1)} MB`);
+    linked(true);
+    setStatus(div, "", "…", "Measuring…", `Sent ${(file.size / 1e6).toFixed(1)} MB`);
     watch(div, JSON.parse(xhr.responseText).id);
   };
   xhr.onerror = () => {
-    setStatus(div, "bad", "Can't reach your computer.");
+    linked(false);
+    setStatus(div, "bad", "FAILED", "Can't reach your computer.");
     showProblem(`<b>Can't reach Spline Wire on your computer.</b><br>Check that it's running, that this phone and the computer
       are on the same Wi-Fi (or the computer is on this phone's hotspot), and that Windows Firewall allowed Spline Wire.
       Then scan the QR code again.`);
@@ -193,9 +261,8 @@ function upload(file, via) {
 function describe(p) {
   const info = p.info || {};
   const src = p.result && p.result.focal_source;
-  const focal = info.focal_35mm ? `focal length ${info.focal_35mm} mm ✓`
-    : "no focal length in the photo" + (src === "default" ? " (using your iPhone setting)"
-      : src === "estimated" ? ". Estimated it; for better accuracy set your iPhone's focal length in Settings on the computer" : "");
+  const focal = info.focal_35mm ? `${info.focal_35mm} mm ✓`
+    : src === "default" ? "focal: your iPhone setting" : src === "estimated" ? "focal: estimated" : "no focal length";
   return esc(`${info.format || ""} ${info.width || ""}×${info.height || ""} · ${focal}`);
 }
 
@@ -210,21 +277,19 @@ async function watch(div, id) {
       const res = await fetch(`/api/photo/${id}`, {headers: {"X-Token": TOKEN}});
       if (!res.ok) throw new Error(res.statusText);
       p = await res.json();
-    } catch (e) { setStatus(div, "bad", "Lost contact with your computer."); return; }
+    } catch (e) { linked(false); setStatus(div, "bad", "FAILED", "Lost contact with your computer."); return; }
     if (p.status === "done") {
       const r = p.result;
-      const warn = r.warnings.length > 0;
-      const notes = r.notes || [];          // information only: not a warning
-      setStatus(div, warn ? "warn" : "ok",
-        `${warn ? "Measured, with warnings" : "Measured"}: ${r.pins} pins, ${r.curve_points} curve points. It's on your computer now.`,
-        describe(p) + (warn ? `<br>${r.warnings.map(esc).join("<br>")}` : "")
-          + (notes.length ? `<br>${notes.map(esc).join("<br>")}` : ""));
+      const checks = r.warnings.map(readWarning).filter(Boolean);
+      setStatus(div, checks.length ? "chk" : "ok", checks.length ? "CHECK" : "OK",
+        `<b>Measured: ${r.curve_points} points. Copy them on the computer.</b>${checks.map((w) => `<span class="why">${esc(w)}</span>`).join("<br>")}`,
+        describe(p));
       showFix(div, p);
       return;
     }
     if (p.status === "error") {
-      setStatus(div, "bad", "Couldn't find the chain in this photo.",
-        esc((p.error || "").split("\n").pop()) + "<br>Try again: whole chain in frame, dots facing up, no glare.");
+      const [title, why] = readError(p.error);
+      setStatus(div, "bad", "FAILED", `<b>${esc(title)}</b><span class="why">${esc(why)}</span>`);
       return;
     }
   }
@@ -232,8 +297,6 @@ async function watch(div, id) {
 
 // After measuring: the photo with the chain and the edge that touched the object.
 // Tap the other side of the chain to use that edge; change the pin count to measure again.
-const SVGNS = "http://www.w3.org/2000/svg";
-
 function showFix(div, p) {
   const v = p.view;
   let fix = div.querySelector(".fix");
@@ -241,13 +304,12 @@ function showFix(div, p) {
   if (!fix) {
     fix = document.createElement("div");
     fix.className = "fix";
-    fix.innerHTML = `<div class="hint" style="margin:10px 0 6px">Object touched the <b class="side-now"></b>.
-        Tap the photo on the other side of the chain to switch.</div>
-      <svg role="img" aria-label="The photo with the measured chain. Tap the side of the chain that touched the object.">
+    fix.innerHTML = `<svg role="img" aria-label="The photo with the measured chain. Tap the side of the chain that touched the object.">
         <image x="0" y="0"/><g class="overlay"></g></svg>
-      <div class="field"><span>Pins in chain</span>
+      <div class="hint">Edge used: <b class="side-now"></b>. Wrong side? Tap the photo on the other side of the chain.</div>
+      <div class="field"><span>Pins in this photo</span>
         <div class="stepper"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
-          inputmode="numeric" min="3" max="999" aria-label="Pins in chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>`;
+          inputmode="numeric" min="3" max="999" aria-label="Pins in this photo"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>`;
     div.appendChild(fix);
     const svg = fix.querySelector("svg");
     const img = svg.querySelector("image");
@@ -275,7 +337,7 @@ function showFix(div, p) {
   fix.view = v; fix.tap = null; fix.pins.value = p.n_pins;
   fix.querySelector(".stepper input").value = p.n_pins;
   fix.querySelector(".side-now").textContent =
-    `${p.result.object_side} of the bend${p.side === "picked" ? " (as you tapped)" : ""}`;
+    `${p.result.object_side === "inside" ? "inside of the bend (around it)" : "outside of the bend (into a hollow)"}${p.side === "picked" ? ", as you tapped" : ""}`;
   const svg = fix.querySelector("svg");
   if (!svg.getAttribute("viewBox")) svg.setAttribute("viewBox", chainBox(v));
   draw(fix);
@@ -301,11 +363,11 @@ function draw(fix) {
 }
 
 async function change(div, id, body) {
-  setStatus(div, "", "Measuring again…");
+  setStatus(div, "", "…", "Measuring again…");
   try {
     const res = await fetch(`/api/photo/${id}/options`, {method: "POST", headers: {"X-Token": TOKEN}, body: JSON.stringify(body)});
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
-  } catch (e) { setStatus(div, "bad", `Couldn't change it: ${e.message}`); return; }
+  } catch (e) { setStatus(div, "bad", "FAILED", `Couldn't change it: ${esc(e.message)}`); return; }
   if (body.n_pins) { next.n_pins = body.n_pins; nextPins.value = body.n_pins; }
   watch(div, id);
 }

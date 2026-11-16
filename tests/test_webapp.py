@@ -1,6 +1,7 @@
 """The local web app over real HTTP."""
 import io
 import json
+import re
 import socket
 import threading
 import urllib.error
@@ -255,6 +256,19 @@ def test_phone_side_is_limited(served):
     assert call(server, "/api/firewall/allow", b"", app.token, ip=ip)[0] == 403
     assert "network" not in json.loads(call(server, "/api/state", token=app.token, ip=ip)[1])
     assert local_state()["network"]["phone_seen"] is not None   # the desktop page says "phone reached"
+
+
+def test_pages_use_bundled_fonts(served):
+    """The pages run offline, so their fonts come from the app; nothing else is served from /fonts/."""
+    app, server = served
+    for page in ("/", "/phone"):
+        html = call(server, page)[1]
+        for name in set(re.findall(rb'url\("/fonts/([^"]+)"\)', html)):
+            status, body = call(server, "/fonts/" + name.decode())
+            assert status == 200 and body[:4] == b"wOF2", name
+    assert call(server, "/fonts/OFL.txt")[0] == 404
+    assert call(server, "/fonts/..%2Fdesktop.html")[0] == 404
+    assert call(server, "/fonts/missing.woff2")[0] == 404
 
 
 def test_network_status_for_the_desktop_page(served):
