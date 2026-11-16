@@ -29,7 +29,6 @@ import mimetypes
 import queue
 import re
 import secrets
-import shutil
 import socket
 import subprocess
 import sys
@@ -40,13 +39,14 @@ from dataclasses import dataclass, field, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 import numpy as np
 from PIL import Image
 
 from splinewire import __version__, version_string
-from splinewire.chain import spec_from_dict, ChainSpec, chain_presets, default_chain_path, load_chain_spec
+from splinewire.camera import focal_35mm_from_px
+from splinewire.chain import ChainSpec, chain_presets, default_chain_path, load_chain_spec, spec_from_dict
 from splinewire.contact import spline_samples
 from splinewire.detect import Fiducial, detect_fiducials
 from splinewire.edits import Edits, remove_detections
@@ -65,9 +65,13 @@ CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inne
 CHAIN_TEXT_KEYS = ("fiducial", "contact")
 # The chain every earlier version shipped (rings); saved unchanged, it follows the new default.
 OLD_DEFAULT_CHAIN = {"ring_outer_mm": 5.0, "ring_inner_mm": 2.0}
-FULL_FRAME_DIAGONAL_MM = 43.2666
 MAX_PINS = 999
 SIDES = ("inside", "outside")
+# Whether a photo is compared to the truth file: "auto" when its shape matches
+# (so a leftover truth file doesn't score photos of something else), "on", "off".
+TRUTH_MODES = ("auto", "on", "off")
+# The phone page's buttons, recorded because iOS has dropped photos' EXIF on upload.
+VIA = {"take": "Take photo", "choose": "Choose from library"}
 DOWNLOADS = {"dxf": "dxf", "csv": "csv", "svg": "svg", "json": "json", "fusion_csv": "fusion-cm.csv"}
 
 
@@ -125,6 +129,8 @@ class Photo:
     # the bend, or (x, y), a photo point on the object's side of the chain.
     n_pins: int = 13
     side: str | tuple[float, float] = "inside"
+    truth: str = "auto"                     # see TRUTH_MODES
+    via: str | None = None                  # the phone button it came from, see VIA
 
 
 class AppState:
@@ -150,19 +156,33 @@ class AppState:
 
     @staticmethod
     def _with_defaults(s: dict) -> dict:
-        s = dict(s)
-        s.setdefault("token", secrets.token_urlsafe(18))
+        """Settings as loaded, completed, with anything unusable replaced by
+        its default: the file may be from an older version, edited by hand
+        or damaged, and the app must start all the same."""
+        s = dict(s) if isinstance(s, dict) else {}
+        if not (isinstance(s.get("token"), str) and s["token"]):
+            s["token"] = secrets.token_urlsafe(18)
         try:
             base = load_chain_spec(default_chain_path())
             chain = {k: getattr(base, k) for k in CHAIN_KEYS}
         except (OSError, KeyError, ValueError):
             chain = {"pitch_mm": 10.0, "half_width_mm": 4.0, "fiducial": "dot", "fiducial_mm": 5.0,
                      "ring_inner_mm": 0.0, "n_pins": 13, "max_bend_deg": 80.0, "contact": "edge"}
-        s["chain"] = {**chain, **_migrate_chain(s.get("chain", {}))}
-        s.setdefault("side", "inside")
-        s.setdefault("focal_override_35mm", None)
-        s.setdefault("phone_focal_35mm", None)
-        s.setdefault("truth", None)
+        try:
+            merged = {**chain, **_migrate_chain(s.get("chain") or {})}
+            merged["n_pins"] = _pin_count(merged["n_pins"])
+            spec_from_dict(merged)
+        except (ValueError, KeyError, TypeError):
+            merged = chain
+        s["chain"] = merged
+        if s.get("side") not in SIDES:
+            s["side"] = "inside"
+        for key in ("focal_override_35mm", "phone_focal_35mm"):
+            value = s.get(key)
+            ok = isinstance(value, (int, float)) and not isinstance(value, bool) and 5 <= value <= 300
+            s[key] = value if ok else None
+        if not isinstance(s.get("truth"), str):
+            s["truth"] = None
         return s
 
     def _save(self) -> None:
@@ -174,11 +194,16 @@ class AppState:
 
     def update_settings(self, changes: dict) -> None:
         """Validate and apply settings from the page, then re-measure every photo."""
+        if not isinstance(changes, dict) or not isinstance(changes.get("chain", {}), dict):
+            raise ValueError("settings must be an object, and its chain an object")
         with self.lock:
             new = json.loads(json.dumps(self.settings))
             if "chain" in changes:
                 c = changes["chain"]
-                new["chain"] = {k: float(c.get(k) or 0.0) for k in CHAIN_KEYS if k not in CHAIN_TEXT_KEYS}
+                try:
+                    new["chain"] = {k: float(c.get(k) or 0.0) for k in CHAIN_KEYS if k not in CHAIN_TEXT_KEYS}
+                except (TypeError, ValueError):
+                    raise ValueError("the chain's sizes must be numbers") from None
                 # Not on every page: the sharpest bend and what touches the
                 # object (older pages), the pin count (now set per photo,
                 # next to it).
@@ -195,7 +220,10 @@ class AppState:
             for key in ("focal_override_35mm", "phone_focal_35mm"):
                 if key in changes:
                     value = changes[key]
-                    value = None if value in (None, "") else float(value)
+                    try:
+                        value = None if value in (None, "") else float(value)
+                    except (TypeError, ValueError):
+                        value = float("nan")
                     if value is not None and not 5 <= value <= 300:
                         raise ValueError("focal lengths are 35 mm-equivalent, between 5 and 300 mm")
                     new[key] = value
@@ -209,9 +237,12 @@ class AppState:
         self.reprocess_all()
 
     def set_truth(self, name: str, data: bytes) -> None:
-        doc = json.loads(data.decode("utf-8"))
-        if len(doc.get("pin_points", [])) < 3:
-            raise ValueError("not a Spline Wire truth file (needs pin_points)")
+        try:
+            points = np.array(json.loads(data.decode("utf-8"))["pin_points"], dtype=float)
+        except (ValueError, TypeError, KeyError):
+            points = np.zeros((0, 2))
+        if points.ndim != 2 or points.shape[1] != 2 or len(points) < 3 or not np.isfinite(points).all():
+            raise ValueError("not a Spline Wire truth file (it needs pin_points: three or more [x, y] in mm)")
         folder = self.workspace / "truth"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / _safe_name(name or "truth.json")
@@ -230,12 +261,15 @@ class AppState:
     # -- photos ------------------------------------------------------------
 
     def add_photo(self, name: str, data: bytes, source: str,
-                  n_pins: int | str | None = None, side: str | None = None) -> Photo:
+                  n_pins: int | str | None = None, side: str | None = None,
+                  via: str | None = None) -> Photo:
         """Store an uploaded photo and queue it. n_pins and side (inside or
-        outside) are this photo's; left out, it takes the last ones used."""
+        outside) are this photo's; left out, it takes the last ones used.
+        via: the phone page button used (a key of VIA), if any."""
         pins = _pin_count(n_pins) if n_pins not in (None, "") else None
         if side not in (None, "") and side not in SIDES:
             raise ValueError("side must be inside or outside")
+        via = via if via in VIA else None
         name = _safe_name(name or "photo.jpg")
         if Path(name).suffix.lower() not in PHOTO_SUFFIXES:
             name += ".jpg"
@@ -250,7 +284,7 @@ class AppState:
         with self.lock:
             self._remember(pins, side or None)
             photo = Photo(id=str(self._next_id), name=name, path=path, source=source, received=time.time(),
-                          n_pins=int(self.settings["chain"]["n_pins"]), side=self.settings["side"])
+                          n_pins=int(self.settings["chain"]["n_pins"]), side=self.settings["side"], via=via)
             self._next_id += 1
             self.photos[photo.id] = photo
             self._changed()
@@ -258,15 +292,19 @@ class AppState:
         return photo
 
     def set_options(self, photo_id: str, doc: dict) -> None:
-        """Change a photo's pin count or object side and measure it again.
+        """Change a photo's pin count, object side or truth comparison and measure it again.
 
-        doc: {"n_pins": int} and/or {"side": "inside" | "outside" | [x, y]},
-        [x, y] being a point in photo pixels on the object's side of the chain.
+        doc: {"n_pins": int}, {"side": "inside" | "outside" | [x, y]}, [x, y]
+        being a point in photo pixels on the object's side of the chain, and/or
+        {"truth": "auto" | "on" | "off"}: whether it is compared to the truth file.
         The pin count, and side when given by name, also become the defaults
         for the next photos.
         """
         if not isinstance(doc, dict):
-            raise ValueError("options must be an object with n_pins and/or side")
+            raise ValueError("options must be an object with n_pins, side and/or truth")
+        truth = doc.get("truth")
+        if truth is not None and truth not in TRUTH_MODES:
+            raise ValueError("truth must be auto, on or off")
         n = _pin_count(doc["n_pins"]) if doc.get("n_pins") not in (None, "") else None
         side = doc.get("side")
         if isinstance(side, dict):
@@ -289,6 +327,8 @@ class AppState:
                 photo.n_pins = n
             if side is not None:
                 photo.side = side
+            if truth is not None:
+                photo.truth = truth
             self._remember(n, side if isinstance(side, str) else None)
             photo.status = "queued"
             self._changed()
@@ -341,6 +381,7 @@ class AppState:
                 self._changed()
                 settings = json.loads(json.dumps(self.settings))
                 edits, n_pins, side = photo.edits, photo.n_pins, photo.side
+                compare = {"auto": None, "on": True, "off": False}[photo.truth]
             try:
                 spec = replace(spec_from_dict(settings["chain"]), n_pins=n_pins)
                 self._read(photo, spec)
@@ -351,24 +392,37 @@ class AppState:
                     truth_path=Path(truth) if truth and Path(truth).is_file() else None,
                     default_focal_35mm=settings["phone_focal_35mm"],
                     edits=edits, loaded=(photo.image, photo.focal_px), detected=photo.detected,
+                    compare_truth=compare,
                 )
-                preview = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 1600)
-                thumb = _jpeg(crop_to_chain(result.preview, result.measurement)[:, :, ::-1], 240)
+                cropped = crop_to_chain(result.preview, result.measurement)[:, :, ::-1]
+                preview, thumb = _jpeg(cropped, 1600), _jpeg(cropped, 240)
+                # Only the JPEGs are shown. The full-size drawing is three bytes a
+                # pixel (37 MB for a 12 MP photo), kept for every photo of a session.
+                result.preview = None
                 with self.lock:
-                    photo.result, photo.error, photo.status = result, None, "done"
+                    photo.result, photo.error = result, None
                     photo.preview_jpeg, photo.thumb_jpeg = preview, thumb
                     photo.measured_edits = edits
-                    self._changed()
+                    self._finished(photo, "done")
             except Exception as err:   # every failure is reported on its photo
                 # ValueErrors are the pipeline's own messages for people; show
                 # anything else with its type so it can be reported.
                 detail = str(err) if isinstance(err, ValueError) else \
                     "".join(traceback.format_exception_only(type(err), err)).strip()
                 with self.lock:
-                    photo.result, photo.error, photo.status = None, detail, "error"
+                    photo.result, photo.error = None, detail
                     photo.preview_jpeg = photo.thumb_jpeg = None
                     photo.measured_edits = edits
-                    self._changed()
+                    self._finished(photo, "error")
+
+    def _finished(self, photo: Photo, status: str) -> None:
+        """Mark a photo measured. Call with the lock held. A photo queued again
+        while it was being measured (its options or edits changed) stays
+        queued: what was just measured is already out of date, and whoever
+        waits for "done" must get the result of the last change."""
+        if photo.status == "processing":
+            photo.status = status
+        self._changed()
 
     def _read(self, photo: Photo, spec: ChainSpec) -> None:
         """Decode the photo and find its fiducials, once each: an edit only
@@ -497,24 +551,26 @@ class AppState:
     def _summary(self, p: Photo) -> dict:
         out = {"id": p.id, "name": p.name, "source": p.source, "received": p.received,
                "status": p.status, "error": p.error, "edits": len(p.edits.add_px) + len(p.edits.remove_px),
-               "n_pins": p.n_pins, "side": p.side if isinstance(p.side, str) else "picked"}
+               "n_pins": p.n_pins, "side": p.side if isinstance(p.side, str) else "picked",
+               "truth_mode": p.truth, "via": VIA.get(p.via) if p.via else None}
         r = p.result
         if r is not None:
             m, rect = r.measurement, r.measurement.rectification
-            diag = float(np.hypot(r.info["width"], r.info["height"]))
             out["result"] = {
                 "pins": len(m.order.indices),
                 "missing_pins": len(m.order.gaps),
                 "rejected": len(m.order.rejected),
                 "curve_points": len(m.contacts_mm),
                 "tilt_deg": round(rect.tilt_deg, 1),
-                "focal_35mm": round(rect.focal_px * FULL_FRAME_DIAGONAL_MM / diag, 1),
+                "focal_35mm": round(focal_35mm_from_px(rect.focal_px, (r.info["width"], r.info["height"])), 1),
                 "focal_source": r.focal_source,
                 "link_residual_rms_mm": round(rect.residual_rms_mm, 3),
                 "link_residual_max_mm": round(rect.residual_max_mm, 3),
                 "object_side": m.object_side,
                 "warnings": list(m.warnings),
+                "notes": list(m.notes),
                 "truth": r.truth_comparison,
+                "truth_status": r.truth_status,
             }
             out["info"] = r.info
         return out
@@ -551,6 +607,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -564,16 +622,41 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"error": message}, status)
 
     def _body(self) -> bytes:
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self.close_connection = True
+            raise ValueError("bad Content-Length")
         if length > MAX_UPLOAD_BYTES:
-            raise ValueError(f"upload too large ({length // 1_000_000} MB)")
+            # Read it and throw it away, so that the sender gets this answer and
+            # not a broken connection. Not if it is absurdly long: then hang up.
+            left = length
+            while 0 < left and length <= 4 * MAX_UPLOAD_BYTES:
+                chunk = self.rfile.read(min(1 << 20, left))
+                if not chunk:
+                    break
+                left -= len(chunk)
+            self.close_connection = left > 0
+            raise ValueError(f"upload too large ({length // 1_000_000} MB; "
+                             f"the limit is {MAX_UPLOAD_BYTES // 1_000_000} MB)")
         buf = io.BytesIO()
         while buf.tell() < length:
             chunk = self.rfile.read(min(1 << 20, length - buf.tell()))
             if not chunk:
-                break
+                # The connection dropped part-way (a phone walking out of Wi-Fi
+                # range). Half a photo must not be saved as one.
+                self.close_connection = True
+                raise ValueError("the upload was cut off; send it again")
             buf.write(chunk)
         return buf.getvalue()
+
+    def _json_body(self) -> dict:
+        doc = json.loads(self._body() or b"{}")
+        if not isinstance(doc, dict):
+            raise ValueError("expected a JSON object")
+        return doc
 
     def _page(self, name: str) -> None:
         html = (STATIC / name).read_text(encoding="utf-8").replace("{{VERSION}}", version_string())
@@ -594,6 +677,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._route("POST")
 
     def _route(self, method: str) -> None:
+        try:
+            self._dispatch(method)
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True        # the other end went away, perhaps mid-answer
+
+    def _dispatch(self, method: str) -> None:
         try:
             if not self._host_ok():
                 return self._error(HTTPStatus.MISDIRECTED_REQUEST, "unexpected Host header")
@@ -617,7 +706,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._error(HTTPStatus.FORBIDDEN, "missing or wrong token")
             self._api(method, path, query)
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            raise
         except ValueError as err:
             self._error(HTTPStatus.BAD_REQUEST, str(err))
         except Exception:
@@ -634,12 +723,13 @@ class _Handler(BaseHTTPRequestHandler):
                                   "firewall": self.server.firewall.snapshot()}
             return self._json(out)
         if method == "POST" and parts == ["upload"]:
-            name = unquote((query.get("name") or ["photo.jpg"])[0])
+            name = (query.get("name") or ["photo.jpg"])[0]       # parse_qs has already decoded it
             data = self._body()
             if not data:
                 raise ValueError("empty upload")
             photo = app.add_photo(name, data, "computer" if local else "phone",
-                                  n_pins=(query.get("pins") or [None])[0], side=(query.get("side") or [None])[0])
+                                  n_pins=(query.get("pins") or [None])[0], side=(query.get("side") or [None])[0],
+                                  via=(query.get("via") or [None])[0])
             return self._json({"id": photo.id})
 
         if parts[:1] == ["photo"] and len(parts) >= 2:
@@ -687,10 +777,10 @@ class _Handler(BaseHTTPRequestHandler):
         if method == "GET" and parts == ["qr.svg"]:
             return self._send(200, self.server.qr_svg().encode(), "image/svg+xml")
         if method == "POST" and parts == ["settings"]:
-            app.update_settings(json.loads(self._body() or b"{}"))
+            app.update_settings(self._json_body())
             return self._json({"ok": True})
         if method == "POST" and parts == ["truth"]:
-            app.set_truth(unquote((query.get("name") or ["truth.json"])[0]), self._body())
+            app.set_truth((query.get("name") or ["truth.json"])[0], self._body())
             return self._json({"ok": True})
         if method == "POST" and parts == ["truth", "clear"]:
             app.clear_truth()
@@ -713,7 +803,7 @@ class _Handler(BaseHTTPRequestHandler):
             except FileNotFoundError as err:
                 return self._error(HTTPStatus.CONFLICT, str(err))
         if method == "POST" and parts == ["open-folder"]:
-            which = json.loads(self._body() or b"{}").get("which", "results")
+            which = self._json_body().get("which", "results")
             folder = app.workspace / ("photos" if which == "photos" else "results")
             folder.mkdir(parents=True, exist_ok=True)
             _open_folder(folder)

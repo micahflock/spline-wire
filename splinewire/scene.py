@@ -36,10 +36,9 @@ import numpy as np
 from splinewire.camera import Camera, focal_px_from_35mm, look_at_plane
 from splinewire.chain import ChainSpec
 from splinewire.fiducials import Design, chain_design, draw_windows
+from splinewire.plaque import BLACK_MM, PLATE_MM, RIM_MM     # the plaque photographed here is the one printed
 
 TAU_PRINT = 30.0          # print raster, px per mm (0.033 mm)
-PLATE_MM = 1.6            # white plate under the black layer (plaque)
-RIM_MM = 1.5
 
 
 @dataclass(frozen=True)
@@ -50,7 +49,7 @@ class PrintQuality:
     edge_offset_mm: float = 0.05     # over-extrusion: black edges move outward (<0: inward)
     wobble_mm: float = 0.02          # random edge waviness (std), ~1 mm correlation length
     seam_mm: float = 0.08            # blob on each circular edge at the loop's seam
-    relief_mm: float = 0.4           # black layer height above the white
+    relief_mm: float = BLACK_MM      # black layer height above the white
     line_period_mm: float = 0.42     # top-surface extrusion lines
     line_contrast: float = 0.06      # brightness modulation from those lines
 

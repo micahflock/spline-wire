@@ -8,7 +8,7 @@ How the detector holds up in realistic phone photos of a 3D-printed chain, what 
 
 - **The whole chain is now recovered in 155 of 167 simulated photos, up from 77**, over 29 named environments plus 80 random ones. When the chain is recovered, the worst pin is off by 0.023 mm (median), 0.056 mm (95th percentile), 0.13 mm at most: far inside the 1 mm target.
 - **The one failure left is glare on shiny filament.** A lamp reflected in the black layer washes it out until it is as light as the white rings. With **matte** black filament every simulated photo worked (32/32 random setups, including 5 with the lamp reflected on the chain). Standard PLA: 32/34. Glossy or silk: 10/14, and 0/3 with a reflection.
-- **The chain now uses a 5 mm dot** (easiest to make); the plain ring stays supported (`fiducial: ring` in `data/chain.yaml`) and is the most robust design. Of seven fiducial designs printed through the same 0.4 mm-nozzle model, the plain ring (5.0/2.0 mm) is the most robust. A 20% larger ring (6.0/2.4 mm) is equally robust and ~20% more accurate, and works from further away, but leaves only 1 mm of black around it on the 8 mm link. A solid 5 mm **dot** comes close in the fiducial study (86/92 vs 87/92, same median accuracy) once its detector checks for the dark link around each dot; on the full benchmark it recovers the chain in 142/167 photos against the ring's 155/167, losing mostly where lamp sheen on standard PLA lifts the black link toward the dot. Designs with 0.8 mm features (bullseye, checker-corner centre, ArUco tags) print, but fall apart with blur, distance or a bad print; ArUco tags don't fit an 8 mm round-ended link at all.
+- **The chain now uses a 5 mm dot** (easiest to make); the plain ring stays supported (`fiducial: ring` in `data/chain.yaml`) and is the most robust design. Of seven fiducial designs printed through the same 0.4 mm-nozzle model, the plain ring (5.0/2.0 mm) is the most robust. A 20% larger ring (6.0/2.4 mm) is equally robust and ~20% more accurate, and works from further away, but leaves only 1 mm of black around it on the 8 mm link. A solid 5 mm **dot** comes close in the fiducial study (86/92 vs 87/92, same median accuracy) once its detector checks for the dark link around each dot; on the full benchmark it recovers the chain in 143/167 photos against the ring's 155/167 (142 before two ordering fixes, see §5.1), losing mostly where lamp sheen on standard PLA lifts the black link toward the dot. Designs with 0.8 mm features (bullseye, checker-corner centre, ArUco tags) print, but fall apart with blur, distance or a bad print; ArUco tags don't fit an 8 mm round-ended link at all.
 - **Print defects, not the camera, set the remaining error.** Seam blobs and edge wobble move the printed ring off its pin by a few hundredths of a millimetre. Lens distortion, perspective bias of ellipse centres and the relief of the black layer each matter less.
 
 ![Simulated photos](img/environments.jpg)
@@ -100,9 +100,9 @@ All designs are windows cut into the black top layer over white, centred on the 
 
 | design | narrowest feature | black margin to link edge | notes |
 |---|---|---|---|
-| **ring** 5.0/2.0 mm (current) | 1.5 mm band (3.5 lines), 2.0 mm centre | 1.5 mm | |
+| **ring** 5.0/2.0 mm | 1.5 mm band (3.5 lines), 2.0 mm centre | 1.5 mm | supported: `fiducial: ring` |
 | ring-6 6.0/2.4 mm | 1.8 mm band, 2.4 mm centre | 1.0 mm | |
-| dot, 5.0 mm | 5.0 mm disc | 1.5 mm | no hole: told from other bright blobs by the dark link around it |
+| **dot**, 5.0 mm (the chain's) | 5.0 mm disc | 1.5 mm | no hole: told from other bright blobs by the dark link around it |
 | bullseye 6.0 mm | 0.8 mm bands, 1.2 mm centre dot | 1.0 mm | four edges to fit |
 | ring-x 6.2 mm | 0.8 mm band and gap, checker corner in a 3.0 mm disc | 0.9 mm | centre from the checker's saddle point (`cv2.cornerSubPix`), exact under perspective |
 | ArUco 4×4, 5.6 mm | 0.93 mm cells | 0.04 mm at a round chain end | printed inverted (white border); ids give the order |
@@ -134,7 +134,7 @@ What it shows:
 
 ### 5.1 The dot, looked at more closely
 
-A first-pass dot detector recovered only 71/92 photos. The dot's accuracy was never the problem: on photos both designs recovered, the worst pin was 0.0235 mm for the dot against 0.0238 mm for the ring. What failed was telling dots from everything else. A ring has to be a bright band with exactly one dark hole, which almost nothing on a table is; a dot only has to be a bright ellipse, which terrazzo chips, wood-grain highlights, specks, sheen and the counters of printed letters all are (up to 1,800 false detections in one photo). The fixes, in `experiments/fiducial_study.py` (`_detect_dot`):
+A first-pass dot detector recovered only 71/92 photos. The dot's accuracy was never the problem: on photos both designs recovered, the worst pin was 0.0235 mm for the dot against 0.0238 mm for the ring. What failed was telling dots from everything else. A ring has to be a bright band with exactly one dark hole, which almost nothing on a table is; a dot only has to be a bright ellipse, which terrazzo chips, wood-grain highlights, specks, sheen and the counters of printed letters all are (up to 1,800 false detections in one photo). The fixes, first made in the study and now the production detector (`detect_dots` in `splinewire/detect.py`):
 
 - **The dark link around it.** Along each of up to 180 rays, the margin just outside the dot (1.15–1.45 radii, inside the link's edge) must be darker than the dot's inside by a steady fraction: the median ratio under 0.92, and 60% of rays within ±0.15 of it. The ratio rather than the difference, because a shadow edge darkens dot and margin alike. Terrazzo went from ~300 false detections per photo to ~100, and the chain was recovered in every terrazzo and bare-chain photo.
 - **Outline only.** A dot wider than the threshold window comes out hollow at full resolution; candidates use the outer outline and ignore holes.
@@ -154,11 +154,13 @@ The dot loses six photos the ring recovers and wins three the ring loses. Its lo
 
 | | ring | dot |
 |---|---|---|
-| chain recovered | 155/167 | 142/167 |
+| chain recovered | 155/167 | 142/167 (143 since, see below) |
 | worst pin: median · 95th pct · max | 0.023 · 0.056 · 0.130 mm | 0.025 · 0.056 · 0.151 mm |
 | random setups, matte / standard / glossy | 32/32 · 32/34 · 10/14 | 30/32 · 28/34 · 9/14 |
 
 Of the dot's extra losses, most are dots missed under sheen: the default lamp sits near the reflection angle for one of the three view directions, and standard PLA's link then reads within ~10% of the dot (four of the six presets the dot fails, all on that view). The rest are look-alikes on busy tables (terrazzo, fabric, printed pages) joining the chain. Two changes for the dot also went into ordering for both fiducials: no walk counts as longer than the chain's pin count, with ties going to the walk whose detections stand out most (a woven fabric had strung 58 highlights into a "chain"); and each pin must stay within 1.6× of its walk's median size.
+
+**The bend limit, and two later fixes (2026-11).** Everything above was measured with `max_bend_deg: 80`. `chain.yaml` now sets 125 for the O-ring chain, and a string of look-alikes may then turn more sharply too: at 125 the dot recovered 140/167 (two printed-page photos lost) and the ring 154/167. Reading the ordering again found two flaws in how walks of equal length were compared. A walk longer than the chain counts as no longer than it, but its contrast was still added up over all of it, so 14 letters in a row beat the 13 dots; and walks over the same pins in another order, which should tie on contrast and be told apart by their steps off the pitch, were told apart by the last bit of a floating-point sum (23 of 3000 simulated zigzags at the O-ring chain's stop came out in the wrong order). With both fixed the dot recovers 143/167 at either limit: the two printed-page photos and one terrazzo photo are back, none is lost and the error figures are the same. The ring is unchanged, 155 at 80 and 154 at 125. `uv run python experiments/cv_benchmark.py --baseline <rev>` shows such a change photo by photo with `--json`.
 
 **Using the dot:** 5 mm on the 8 mm link (1.5 mm of black margin, which the detector relies on); matte black, which matters more for the dot than for the ring; keep lamps out of the reflection.
 

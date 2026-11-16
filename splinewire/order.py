@@ -19,6 +19,7 @@ letters, a speckled table.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -50,7 +51,8 @@ def order_chain(
     The walk that visits the most pins wins, but with n_pins given no walk
     counts as longer than the chain (a regular texture can string together
     more look-alikes than the chain has pins); among those, the one whose
-    detections stand out most.
+    detections stand out most, pin for pin; among walks over the same detections, the one
+    with the fewest steps off a whole pitch, then gaps, then the least turning.
     """
     pts = np.asarray(points_px, dtype=float)
     n = len(pts)
@@ -71,7 +73,14 @@ def order_chain(
         path, turn_total = _walk(start, pts, dist, nn_pitch, max_turn, sizes)
         length = min(len(path), n_pins) if n_pins else len(path)
         off, gaps = _off_pitch(path, dist)
-        key = (length, float(np.sum(strength[path])) if strength is not None else 0.0, -off, -gaps, -turn_total)
+        # How much its detections stand out, for as many as count: summed over
+        # all of a walk longer than the chain, a string of 14 printed letters
+        # beat the 13 dots on contrast alone. fsum: walks over the same
+        # detections in another order must tie here exactly. A plain sum
+        # differs in its last bit with the order, which then decided between
+        # them instead of the terms after it.
+        stands_out = math.fsum(strength[path]) * length / len(path) if strength is not None else 0.0
+        key = (length, stands_out, -off, -gaps, -turn_total)
         if best_key is None or key > best_key:
             best_path, best_key = path, key
 

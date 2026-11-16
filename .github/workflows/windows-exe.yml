@@ -1,6 +1,6 @@
 name: Windows app
 
-# Builds SplineWire.exe (desktop GUI) on Windows, smoke-tests it, and
+# Builds SplineWire.exe (a console program that serves the web app) on Windows, smoke-tests it, and
 # uploads it as a workflow artifact. Download it from the run's summary page.
 # To publish a GitHub Release (exe and test plaques attached), bump __version__
 # in splinewire/__init__.py, then either run this workflow on main from the
@@ -33,7 +33,7 @@ jobs:
     permissions:
       contents: write    # create the release and its tag
     env:
-      UV_PYTHON_DOWNLOADS: never   # use the python.org build below; its Tk bundles cleanly
+      UV_PYTHON_DOWNLOADS: never   # use the python.org build set up below, not one uv downloads
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +69,7 @@ jobs:
         run: uv run pytest -q
 
       - name: Stamp the build number
-        # Shown in the app's title bar, e.g. "Spline Wire 0.5.0 (build 12, 8bdccf7)".
+        # Shown on the app's pages and in its console, e.g. "Spline Wire 0.5.0 (build 12, 8bdccf7)".
         run: uv run python packaging/stamp_build.py
 
       - name: Build SplineWire.exe

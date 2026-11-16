@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 try:  # HEIC/HEIF, the iPhone default photo format
     from pillow_heif import register_heif_opener
@@ -20,7 +20,11 @@ from splinewire.contact import Side, contact_points, object_sign, side_name, sig
 from splinewire.detect import Fiducial, detect_fiducials
 from splinewire.edits import Edits, ManualPin, add_pins, pin_to_pitch, remove_detections
 from splinewire.order import ChainOrder, order_chain
-from splinewire.rectify import Rectification, rectify_chain
+from splinewire.rectify import Rectification, min_links, rectify_chain
+
+# How many times pins that turn out not to belong on the chain are dropped
+# and the chain solved again.
+_MISFIT_ROUNDS = 4
 
 
 @dataclass(frozen=True)
@@ -30,10 +34,11 @@ class Measurement:
     rectification: Rectification
     object_side: Side            # inside or outside of the chain's bend
     contacts_mm: np.ndarray      # points on the target curve, in chain order
-    warnings: list[str]
+    warnings: list[str]          # things that may make the measurement wrong: check them
     manual: list[ManualPin] = field(default_factory=list)   # pins a person added
     object_sign: int = 1         # the object's side of the pin line: +1 left, -1 right (y-up, chain order)
     side_px: tuple[float, float] | None = None   # the photo point that picked the side, if one did
+    notes: list[str] = field(default_factory=list)   # for information only, e.g. look-alikes left out
 
     @property
     def pins_mm(self) -> np.ndarray:
@@ -76,11 +81,21 @@ def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
     """Grayscale pixels (upright per EXIF orientation) and EXIF focal length in px.
 
     Rotating to upright keeps the image diagonal, so the focal length holds.
+    Raises ValueError, with a message for the person, if the file is not a
+    photo or is damaged.
     """
-    with Image.open(path) as im:
-        focal = focal_px_from_exif(im)
-        upright = ImageOps.exif_transpose(im)
-        return np.asarray(upright.convert("L")), focal
+    try:
+        with Image.open(path) as im:
+            focal = focal_px_from_exif(im)
+            upright = ImageOps.exif_transpose(im)
+            return np.asarray(upright.convert("L")), focal
+    except FileNotFoundError:
+        raise
+    except UnidentifiedImageError:
+        raise ValueError(f"{Path(path).name} is not a photo this program can read "
+                         "(JPEG, HEIC, PNG, TIFF, BMP or WebP)") from None
+    except OSError as err:              # a file cut short in transfer, or damaged
+        raise ValueError(f"could not read the photo {Path(path).name}: {err}") from None
 
 
 def measure(
@@ -101,6 +116,7 @@ def measure(
     part, and does not change when only the edits do).
     """
     warnings: list[str] = []
+    notes: list[str] = []
     fiducials = list(detected) if detected is not None else detect_fiducials(image, spec)
     manual: list[ManualPin] = []
     if edits:
@@ -115,11 +131,20 @@ def measure(
     h, w = image.shape[:2]
     centers = np.array([r.center_px for r in fiducials])
     excluded: set[int] = set()
-    for _ in range(4):
+    for attempt in range(_MISFIT_ROUNDS + 1):
         order = _order(fiducials, spec, excluded)
         # Fit the plane from links between pins that were measured, not clicked.
         links = _measured_links(order, by_click)
+        need = min_links(focal_known=focal_px is not None)
+        if len(links) < need:
+            raise ValueError(
+                f"found {len(order.indices)} pins in a row, joined by {len(links)} links; taking the "
+                f"perspective out needs at least {need} links ({need + 1} pins)"
+                + ("" if focal_px is not None else " when the focal length is unknown")
+                + ". Is the whole chain in the photo?")
         rect = rectify_chain(centers[order.indices], links, spec.pitch_mm, (w, h), focal_px)
+        if attempt == _MISFIT_ROUNDS:
+            break                       # solved without the last misfits; stop looking for more
         misfits = _misfits(fiducials, replace(order, links=links), rect, spec, keep)
         if not misfits:
             break
@@ -132,7 +157,9 @@ def measure(
     by_hand = [mp for mp in manual if not mp.snapped and mp not in left_out]
     skipped = len(order.rejected) - len(left_out)
     if skipped:
-        warnings.append(f"ignored {skipped} look-alike detection(s) not on the chain")
+        # Normal on a busy or dotted background, and the pins on the chain are
+        # checked by the warnings below, so this is not one.
+        notes.append(f"ignored {skipped} look-alike detection(s) not on the chain")
     if left_out:
         warnings.append(f"{len(left_out)} pin(s) you added were left out: each must be about one pitch "
                         "from the pins next to it, in line with the chain")
@@ -142,15 +169,23 @@ def measure(
     if order.gaps:
         warnings.append(f"{len(order.gaps)} pin(s) not detected; the curve bridges those gaps")
     expected = spec.n_pins - len(order.gaps)
+    beyond = _past_the_ends(fiducials, order, rect.pins_mm, spec,
+                            set(order.rejected) - {mp.fiducial for mp in left_out})
+    if beyond and n_on_chain == expected:
+        warnings.append(
+            f"the chain seems to go on past its end ({beyond} more pin(s) about one pitch on); "
+            f"is the pin count ({spec.n_pins}) right?"
+        )
     if n_on_chain != expected:
         warnings.append(
-            f"found {n_on_chain} pins on the chain but the spec has {spec.n_pins} "
-            f"({len(order.gaps)} gap(s)); is the whole chain in the photo, and free of glare "
-            "(a lamp's reflection on the links)?"
+            f"found {n_on_chain} pins on the chain, which is set to have {spec.n_pins}"
+            + (f" ({len(order.gaps)} more missed in between)" if order.gaps else "")
+            + "; is the whole chain in the photo, free of glare (a lamp's reflection on the links), "
+            "and is the pin count right?"
         )
     if focal_px is None:
         warnings.append(
-            "no focal length (EXIF or --focal-35mm); estimating it from the chain, "
+            "no focal length (none in the photo's EXIF, and none set); estimating it from the chain, "
             "which is unreliable for nearly straight chains"
         )
     if rect.residual_max_mm > 0.05 * spec.pitch_mm:
@@ -165,10 +200,11 @@ def measure(
     else:
         side_px = (float(side[0]), float(side[1]))
         sign = sign_from_photo_point(centers[order.indices], side_px)
-    contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign, spec.contact == "round")
+    contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign, spec.contact == "round", gaps=order.gaps)
     return Measurement(
         fiducials=fiducials, order=order, rectification=rect, object_side=side_name(rect.pins_mm, sign),
         contacts_mm=contacts, warnings=warnings, manual=manual, object_sign=sign, side_px=side_px,
+        notes=notes,
     )
 
 
@@ -195,6 +231,45 @@ def _settle_clicked_pins(rect: Rectification, order: ChainOrder, free: list[int]
     res = np.array([np.linalg.norm(pins[b] - pins[a]) - spec.pitch_mm for a, b in order.links])
     return replace(rect, pins_mm=pins, link_residuals_mm=res,
                    residual_rms_mm=float(np.sqrt(np.mean(res ** 2))), residual_max_mm=float(np.max(np.abs(res))))
+
+
+def _past_the_ends(fiducials: list[Fiducial], order: ChainOrder, pins_mm: np.ndarray, spec: ChainSpec,
+                   candidates: set[int]) -> int:
+    """How many chain ends have one of `candidates` (detections left off the
+    chain) just past them, looking like the next pin: the end pin's polarity
+    and size, about one pitch on, within the sharpest bend, and on a link (what
+    surrounds it like what surrounds the pins), not on the table.
+
+    The usual cause is a pin count set lower than the chain has. Look-alikes
+    are left out of the chain all the time, so on their own they are no warning.
+    """
+    idx = order.indices
+    if len(idx) < 3 or not candidates:
+        return 0
+    # How much what surrounds a pin varies along the chain (as in _misfits).
+    surround = np.array([fiducials[i].surround for i in idx])
+    spread = max(5.0, 1.4826 * float(np.median(np.abs(np.diff(surround)))))
+    found = 0
+    for end, prev in ((0, 1), (len(idx) - 1, len(idx) - 2)):
+        e, q = fiducials[idx[end]], fiducials[idx[prev]]
+        # The end link maps photo to plane locally: a scale and a rotation,
+        # as complex numbers (photo y flipped to point up like the plane's).
+        d_px = complex(e.center_px[0] - q.center_px[0], q.center_px[1] - e.center_px[1])
+        d_mm = complex(*(pins_mm[end] - pins_mm[prev]))
+        if abs(d_px) < 1e-9 or abs(d_mm) < 1e-9:
+            continue
+        for c in candidates:
+            f = fiducials[c]
+            if f.polarity != e.polarity or abs(f.outer_axes_px[0] / e.outer_axes_px[0] - 1.0) > 0.25:
+                continue
+            if abs(f.surround - (e.surround + q.surround) / 2) > 3.0 * spread:
+                continue
+            step = complex(f.center_px[0] - e.center_px[0], e.center_px[1] - f.center_px[1]) * d_mm / d_px
+            turn = abs(np.degrees(np.angle(step / d_mm)))
+            if abs(abs(step) / spec.pitch_mm - 1.0) < 0.15 and turn <= spec.max_bend_deg + 10.0:
+                found += 1
+                break
+    return found
 
 
 def _can_order(fiducials: list[Fiducial]) -> bool:

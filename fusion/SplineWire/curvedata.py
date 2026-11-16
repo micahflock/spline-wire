@@ -10,7 +10,7 @@ import sys
 
 MM_PER_UNIT = {"mm": 1.0, "cm": 10.0, "in": 25.4}
 _SEPARATORS = re.compile(r"[\t,; ]+")
-_UNIT = re.compile(r"(?<![a-z])(mm|cm|in)(?![a-z])")
+_UNIT = re.compile(r"(?<![a-z])(mm|cm|in|inch|inches)(?![a-z])")
 
 
 def parse_points(text: str) -> list[tuple[float, float]]:
@@ -19,7 +19,7 @@ def parse_points(text: str) -> list[tuple[float, float]]:
     One point per line: two or three numbers separated by tabs, commas,
     semicolons or spaces (a z value is ignored). Other lines, like a header,
     are skipped. Units default to mm; a header mentioning cm or in (e.g.
-    "x_cm") switches them.
+    "x_cm", "X (in)", "inches") switches them.
     """
     scale = 1.0
     points: list[tuple[float, float]] = []
@@ -27,9 +27,9 @@ def parse_points(text: str) -> list[tuple[float, float]]:
         fields = [f for f in _SEPARATORS.split(line.strip()) if f]
         values = _floats(fields)
         if values is None or not 2 <= len(values) <= 3:
-            unit = _UNIT.search(line.lower())
-            if unit and not points:
-                scale = MM_PER_UNIT[unit.group(1)]
+            unit = _unit_scale(line)
+            if unit is not None and not points:
+                scale = unit
             continue
         points.append((values[0] * scale, values[1] * scale))
     if len(points) < 2:
@@ -38,6 +38,16 @@ def parse_points(text: str) -> list[tuple[float, float]]:
             "processed photo and click \u201cCopy points\u201d, then try again."
         )
     return points
+
+
+def _unit_scale(line: str) -> float | None:
+    """Millimetres per unit, if a header line names a unit. mm or cm win over
+    "in", which is also a word: "points in mm" is not inches."""
+    named = set(_UNIT.findall(line.lower()))
+    for unit in ("mm", "cm"):
+        if unit in named:
+            return MM_PER_UNIT[unit]
+    return MM_PER_UNIT["in"] if named else None
 
 
 def _floats(fields: list[str]) -> list[float] | None:

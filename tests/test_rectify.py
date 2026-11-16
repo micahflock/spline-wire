@@ -80,3 +80,10 @@ def test_too_few_links_raises():
     pins, px = _photo(SHAPES["s-curve"])
     with pytest.raises(ValueError, match="links"):
         rectify_chain(px[:5], _links(5), 10.0, SIZE, FOCAL)
+
+
+@pytest.mark.parametrize("focal", [0.0, -1500.0, float("nan")])
+def test_a_focal_length_that_is_not_one_is_refused(focal):
+    pins, px = _photo(SHAPES["s-curve"])
+    with pytest.raises(ValueError, match="focal length"):
+        rectify_chain(px, _links(len(pins)), 10.0, SIZE, focal)

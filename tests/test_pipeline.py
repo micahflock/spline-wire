@@ -1,8 +1,11 @@
+from dataclasses import replace
+
 import cv2
 import numpy as np
 import pytest
 
 from splinewire.camera import focal_px_from_35mm, look_at_plane
+from splinewire.chain import pins_from_turns
 from splinewire.contact import contact_points, object_sign
 from splinewire.pipeline import compare_to_truth, measure
 from splinewire.synthetic import LINK_GRAY, circle_wrap_pins, render_photo, s_curve_pins
@@ -47,7 +50,8 @@ def test_missing_pin_and_stray_ring(spec):
         cv2.circle(img, (150, 150), 8, LINK_GRAY, -1, cv2.LINE_AA)
     m = measure(img, spec, FOCAL)
     assert len(m.order.gaps) == 1 and len(m.order.rejected) == 1
-    assert len(m.warnings) == 2
+    assert len(m.warnings) == 1 and "not detected" in m.warnings[0]
+    assert m.notes == ["ignored 1 look-alike detection(s) not on the chain"]   # a note, not a warning
     kept = np.delete(pins, 6, axis=0)
     assert compare_to_truth(m.pins_mm, kept)["max_error_mm"] < 0.05
 
@@ -69,6 +73,17 @@ def test_ring_sized_look_alike_one_pitch_past_the_end(spec):
     m = measure(img, spec, FOCAL)
     assert len(m.order.indices) == len(pins)
     assert compare_to_truth(m.pins_mm, pins)["max_error_mm"] < 0.05
+    assert m.warnings == [] and len(m.notes) == 1      # on the table, not the chain going on
+
+
+def test_pin_count_set_too_low_warns(spec):
+    """Look-alikes left out are only a note, but pins of the chain left out
+    because the pin count is set too low must be a warning."""
+    pins = s_curve_pins(spec)
+    img, _ = _photo(spec, pins, tilt=20.0)
+    m = measure(img, replace(spec, n_pins=len(pins) - 2), FOCAL)
+    assert len(m.order.indices) == len(pins) - 2
+    assert any("go on past its end" in w for w in m.warnings)
 
 
 def test_without_focal_length_warns_but_measures(spec):
@@ -101,10 +116,6 @@ def test_scale_fit_separates_print_scale_from_shape_error():
 def test_sharp_corner_end_to_end(spec):
     """The O-ring chain bends to 106° at a joint; with max_bend_deg raised
     the photo is ordered and measured through the corner."""
-    from dataclasses import replace
-
-    from splinewire.chain import pins_from_turns
-
     turns = np.radians(np.r_[np.zeros(4), 106.0, 20.0, -106.0, np.zeros(4)])
     pins = pins_from_turns(spec.pitch_mm, turns)[: spec.n_pins]
     img, _ = _photo(spec, pins)
@@ -134,3 +145,69 @@ def test_side_picked_by_a_point_in_the_photo(spec, concave, radius):
         drawn = m.to_photo_px(m.contacts_mm)
         # both run along the chain, maybe in opposite directions
         assert min(np.abs(drawn - true_px).max(), np.abs(drawn[::-1] - true_px).max()) < 2.0
+
+
+def test_contact_edge_of_a_straight_chain_is_drawn_link_by_link(spec):
+    """A straight chain has no width to fix a homography with, so the edge
+    is placed on the photo by each link's own scale and direction: on the
+    side picked, the half-width away from the pin line."""
+    pins = np.c_[np.arange(spec.n_pins) * spec.pitch_mm, np.zeros(spec.n_pins)]
+    img, cam = _photo(spec, pins, tilt=15.0)
+    for sign in (1, -1):                                       # the object above the chain (+y), then below
+        picked = cam.project(np.array([[60.0, sign * 15.0]]))[0]
+        m = measure(img, spec, FOCAL, side=tuple(picked))
+        drawn = m.to_photo_px(m.contacts_mm)
+        true_px = cam.project(contact_points(pins, spec.half_width_mm, sign))
+        assert min(np.abs(drawn - true_px).max(), np.abs(drawn[::-1] - true_px).max()) < 3.0
+        # the wrong side of the chain would be twice the half-width away: ~70 px here
+        wrong_px = cam.project(contact_points(pins, spec.half_width_mm, -sign))
+        assert min(np.abs(drawn - wrong_px).max(), np.abs(drawn[::-1] - wrong_px).max()) > 40.0
+
+
+def test_curve_stays_on_the_object_where_a_pin_was_missed(spec):
+    """The pins either side of a missed one are not joined by a link. The
+    middle of the line between them is 1.1 mm inside this pipe, and must not
+    be given as a point on it."""
+    radius = 30.0
+    pins = circle_wrap_pins(spec, radius)
+    img, cam = _photo(spec, pins)
+    cv2.circle(img, tuple(int(v) for v in cam.project(pins[[6]])[0]), 30, LINK_GRAY, -1)
+    m = measure(img, spec, FOCAL)
+    assert len(m.order.gaps) == 1
+    assert len(m.contacts_mm) == spec.n_pins - 3              # neither of the two links at the missed pin
+    center, r = fit_circle(m.contacts_mm)
+    assert r == pytest.approx(radius, abs=0.05)
+    assert np.abs(np.linalg.norm(m.contacts_mm - center, axis=1) - radius).max() < 0.1
+
+
+def test_a_chain_too_short_to_deskew_says_how_long_it_must_be(spec):
+    """Five links fix the plane; a two-joint test piece has three."""
+    short = replace(spec, n_pins=4)
+    img, _ = _photo(short, s_curve_pins(short, bend_deg=20.0))
+    with pytest.raises(ValueError, match=r"found 4 pins in a row.* at least 5 links \(6 pins\)"):
+        measure(img, short, FOCAL)
+    six = replace(spec, n_pins=6)
+    img, _ = _photo(six, s_curve_pins(six, bend_deg=20.0))
+    assert len(measure(img, six, FOCAL).pins_mm) == 6
+    with pytest.raises(ValueError, match=r"at least 6 links \(7 pins\) when the focal length is unknown"):
+        measure(img, six, None)
+
+
+def test_pins_named_as_misfits_are_never_in_the_result(spec, monkeypatch):
+    """Pins that turn out not to belong are dropped and the chain solved
+    again, a few rounds at most. The last round's are dropped too."""
+    import splinewire.pipeline as pipeline
+
+    pins = s_curve_pins(spec)
+    img, _ = _photo(spec, pins)
+    named = []
+
+    def an_end_pin_each_time(fiducials, order, rect, spec, keep=frozenset()):
+        named.append(order.indices[0])
+        return {order.indices[0]}
+
+    monkeypatch.setattr(pipeline, "_misfits", an_end_pin_each_time)
+    m = measure(img, spec, FOCAL)
+    assert len(named) == pipeline._MISFIT_ROUNDS
+    assert not set(named) & set(m.order.indices)
+    assert len(m.order.indices) == spec.n_pins - len(named)

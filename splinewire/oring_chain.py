@@ -185,11 +185,13 @@ def _check(j: Joint, spec: ChainSpec) -> None:
     if j.post_r < 0.5:
         raise ValueError(f"pitch_mm {j.pitch} leaves no room for the stop post between the inner links "
                          f"(post radius {j.post_r:.2f} mm)")
-    if j.post_a < 0:
-        raise ValueError(f"the links collide before the {j.stop_deg:.0f}° stop; raise --margin")
-    if j.stop_deg > 85.0 or j.post_a + j.post_r > j.R - 0.5:
+    if j.stop_deg > 85.0:               # checked first: post_a means nothing past 90°
         raise ValueError(f"a {j.stop_deg:.0f}° stop is too wide for the post (it stops the inner links by "
                          f"their sides, below 85°); lower --margin")
+    if j.post_a < 0:
+        raise ValueError(f"the links collide before the {j.stop_deg:.0f}° stop; raise --margin")
+    if j.post_a + j.post_r > j.R - 0.5:
+        raise ValueError(f"a {j.stop_deg:.0f}° stop needs a post wider than the link; lower --margin")
     if j.pitch / 2 - j.post_r < j.r_keep + 0.05:
         raise ValueError("the stop post would touch the washers")
     if p.washer_od_mm / 2 > j.R + 1e-9 or j.r_cs > j.R - 0.5:

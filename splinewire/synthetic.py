@@ -13,11 +13,12 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from splinewire.camera import Camera, apply_homography, focal_px_from_35mm, look_at_plane
+from splinewire.camera import (
+    EXIF_IFD, TAG_FOCAL_LENGTH_35MM, Camera, apply_homography, focal_px_from_35mm, look_at_plane,
+)
 from splinewire.chain import ChainSpec, pins_from_turns
 
 TRUTH_SCHEMA = "spline-wire/truth@1"
-_EXIF_IFD, _TAG_FOCAL_LENGTH_35MM = 0x8769, 0xA405
 
 TABLE_GRAY = 205
 LINK_GRAY = 45
@@ -218,7 +219,7 @@ def write_synthetic_photo(
 def save_photo(path: Path, image: np.ndarray, focal_35mm: float, quality: int = 92) -> None:
     """Save as JPEG with the 35 mm-equivalent focal length in EXIF, like a phone."""
     exif = Image.Exif()
-    exif.get_ifd(_EXIF_IFD)[_TAG_FOCAL_LENGTH_35MM] = int(round(focal_35mm))
+    exif.get_ifd(EXIF_IFD)[TAG_FOCAL_LENGTH_35MM] = int(round(focal_35mm))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(image).save(path, quality=quality, exif=exif)
 

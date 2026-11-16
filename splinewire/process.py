@@ -5,14 +5,13 @@ Shared by the CLI and the web app.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
-
 from PIL import Image
 
-from splinewire.camera import focal_px_from_35mm
+from splinewire.camera import EXIF_IFD, TAG_FOCAL_LENGTH_35MM, focal_px_from_35mm
 from splinewire.chain import ChainSpec
 from splinewire.contact import Side
 from splinewire.detect import Fiducial
@@ -30,16 +29,24 @@ class PhotoResult:
     photo: Path
     measurement: Measurement
     image: np.ndarray                       # grayscale photo, upright
-    preview: np.ndarray                     # BGR photo with detections drawn on
+    preview: np.ndarray | None              # BGR photo with detections drawn on (the app drops it once shown)
     truth_comparison: dict | None = None
     outputs: dict[str, Path] = field(default_factory=dict)
     focal_source: str = "exif"    # "exif", "override", "default" or "estimated"
     info: dict = field(default_factory=dict)   # what the photo file carried; see photo_info
+    # With a truth file: "compared", or why not: "off" (asked not to), "pins"
+    # (a different pin count), "shape" (a different shape: not the test part).
+    truth_status: str | None = None
 
 
-_EXIF_IFD = 0x8769
+# A photo of the test part matches its truth file to well under a millimetre
+# (1 mm is the pass mark). Pins this far off, after fitting position, angle and
+# scale, mean a different shape: not the test part, so the error means nothing.
+NOT_THE_TEST_PART_PITCHES = 0.5
+
+
 _TAGS = {"make": 0x010F, "model": 0x0110}
-_EXIF_TAGS = {"focal_mm": 0x920A, "focal_35mm": 0xA405}
+_EXIF_TAGS = {"focal_mm": 0x920A, "focal_35mm": TAG_FOCAL_LENGTH_35MM}
 
 
 def photo_info(path: Path) -> dict:
@@ -50,7 +57,7 @@ def photo_info(path: Path) -> dict:
     """
     with Image.open(path) as im:
         exif = im.getexif()
-        sub = exif.get_ifd(_EXIF_IFD)
+        sub = exif.get_ifd(EXIF_IFD)
         info = {"format": im.format, "width": im.size[0], "height": im.size[1]}
         for key, tag in _TAGS.items():
             value = exif.get(tag)
@@ -72,6 +79,7 @@ def process_photo(
     edits: Edits | None = None,
     loaded: tuple[np.ndarray, float | None] | None = None,
     detected: list[Fiducial] | None = None,
+    compare_truth: bool | None = None,
 ) -> PhotoResult:
     """Measure the chain in `photo` and write JSON, CSV, SVG and preview to out_dir.
 
@@ -84,6 +92,9 @@ def process_photo(
     edits: pins removed or added by hand (splinewire.edits). loaded and
     detected: what load_photo and detect_fiducials already returned for this
     photo, to measure it again without repeating them (e.g. after an edit).
+    compare_truth: with truth_path, True compares whenever the pin counts
+    match, False never, None (auto) only when the shape matches too, so a
+    leftover truth file does not score photos of something else.
     """
     photo = Path(photo)
     image, focal = loaded if loaded is not None else load_photo(photo)
@@ -100,11 +111,15 @@ def process_photo(
         extra["edits"] = edits.to_json()
     if m.side_px is not None:
         extra["object_side_picked_px"] = [round(v, 1) for v in m.side_px]
-    truth_comparison = None
+    truth_comparison = truth_status = None
     if truth_path is not None:
-        truth = np.array(json.loads(Path(truth_path).read_text(encoding="utf-8"))["pin_points"])
-        truth_comparison = compare_to_truth(m.pins_mm, truth)
-        extra["truth_comparison"] = truth_comparison
+        truth_comparison, truth_status, why = _compare(m, Path(truth_path), spec, compare_truth)
+        if truth_comparison is not None:
+            extra["truth_comparison"] = truth_comparison
+        elif why and compare_truth:
+            m = replace(m, warnings=[*m.warnings, why])     # asked for, and couldn't
+        elif why:
+            m = replace(m, notes=[*m.notes, why])
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -127,5 +142,23 @@ def process_photo(
     return PhotoResult(
         photo=photo, measurement=m, image=image, preview=preview,
         truth_comparison=truth_comparison, outputs=outputs,
-        focal_source=source, info=photo_info(photo),
+        focal_source=source, info=photo_info(photo), truth_status=truth_status,
     )
+
+
+def _compare(m: Measurement, truth_path: Path, spec: ChainSpec,
+             compare: bool | None) -> tuple[dict | None, str, str | None]:
+    """The truth comparison, or None with the reason and a message for people."""
+    if compare is False:
+        return None, "off", None
+    truth = np.array(json.loads(truth_path.read_text(encoding="utf-8"))["pin_points"])
+    if len(truth) != len(m.pins_mm):
+        return None, "pins", (f"not compared to {truth_path.name}: it has {len(truth)} pins "
+                              f"and this chain {len(m.pins_mm)}")
+    t = compare_to_truth(m.pins_mm, truth)
+    off = NOT_THE_TEST_PART_PITCHES * spec.pitch_mm
+    if compare is None and t["max_error_scaled_mm"] > off:
+        return None, "shape", (f"not compared to {truth_path.name}: a different shape "
+                               f"(pins up to {t['max_error_scaled_mm']:.1f} mm apart), "
+                               "so not the test part")
+    return t, "compared", None

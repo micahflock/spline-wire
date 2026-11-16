@@ -113,7 +113,7 @@ Copy points, then Paste points, put the curve into a Fusion sketch as points wit
 
 ![The measured curve pasted into an Autodesk Fusion sketch](docs/img/real-chain-fusion.png)
 
-**Simulated photos.** Before anything was printed, I built a photo simulator: realistic FDM print defects, nine table surfaces, clutter, lamp glare, shadows, defocus, hand shake, lens distortion, sensor noise and JPEG compression. Testing against it raised whole-chain detection from 77 to 155 of 167 photos, with a ring-shaped fiducial. The plain dot the chain now uses gets 142 of 167, the price of being easier to print. When the chain is found, the median worst-pin error is 0.023 mm. The remaining failures are one case: a lamp reflected in shiny filament. Easy to avoid in the real world.
+**Simulated photos.** Before anything was printed, I built a photo simulator: realistic FDM print defects, nine table surfaces, clutter, lamp glare, shadows, defocus, hand shake, lens distortion, sensor noise and JPEG compression. Testing against it raised whole-chain detection from 77 to 155 of 167 photos, with a ring-shaped fiducial. The plain dot the chain now uses gets 143 of 167, the price of being easier to print. When the chain is found, the median worst-pin error is 0.023 mm. The remaining failures are one case: a lamp reflected in shiny filament. Easy to avoid in the real world.
 
 ![A grid of simulated phone photos under different tables, lighting and clutter](docs/img/environments.jpg)
 
@@ -135,7 +135,7 @@ Every decision, with the numbers behind it, is recorded in [docs/](docs/). [docs
 
 I directed the project. Opus 5.5 wrote the software, the simulator and the chain generators, working in cloud sessions on branches that I review and merge. My part was the problem, the requirements, the design calls and trade-offs, and all the physical work: printing, assembly, photos and measurement.
 
-What made this work was a simulator with known answers. Every change could be checked by a number (pin error in millimetres, chains found out of 167) rather than by eye. The test suite has over 250 tests, most of them end to end on synthetic photos with known geometry. [CLAUDE.md](CLAUDE.md) is the project brief the agent works from.
+What made this work was a simulator with known answers. Every change could be checked by a number (pin error in millimetres, chains found out of 167) rather than by eye. The test suite has over 300 tests, most of them end to end on synthetic photos with known geometry. [CLAUDE.md](CLAUDE.md) is the project brief the agent works from.
 
 ## Try it
 
@@ -147,7 +147,7 @@ What made this work was a simulator with known answers. Every change could be ch
 uv sync
 uv run splinewire-app                     # the app, at http://localhost:8765/
 uv run splinewire measure photo.jpg       # one photo from the command line -> JSON, CSV, DXF, SVG
-uv run pytest                             # tests (~1 min)
+uv run pytest                             # tests (~2 min)
 ```
 
 **Print your own:**

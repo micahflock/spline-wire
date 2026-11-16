@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Spline Wire {version_string()}")
     print(f"  On this computer:  http://localhost:{server.port}/")
     for url in server.phone_urls()[:1]:
-        print(f"  From your phone:   scan the QR code on that page (same Wi-Fi), or open")
+        print("  From your phone:   scan the QR code on that page (same Wi-Fi), or open")
         print(f"                     {url}")
     print(f"  Photos and results: {app.workspace}")
     print("  Phone times out? Click \"Allow phone connections\" on the page (Windows Firewall).")

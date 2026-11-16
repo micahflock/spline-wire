@@ -43,6 +43,22 @@ def test_round_contact_touches_at_every_pin(concave, side, radius):
     np.testing.assert_allclose(contact_points(straight, 4.68, 1, round_contact=True), straight + [0, 4.68])
 
 
+@pytest.mark.parametrize("missing", [1, 6, 11])
+def test_no_contact_is_made_up_where_a_pin_is_missing(missing):
+    """Without the pin between them, two pins are not joined by a link, and
+    the middle of the line between them is not where a link touched: on a
+    pipe of 30 mm radius it is 1.1 mm inside the pipe."""
+    spec = _spec()
+    pins = np.delete(circle_wrap_pins(spec, radius_mm=30.0), missing, axis=0)
+    sign = object_sign(pins, "inside")
+    c = contact_points(pins, spec.half_width_mm, sign, gaps=[missing - 1])
+    assert len(c) == len(pins) - 2                   # one per link that is there
+    np.testing.assert_allclose(np.linalg.norm(c, axis=1), 30.0, atol=1e-9)
+    assert np.abs(np.linalg.norm(spline_samples(c), axis=1) - 30.0).max() < 0.2      # the curve bridges it
+    as_a_link = contact_points(pins, spec.half_width_mm, sign)
+    assert np.abs(np.linalg.norm(as_a_link, axis=1) - 30.0).max() > 1.0
+
+
 def test_object_side():
     pins = circle_wrap_pins(_spec(), radius_mm=25.0)   # counter-clockwise: curls left
     assert object_sign(pins, "inside") == 1

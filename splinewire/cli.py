@@ -97,10 +97,18 @@ def main(argv: list[str] | None = None) -> int:
                         "smaller if it doesn't bite")
 
     args = parser.parse_args(argv)
-    spec = load_chain_spec(args.chain)
     commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque,
                 "print-chain": _print_chain, "oring-chain": _oring_chain}
-    return commands[args.command](args, spec)
+    # ValueErrors carry the program's own messages for people (a photo with no
+    # chain in it, a setting out of range): show the message, not a traceback.
+    try:
+        spec = load_chain_spec(args.chain)
+        return commands[args.command](args, spec)
+    except KeyError as err:
+        print(f"error: {args.chain} has no {err.args[0]}", file=sys.stderr)
+    except (ValueError, OSError) as err:
+        print(f"error: {err}", file=sys.stderr)
+    return 1
 
 
 def _presets() -> dict:
@@ -123,7 +131,7 @@ def _measure(args, spec: ChainSpec) -> int:
     if args.pins is not None:
         spec = replace(spec, n_pins=args.pins)
     result = process_photo(args.photo, spec, args.out, focal_35mm=args.focal_35mm,
-                           side=args.side, truth_path=args.truth)
+                           side=args.side, truth_path=args.truth, compare_truth=True)
     m = result.measurement
     r = m.rectification
     print(f"{len(m.order.indices)} pins found, tilt {r.tilt_deg:.1f} deg, "
@@ -134,9 +142,11 @@ def _measure(args, spec: ChainSpec) -> int:
         print(f"vs truth: max error {t['max_error_mm']:.3f} mm, rms {t['rms_error_mm']:.3f} mm; "
               f"after scale fit {t['max_error_scaled_mm']:.3f} mm "
               f"(measured/true scale {t['scale']:.4f})")
+    for n in m.notes:
+        print(f"note: {n}")
     for w in m.warnings:
         print(f"warning: {w}", file=sys.stderr)
-    print(f"wrote {args.out}/{args.photo.stem}.json, -curve.csv, -curve.svg, -preview.jpg")
+    print("wrote " + ", ".join(p.name for p in result.outputs.values()) + f" in {args.out}")
     return 0
 
 

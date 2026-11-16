@@ -36,6 +36,13 @@ class Rectification:
     distortion_k1: float = 0.0                    # radial distortion solved for (0 unless asked)
 
 
+def min_links(focal_known: bool = True, estimate_distortion: bool = False) -> int:
+    """Fewest links rectify_chain accepts: two more than it has unknowns (the
+    plane's three, the focal length if unknown, the distortion if asked for),
+    so that the fit is over-determined."""
+    return 3 + (not focal_known) + estimate_distortion + 2
+
+
 def rectify_chain(
     points_px: np.ndarray,
     links: list[tuple[int, int]],
@@ -55,10 +62,11 @@ def rectify_chain(
     links_arr = np.asarray(links, dtype=int).reshape(-1, 2)
     solve_f = focal_px is None
     n_unknowns = 3 + solve_f + estimate_distortion
-    if len(links_arr) < n_unknowns + 2:
-        raise ValueError(
-            f"need at least {n_unknowns + 2} links to rectify, got {len(links_arr)}"
-        )
+    need = min_links(not solve_f, estimate_distortion)
+    if len(links_arr) < need:
+        raise ValueError(f"need at least {need} links to rectify, got {len(links_arr)}")
+    if focal_px is not None and not (math.isfinite(focal_px) and focal_px > 0):
+        raise ValueError(f"the focal length must be a positive number of pixels, got {focal_px}")
 
     w, h = image_size
     diag = math.hypot(w, h)
@@ -90,6 +98,8 @@ def rectify_chain(
             if best is None or sol.cost < best[0].cost:
                 best = (sol, f0, d0)
 
+    if best is None:
+        raise ValueError("could not fit a plane through the pins; check the detections and the focal length")
     sol, f0, d0 = best
     m = sol.x[:3] / d0
     f, k1 = unpack(sol.x, f0)

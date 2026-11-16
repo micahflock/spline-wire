@@ -19,6 +19,23 @@ def test_process_photo_writes_outputs_and_compares_truth(spec, tmp_path):
     assert doc["truth_comparison"] == res.truth_comparison
 
 
+def test_a_file_that_is_not_a_photo_or_is_cut_short_is_said_to_be(spec, tmp_path):
+    import pytest
+
+    from splinewire.pipeline import load_photo
+
+    photo = tmp_path / "p.jpg"
+    write_synthetic_photo(photo, s_curve_pins(spec), spec, (800, 600))
+    (tmp_path / "half.jpg").write_bytes(photo.read_bytes()[: photo.stat().st_size // 2])
+    (tmp_path / "notes.jpg").write_text("not a photo")
+    with pytest.raises(ValueError, match="could not read the photo half.jpg"):
+        load_photo(tmp_path / "half.jpg")
+    with pytest.raises(ValueError, match="notes.jpg is not a photo this program can read"):
+        load_photo(tmp_path / "notes.jpg")
+    with pytest.raises(FileNotFoundError):
+        load_photo(tmp_path / "missing.jpg")
+
+
 def test_heic_photo_with_exif(spec, tmp_path):
     pins = s_curve_pins(spec)
     jpg = tmp_path / "p.jpg"
@@ -89,3 +106,38 @@ def test_focal_source_and_photo_info(spec, tmp_path):
     assert not res.measurement.rectification.focal_estimated
     assert process_photo(stripped, spec, tmp_path / "out").focal_source == "estimated"
     assert process_photo(stripped, spec, tmp_path / "out", focal_35mm=26).focal_source == "override"
+
+
+def test_truth_file_only_scores_photos_of_the_test_part(spec, tmp_path):
+    """A leftover truth file must not give photos of something else an error."""
+    from splinewire.synthetic import circle_wrap_pins
+
+    pins = s_curve_pins(spec)
+    photo, plaque, other = tmp_path / "p.jpg", tmp_path / "s-curve.json", tmp_path / "pipe.json"
+    write_synthetic_photo(photo, pins, spec, (2000, 1500))
+    write_truth(plaque, pins)
+    write_truth(other, circle_wrap_pins(spec, 30.0))
+    out = tmp_path / "out"
+
+    res = process_photo(photo, spec, out, truth_path=plaque)           # the test part: compared
+    assert res.truth_status == "compared" and res.truth_comparison["max_error_mm"] < 0.05
+
+    res = process_photo(photo, spec, out, truth_path=other)            # a different shape: left out
+    assert res.truth_status == "shape" and res.truth_comparison is None
+    assert res.measurement.warnings == []
+    assert any("different shape" in n for n in res.measurement.notes)
+    doc = json.loads(res.outputs["json"].read_text(encoding="utf-8"))
+    assert "truth_comparison" not in doc and doc["notes"] == res.measurement.notes
+
+    res = process_photo(photo, spec, out, truth_path=other, compare_truth=True)   # asked for anyway
+    assert res.truth_status == "compared" and res.truth_comparison["max_error_mm"] > 5
+    res = process_photo(photo, spec, out, truth_path=plaque, compare_truth=False)
+    assert res.truth_status == "off" and res.truth_comparison is None and res.measurement.notes == []
+
+    short = tmp_path / "short.json"                                    # a different pin count
+    write_truth(short, pins[:-2])
+    res = process_photo(photo, spec, out, truth_path=short)
+    assert res.truth_status == "pins" and res.measurement.warnings == []
+    assert any("11 pins" in n for n in res.measurement.notes)
+    res = process_photo(photo, spec, out, truth_path=short, compare_truth=True)
+    assert any("11 pins" in w for w in res.measurement.warnings)   # asked for, and couldn't

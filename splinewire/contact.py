@@ -18,9 +18,15 @@ offset by w along the bisector, whichever way the chain bends.
 
 Contact points are exact for circular arcs and a close approximation for
 curves whose radius changes slowly relative to the pitch.
+
+Where a pin was not found, the two pins either side of it are not joined by
+a link, so the middle of the line between them is not a contact point (on
+a pipe of 30 mm radius it lies 1.1 mm inside the pipe). No point is given
+there and the curve bridges the gap from the points either side.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -67,12 +73,22 @@ def side_name(pins_mm: np.ndarray, sign: int) -> Side:
     return "inside" if object_sign(pins_mm, "inside") == sign else "outside"
 
 
-def contact_points(pins_mm: np.ndarray, half_width_mm: float, sign: int, round_contact: bool = False) -> np.ndarray:
+def contact_points(
+    pins_mm: np.ndarray,
+    half_width_mm: float,
+    sign: int,
+    round_contact: bool = False,
+    gaps: Sequence[int] = (),
+) -> np.ndarray:
     """Points where the target curve touches the chain, in chain order.
 
     round_contact: the chain touches with round sleeves about its pins, not
-    with its links' straight edges: one point per pin."""
+    with its links' straight edges: one point per pin.
+    gaps: every k where pins k and k + 1 are not joined by a link, because a
+    pin between them was not found (ChainOrder.gaps). No link, so no link
+    midpoint: the curve bridges it."""
     pins = np.asarray(pins_mm, dtype=float)
+    gaps = set(gaps)
     d = np.diff(pins, axis=0)
     d /= np.linalg.norm(d, axis=1)[:, None]
     left = np.c_[-d[:, 1], d[:, 0]]           # left normal of each link
@@ -104,7 +120,7 @@ def contact_points(pins_mm: np.ndarray, half_width_mm: float, sign: int, round_c
                 normal = left[i - 1] + left[i]
                 normal /= np.linalg.norm(normal)
             out.append(pins[i] + offset * normal)
-        if i < len(pins) - 1 and not (away[i] and away[i + 1]):
+        if i < len(pins) - 1 and i not in gaps and not (away[i] and away[i + 1]):
             out.append((pins[i] + pins[i + 1]) / 2 + offset * left[i])
     return np.array(out)
 

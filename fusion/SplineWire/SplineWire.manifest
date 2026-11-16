@@ -6,7 +6,7 @@
   "description": {
     "": "Paste points measured with Spline Wire into a sketch, with a spline through them."
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "runOnStartup": true,
   "supportedOS": "windows|mac",
   "editEnabled": true
