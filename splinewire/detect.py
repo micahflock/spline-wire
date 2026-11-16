@@ -26,11 +26,15 @@ see detect_dots. Both work in two stages, described here for rings:
    centre is the mean of the two ellipse centres weighted by fit quality
    and area (print defects shift a small circle's centre the most).
    Candidates whose profiles do not look like a ring are dropped here.
+
+A ring with a thin band (`detect_rims`: the snap-fit chain's white rim on a
+pin top) is found by its hole alone, since nothing dark need lie outside
+its band: see detect_rims.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
@@ -61,11 +65,17 @@ _MIN_LEVEL_SIDE = 360   # smallest pyramid level, px
 _MAX_SCALE = 8          # coarsest level: 1/8 resolution
 
 
+# A ring whose hole is at least this share of its diameter is a thin band,
+# found by its hole (detect_rims).
+THIN_RING = 0.6
+
+
 def detect_fiducials(image: np.ndarray, spec) -> list[Fiducial]:
-    """The fiducials a ChainSpec describes: dots or rings."""
+    """The fiducials a ChainSpec describes: dots, rings or thin rims."""
     if spec.fiducial == "dot":
         return detect_dots(image)
-    return detect_rings(image, spec.ring_inner_mm / spec.fiducial_mm)
+    ratio = spec.ring_inner_mm / spec.fiducial_mm
+    return detect_rims(image, ratio) if ratio >= THIN_RING else detect_rings(image, ratio)
 
 
 def _pyramid(gray: np.ndarray):
@@ -462,7 +472,8 @@ def _dot_candidates(mask: np.ndarray, min_diameter_px: float, scale: float) -> l
     return found
 
 
-def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2) -> Fiducial | None:
+def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2,
+                margin: tuple[float, float] = _DOT_MARGIN) -> Fiducial | None:
     (cx, cy), (A, B), ang = cand.outer
     for k in range(passes):
         need = 0.55 if k < passes - 1 else 0.7          # a rough first outline misses some edges
@@ -485,7 +496,7 @@ def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2) -> Fiducial
             return int(np.clip(round(v / ds), 0, n_s - 1))
 
         inside = np.median(q[:, idx(0.1):idx(0.7) + 1], axis=1)
-        outside = np.median(q[:, idx(_DOT_MARGIN[0]):idx(_DOT_MARGIN[1]) + 1], axis=1)
+        outside = np.median(q[:, idx(margin[0]):idx(margin[1]) + 1], axis=1)
         contrast = inside - outside
         if float(np.median(contrast)) < 15 or np.mean(contrast > 6.0) < 0.85:
             return None
@@ -520,6 +531,68 @@ def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2) -> Fiducial
 
 
 # ---------------------------------------------------------------------------
+# Thin rims
+
+
+def detect_rims(image: np.ndarray, inner_outer_ratio: float, min_diameter_px: float = 8.0) -> list[Fiducial]:
+    """Detect thin light rings by their holes.
+
+    The snap-fit chain's fiducial is a white rim 0.86 mm wide round the top
+    of a 7.2 mm pin. Nothing dark need lie outside it: the sleeve round the
+    pin is 2.4 mm lower, so a tilted camera sees the table next to the rim
+    on its far side, and the first pin has no sleeve at all. On a light
+    table the rim's outer edge is then missing. Its hole is always there:
+    the dark pin top, on the rim's own plane, with the bright rim all the
+    way round. So the hole is found and measured as a dot is, dark on
+    light, with the rim as its margin, and the fiducial's centre is the
+    hole's. The size reported is the rim's, from the spec's ratio.
+    """
+    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    candidates: list[_Candidate] = []
+    for g, scale in _pyramid(gray):
+        for mask, polarity in _masks(g):
+            if polarity < 0:
+                candidates.extend(_dot_candidates(mask, min_diameter_px if scale == 1 else 10.0, scale))
+    grayf = gray.astype(np.float32)
+    inverted = 255.0 - grayf
+    rims = []
+    for c in _dedupe_candidates(candidates, same_size=True):
+        r = _refine_rim(grayf, inverted, c, inner_outer_ratio)
+        if r is not None:
+            rims.append(r)
+    return _dedupe(rims)
+
+
+def _refine_rim(gray: np.ndarray, inverted: np.ndarray, hole: _Candidate, ratio: float) -> Fiducial | None:
+    """A rim from the outline of its hole (hole.outer), or None if what
+    surrounds the hole is not a bright band as wide as the rim."""
+    band = 1.0 / ratio - 1.0                    # the rim's width, in hole radii
+    d = _refine_dot(inverted, hole, margin=(1.0 + 0.25 * band, 1.0 + 0.8 * band))
+    if d is None:
+        return None
+    major, minor = d.outer_axes_px
+    # What lies outside the rim (a link, or the table), a little way out.
+    phi = np.linspace(0.0, 2 * math.pi, 48, endpoint=False)
+    t = math.radians(d.angle_deg)
+    k = 1.25 / ratio / 2
+    ex = k * (major * np.cos(phi) * math.cos(t) - minor * np.sin(phi) * math.sin(t))
+    ey = k * (major * np.cos(phi) * math.sin(t) + minor * np.sin(phi) * math.cos(t))
+    beyond = cv2.remap(gray, (d.center_px[0] + ex).astype(np.float32)[None],
+                       (d.center_px[1] + ey).astype(np.float32)[None],
+                       cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    return Fiducial(
+        center_px=d.center_px,
+        outer_axes_px=(major / ratio, minor / ratio),
+        inner_axes_px=(major, minor),
+        angle_deg=d.angle_deg,
+        residual_px=d.residual_px,
+        contrast=d.contrast,
+        polarity=1,
+        surround=float(np.median(beyond)),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Snapping a click to a fiducial
 
 
@@ -544,11 +617,16 @@ def snap_fiducial(
     """
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     ring = spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0
-    cand = _blob_under(gray, point_px, like, ring)
-    if cand is None:
-        return None
     grayf = gray.astype(np.float32)
-    found = _refine_dot(grayf, cand) if spec.fiducial == "dot" else _refine(grayf, cand, ring)
+    if ring >= THIN_RING:
+        # A thin rim: the dark hole under the click.
+        hole = _blob_under(gray, point_px, replace(like, outer_axes_px=like.inner_axes_px, polarity=-1), 0.0)
+        found = _refine_rim(grayf, 255.0 - grayf, hole, ring) if hole is not None else None
+    else:
+        cand = _blob_under(gray, point_px, like, ring)
+        if cand is None:
+            return None
+        found = _refine_dot(grayf, cand) if spec.fiducial == "dot" else _refine(grayf, cand, ring)
     if found is None:
         return None
     major, minor = like.outer_axes_px

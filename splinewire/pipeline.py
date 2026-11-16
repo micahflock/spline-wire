@@ -165,7 +165,7 @@ def measure(
     else:
         side_px = (float(side[0]), float(side[1]))
         sign = sign_from_photo_point(centers[order.indices], side_px)
-    contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign)
+    contacts = contact_points(rect.pins_mm, spec.half_width_mm, sign, spec.contact == "round")
     return Measurement(
         fiducials=fiducials, order=order, rectification=rect, object_side=side_name(rect.pins_mm, sign),
         contacts_mm=contacts, warnings=warnings, manual=manual, object_sign=sign, side_px=side_px,

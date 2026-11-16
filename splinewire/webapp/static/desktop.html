@@ -185,12 +185,14 @@ label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
     <fieldset>
       <legend>Chain</legend>
       <div class="grid2">
+        <span>Fill in for a chain</span><select id="chain-preset"></select>
         <span>Pitch, pin to pin (mm)</span><input name="pitch_mm" inputmode="decimal">
-        <span>Half width, pin line to edge (mm)</span><input name="half_width_mm" inputmode="decimal">
+        <span>Half width, pin line to edge or sleeve radius (mm)</span><input name="half_width_mm" inputmode="decimal">
+        <span>What touches the object</span><select name="contact"><option value="edge">Link edges</option><option value="round">Round sleeves</option></select>
         <span>Fiducial on each pin</span><select name="fiducial"><option value="dot">Dot</option><option value="ring">Ring</option></select>
         <span>Dot or ring diameter (mm)</span><input name="fiducial_mm" inputmode="decimal">
         <span>Ring hole diameter (mm, rings only)</span><input name="ring_inner_mm" inputmode="decimal">
-        <span>Sharpest bend at a pin (°; 80, or 125 for the O-ring chain)</span><input name="max_bend_deg" inputmode="decimal">
+        <span>Sharpest bend at a pin (°; 80, 125 for the O-ring chain, 110 for the snap-fit chain)</span><input name="max_bend_deg" inputmode="decimal">
       </div>
     </fieldset>
     <p class="small">The number of pins and the side the object was on are set for each photo, next to it.</p>
@@ -852,6 +854,14 @@ const form = $("#settings-form");
 $("#settings-btn").onclick = () => {
   const s = state.settings;
   for (const [k, v] of Object.entries(s.chain)) if (form.elements[k]) form.elements[k].value = v;
+  const names = {default: "O-ring chain", snap: "Snap-fit chain"};
+  const presets = s.chain_presets || {};
+  const same = (a) => Object.entries(a).every(([k, v]) => String(s.chain[k]) === String(v));
+  $("#chain-preset").innerHTML = `<option value="">Choose…</option>` + Object.keys(presets).map((n) =>
+    `<option value="${esc(n)}" ${same(presets[n]) ? "selected" : ""}>${esc(names[n] || n)}</option>`).join("");
+  $("#chain-preset").onchange = (ev) => {
+    for (const [k, v] of Object.entries(presets[ev.target.value] || {})) if (form.elements[k]) form.elements[k].value = v;
+  };
   form.elements.phone_focal_35mm.value = s.phone_focal_35mm ?? "";
   form.elements.focal_override_35mm.value = s.focal_override_35mm ?? "";
   $("#truth-status").textContent = s.truth_name ? `Comparing every photo to ${s.truth_name}.` :
@@ -865,7 +875,7 @@ $("#settings-save").onclick = async (ev) => {
   const e = form.elements;
   const body = {chain: {}, phone_focal_35mm: e.phone_focal_35mm.value.trim(),
     focal_override_35mm: e.focal_override_35mm.value.trim()};
-  for (const k of ["pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "max_bend_deg"]) body.chain[k] = e[k].value.trim();
+  for (const k of ["pitch_mm", "half_width_mm", "contact", "fiducial", "fiducial_mm", "ring_inner_mm", "max_bend_deg"]) body.chain[k] = e[k].value.trim();
   try {
     await api("/api/settings", {method: "POST", body: JSON.stringify(body)});
     $("#settings").close();

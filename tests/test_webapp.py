@@ -103,6 +103,22 @@ def test_settings_are_validated(served):
     assert app.spec().max_bend_deg == 125.0                     # kept, not zeroed
 
 
+def test_chain_presets_and_what_touches_the_object(served):
+    app, server = served
+    state = json.loads(call(server, "/api/state", token=app.token)[1])
+    presets = state["settings"]["chain_presets"]
+    assert presets["default"]["contact"] == "edge" and "n_pins" not in presets["snap"]
+    pins = app.settings["chain"]["n_pins"]
+    assert call(server, "/api/settings", json.dumps({"chain": presets["snap"]}).encode(), app.token)[0] == 200
+    spec = app.spec()
+    assert (spec.pitch_mm, spec.contact, spec.fiducial, spec.n_pins) == (13.0, "round", "ring", pins)
+    older_page = {"chain": {k: v for k, v in app.settings["chain"].items() if k != "contact"}}
+    assert call(server, "/api/settings", json.dumps(older_page).encode(), app.token)[0] == 200
+    assert app.spec().contact == "round"                        # kept
+    bad = {"chain": {**app.settings["chain"], "contact": "point"}}
+    assert call(server, "/api/settings", json.dumps(bad).encode(), app.token)[0] == 400
+
+
 def test_phone_side_is_limited(served):
     """From another device: pages and uploads work; settings, downloads and quit don't."""
     app, server = served
