@@ -58,6 +58,7 @@ contact → pin editing, object side  →  keyed by a pairing →  downloads (DX
 | D10 | Front end: TypeScript and Vite, no UI framework; tests with Vitest. Logic is kept apart from the browser (sockets, workers, storage, timers and the camera are passed in), so it is tested in Node. (Was O3.) | The hard parts are protocol and state logic, which need tests more than they need components. |
 | D11 | Relay messages are encrypted end to end: one random pairing secret in the QR link's `#fragment`; HKDF gives the room id (which the relay sees) and an AES-GCM key (which it does not). (Was O4.) | The relay then needs no trust and no storage. |
 | D12 | The relay only forwards. Delivery is the pages' job: the phone keeps each curve until the desktop acknowledges it, and the desktop stores each curve once by its id. | A dropped frame, a closed tab or a relay restart then loses nothing, and the relay stays a few dozen lines. |
+| D14 | The curve message carries the output files (JSON, CSV, SVG, DXF, Fusion CSV), gzip-compressed in the phone with `CompressionStream`, so the desktop page offers every download without loading Pyodide. | Python stays the only writer of the files (D3). For a 13-pin chain they are 24 KB, 7.5 KB gzipped (the DXF is 18 KB of boilerplate, 4.9 KB gzipped): about 10 KB sealed, well under the relay's 64 KB frame cap, and 100 kept curves fit in `localStorage`. The desktop page stays light and opens at once. |
 | D13 | The overlay splits the work: TypeScript finds bright dots in every video frame (`blobs.ts`, about 4 ms); the Python `order` and `rectify`, in the worker, say which are the chain and how the camera is tilted (`live.py`, about 50 ms native). | Ordering and rectifying are the subtle parts and already exist; only the pixel work has to be fast. |
 
 ### Open decisions
@@ -151,6 +152,20 @@ Depends on S3 and S5.
 - Video frames carry no EXIF. Remember the focal length from any still of this phone that had it; otherwise the saved setting, otherwise the estimate from the chain.
 
 Exit: on a real phone, the overlay tracks the chain and the automatic shot measures as well as a hand-taken one. **Needs a phone.**
+
+## Work queue
+
+The next tasks, in order, each small enough for one agent in one session. Each names the backbone it must build on; the backbone's contracts (web/README.md, "Rules of the road") are changed only on both sides at once, with tests.
+
+1. **Finish step 1** (in progress): `splinewire/bridge.py`, the assets script, `web/src/core/worker.ts` implementing `protocol.ts`, the Playwright test, a throwaway page, CI (`.github/workflows/web.yml`).
+2. **Finish the relay** (in progress): `web/relay/worker.ts` (Cloudflare Durable Object around `rules.ts`), `dev-relay.ts`, real-socket tests, a two-tab browser check (S4).
+3. **Files in the curve message (D14).** Add an optional `files` field to `Curve` in `src/relay/messages.ts` (kind → base64 of gzip), checked in `parseCurve` with a size cap; a `src/relay/files.ts` with `pack(texts)` / `unpack(files)` over `CompressionStream`; a test that unpacked files equal `PhotoSession.outputs()` for a synthetic photo.
+4. **Curve from a measurement.** `src/core/curve.ts`: `MeasurementDocument` + outputs + chain preset name → `Curve` (`newCurveId`, `measured_at`, diagnostics). Pure, tested against a document saved from Python.
+5. **Phone page (step 2).** `phone/index.html` + `src/phone/`: take or pick a photo (keep it in IndexedDB, keyed by the id `CoreClient` uses), progress while the core loads (start `preload()` at page open), the photo with pins drawn from `view` using `src/editor/` (gestures, `editsAfterTap`, `EditHistory`, viewport), object side by a tap, warnings in orange, Copy points (`pointsTsv`), share and downloads. Settings: chain preset, pin count, saved focal length (localStorage). Pairing status from `RelayLink` and the outbox list ("queued: the computer's page is not open"). A service worker that caches the Pyodide assets so the second visit is quick. Version and build on the page.
+6. **Desktop page (step 3).** `index.html` + `src/desktop/`: the pairing QR code (`desktopSecret`, `pairingUrl`; a small QR encoder from npm, pinned), the inbox list newest first, the curve drawn in mm, Copy points and Ctrl+C, downloads from `files`, warnings in orange, unpair. D9 (measure a dropped photo) reuses the phone page's photo view.
+7. **Hosting (step 4), once the owner has answered O1 and O2.** A Pages deploy workflow, the relay deploy, the relay URL baked into the build, a staging path for branches. Then S2 and S3 on the owner's phone.
+8. **Core memory and load (O8).** Each lever measured with `experiments/pyodide_spike/` and the benchmark before and after.
+9. **Overlay page (step 5), after S3 and S5.** Camera, `requestVideoFrameCallback`, work frames through `blobs.workSize` and `toGray`, `OverlaySession`, the still taken with `ImageCapture` where it exists and the file input otherwise. Calibrate the provisional limits in `src/overlay/coach.ts` with S5's numbers and recorded phone video.
 
 ## Risks
 
