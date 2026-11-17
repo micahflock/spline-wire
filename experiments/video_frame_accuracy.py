@@ -87,6 +87,7 @@ VIDEO = {"2160p": (3840, 2160), "1080p": (1920, 1080), "720p": (1280, 720)}
 FILL = 0.65            # chain's longest extent / video frame height
 EIS_CROP = 1.1         # video field of view narrowed by stabilisation
 BLUR = (0.0, 2.0, 4.0, 8.0)          # px at 1080p
+MEM_CAP_GB = 4           # per evaluation worker
 QUICK_PRESETS = ["ideal", "daylight", "shake", "dim", "shadow", "wood", "text", "clutter", "worst"]
 
 SPEC = cvb.SPEC
@@ -172,6 +173,11 @@ def _score(m, truth_px, truth_mm, tol) -> dict:
 
 def evaluate_one(args) -> dict:
     cond, sid, max_bend = args
+    # A photo with thousands of look-alikes (woven fabric, close up) makes the
+    # ordering's pairwise arrays tens of GB; cap memory so it fails here, as
+    # MemoryError, instead of taking the machine down.
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (MEM_CAP_GB << 30, MEM_CAP_GB << 30))
     from splinewire.detect import detect_fiducials
     from splinewire.pipeline import measure
     spec = replace(SPEC, max_bend_deg=max_bend)
@@ -187,8 +193,15 @@ def evaluate_one(args) -> dict:
            "fill": float(span.max() / min(w, h)),
            "in_frame": bool((truth_px.min() >= 0) and (truth_px[:, 0].max() < w) and (truth_px[:, 1].max() < h))}
     t = time.time()
-    fids = detect_fiducials(img, spec)
+    try:
+        fids = detect_fiducials(img, spec)
+    except MemoryError:
+        fids = None
     rec["detect_s"] = time.time() - t
+    if fids is None:
+        fail = {"chain_ok": False, "err_mm": None, "rms_mm": None, "error": "MemoryError in detection"}
+        rec.update(found=0, false=0, err_px_median=None, err_px_max=None, true=fail, est=dict(fail))
+        return rec
     centers = np.array([f.center_px for f in fids]).reshape(-1, 2)
     match = cvb._match(centers, truth_px, tol)
     rec["found"] = int(np.sum(match >= 0))
