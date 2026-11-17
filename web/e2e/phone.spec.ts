@@ -300,9 +300,13 @@ test.describe("paired with a computer", () => {
     expect(curve!.photo).toBe(path.basename(pipe.photo));
     const files = await unpack(curve!.files!);
     const core = await page.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), photoId);
-    // The DXF carries GUIDs and a time stamp that ezdxf makes anew for every file written.
+    // The DXF carries GUIDs and time stamps that ezdxf makes anew for every
+    // file written: a version line "x.y.z @ time", and the header's creation
+    // and update dates (Julian days, group code 40 after $TDCREATE etc.).
+    // Two files written a moment apart differ in them; CI caught it.
     const guidless = (t: string | undefined) =>
-      t?.replace(/^\{[0-9A-F-]{36}\}$/gm, "{guid}").replace(/^(\d+\.\d+\.\d+) @ \S+$/gm, "$1 @ {time}");
+      t?.replace(/^\{[0-9A-F-]{36}\}$/gm, "{guid}").replace(/^(\d+\.\d+\.\d+) @ \S+$/gm, "$1 @ {time}")
+        .replace(/(\$TDU?(?:CREATE|UPDATE)\r?\n\s*40\r?\n)[^\r\n]+/g, "$1{date}");
     for (const kind of ["json", "csv", "svg", "dxf", "fusion_csv"] as const) {
       expect(guidless(files[kind]), kind).toBe(guidless(core.files[kind]));
     }
