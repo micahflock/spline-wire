@@ -959,7 +959,10 @@ const cameraView = new CameraView({
     $("take").click();
   },
   upload: () => setMode("upload"),
-  teach: () => $("s-teach").click(),
+  teach: () => {
+    ($("settings") as HTMLDetailsElement).open = true;     // a closed <details> may not pass the click on
+    $("s-teach").click();
+  },
 });
 debug.cameraView = cameraView;
 debug.camera = cameraView.stats;

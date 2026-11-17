@@ -76,6 +76,14 @@ type VideoWithCallback = HTMLVideoElement & { requestVideoFrameCallback?(cb: (no
  * still opens. */
 const STREAM = { width: { ideal: 4032 }, height: { ideal: 3024 }, frameRate: { ideal: 30 } };
 
+type WorkMode = "gpu" | "cpu";
+interface WorkCanvas {
+  canvas: HTMLCanvasElement | OffscreenCanvas;
+  g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+}
+/** Frames each work canvas is tried on before choosing. */
+const TRIAL_FRAMES = 8;
+
 /** Time per frame the page spends on the overlay, as a share of the time between frames. */
 const BUSY_SHARE = 0.5;
 
@@ -91,6 +99,8 @@ export interface CameraStats {
   analysed: number;
   analyseMs: number[];
   focal: string;
+  /** Which work canvas was chosen, and the trial's medians. */
+  work: string;
   imageCapture: boolean;
   takePhotoMs: number | null;
   takePhotoError: string | null;
@@ -112,7 +122,10 @@ export class CameraView {
   private lastWork = -Infinity;
   private gap = 0;
   private latest: OverlayView | null = null;
-  private work: { canvas: HTMLCanvasElement | OffscreenCanvas; g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } | null = null;
+  private work: Partial<Record<WorkMode, WorkCanvas>> = {};
+  /** Which work canvas is cheaper here, once tried (see workCanvas). */
+  private workMode: WorkMode | null = null;
+  private trial: Record<WorkMode, number[]> = { gpu: [], cpu: [] };
   private shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
   private infoAt = 0;
   private readonly el: Record<string, HTMLElement>;
@@ -244,8 +257,10 @@ export class CameraView {
     this.capture = null;
     this.session = null;
     this.video.srcObject = null;
-    if (this.work) this.work.canvas.width = this.work.canvas.height = 0;
-    this.work = null;
+    for (const w of Object.values(this.work)) w.canvas.width = w.canvas.height = 0;
+    this.work = {};
+    this.workMode = null;
+    this.trial = { gpu: [], cpu: [] };
     this.el["cam"]!.hidden = true;
     document.documentElement.classList.remove("cam-on");
     if (fromButton && (history.state as { camera?: boolean } | null)?.camera) history.back();
@@ -356,10 +371,20 @@ export class CameraView {
     }
     const t0 = performance.now();
     const ws = workSize(v.videoWidth, v.videoHeight);
-    const work = this.workCanvas(ws);
+    const mode = this.workMode ?? (this.trial.gpu.length < TRIAL_FRAMES ? "gpu" : "cpu");
+    const work = this.workCanvas(mode, ws);
     work.g.drawImage(v, 0, 0, ws.width, ws.height);
     const gray = toGray(work.g.getImageData(0, 0, ws.width, ws.height).data, ws.width, ws.height);
     const t1 = performance.now();
+    if (!this.workMode) {
+      this.trial[mode].push(t1 - t0);
+      if (this.trial.cpu.length >= TRIAL_FRAMES) {
+        this.workMode = median(this.trial.gpu) <= median(this.trial.cpu) ? "gpu" : "cpu";
+        const other = this.work[this.workMode === "gpu" ? "cpu" : "gpu"];
+        if (other) other.canvas.width = other.canvas.height = 0;
+        this.stats.work = `${this.workMode} canvas (gpu ${median(this.trial.gpu).toFixed(1)} ms, cpu ${median(this.trial.cpu).toFixed(1)} ms)`;
+      }
+    }
     const blobsBefore = this.session.stats.blobMs;
     this.session.frame(gray, v.videoWidth, v.videoHeight, now);
     const cost = performance.now() - t0;
@@ -375,21 +400,27 @@ export class CameraView {
     }
   }
 
-  private workCanvas(size: { width: number; height: number }) {
-    if (!this.work) {
-      // A GPU canvas: the frame is scaled down there and only the small copy is read back.
+  /** The small canvas a frame is drawn into and read back from. Which kind is
+   * cheaper depends on the browser: a GPU canvas scales the frame on the GPU
+   * and reads back only the small copy; a CPU one (willReadFrequently) avoids
+   * the read-back but may copy the whole frame out of the GPU first. In
+   * headless Chromium (no GPU) a 3024×4032 frame took 34 ms into a GPU canvas
+   * and 21 ms into a CPU one; a phone has a GPU. So the first frames try each,
+   * and the rest use the faster. */
+  private workCanvas(mode: WorkMode, size: { width: number; height: number }): WorkCanvas {
+    let w = this.work[mode];
+    if (!w) {
       const canvas = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(size.width, size.height) : document.createElement("canvas");
-      const g = canvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-      this.work = { canvas, g };
+      const g = canvas.getContext("2d", { willReadFrequently: mode === "cpu" }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+      w = this.work[mode] = { canvas, g };
     }
-    const { canvas, g } = this.work;
-    if (canvas.width !== size.width || canvas.height !== size.height) {
-      canvas.width = size.width;
-      canvas.height = size.height;
+    if (w.canvas.width !== size.width || w.canvas.height !== size.height) {
+      w.canvas.width = size.width;
+      w.canvas.height = size.height;
     }
-    g.imageSmoothingEnabled = true;
-    g.imageSmoothingQuality = "high";          // area-like averaging, as the coach was calibrated with
-    return this.work;
+    w.g.imageSmoothingEnabled = true;
+    w.g.imageSmoothingQuality = "high";          // area-like averaging, as the coach was calibrated with
+    return w;
   }
 
   // ---- drawing ----
@@ -471,6 +502,7 @@ export class CameraView {
     st.size = `${v.videoWidth}×${v.videoHeight}`;
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
     this.el["cam-info"]!.textContent = [st.camera || "camera", st.size, focal,
+      st.grabMs.length ? `frame ${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "",
       st.analyseMs.length ? `analysis ${Math.round(median(st.analyseMs))} ms` : "", sharp !== null ? `sharpness ${sharp.toFixed(2)}` : ""]
       .filter(Boolean).join(" · ");
     this.el["cam-teach"]!.hidden = !!f;
@@ -608,6 +640,6 @@ function median(v: number[]): number {
 }
 
 function blankStats(): CameraStats {
-  return { camera: "", size: "", grabMs: [], blobMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "",
+  return { camera: "", size: "", grabMs: [], blobMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
     imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null };
 }
