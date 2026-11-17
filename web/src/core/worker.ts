@@ -22,6 +22,8 @@ interface Manifest {
   pyodide: { version: string; python: string; index: string };
   boot: { packages: string[]; bytes: number };
   extras: { packages: string[]; bytes: number };
+  /** Optional: a manifest from before HEIF support has none, and HEIC photos then fail as before. */
+  heif?: { packages: string[]; bytes: number };
   wheels: { splinewire: string; ezdxf: string };
 }
 
@@ -33,6 +35,7 @@ type PyCall = ((cmd: string, args: string, data?: Uint8Array) => string) & { des
 
 let loading: Promise<Commands["load"]["result"]> | null = null;
 let extras: Promise<void> | null = null;
+let heif: Promise<void> | null = null;
 let py: PyodideAPI;
 let manifest: Manifest;
 let bridgeCall: PyCall;
@@ -95,6 +98,31 @@ function loadExtras(): Promise<void> {
   return extras;
 }
 
+/** HEIC/HEIF decoding, loaded the first time a photo needs it. Pillow learns
+ * the format from pillow_heif's opener; the pipeline registers it at import
+ * when pillow_heif is there, which in the browser it is not yet. */
+function loadHeif(): Promise<void> {
+  heif ??= (async () => {
+    await load();
+    if (!manifest.heif?.packages.length) return;
+    await py.loadPackage(manifest.heif.packages, { messageCallback: () => {} });
+    py.runPython("from pillow_heif import register_heif_opener\nregister_heif_opener()");
+  })().catch((err) => {
+    heif = null;
+    throw err;
+  });
+  return heif;
+}
+
+/** Whether the bytes are an ISO base media file of a HEIF brand (an iPhone
+ * photo is "heic"). Box 1 is "ftyp" with the major brand at bytes 8-11. */
+export function isHeif(data: Uint8Array): boolean {
+  if (data.length < 12) return false;
+  const text = (a: number, b: number) => String.fromCharCode(...data.subarray(a, b));
+  return text(4, 8) === "ftyp" && HEIF_BRANDS.has(text(8, 12));
+}
+const HEIF_BRANDS = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx", "hevm", "hevs", "mif1", "msf1", "avif"]);
+
 function pyCall(cmd: string, args: object, data?: Uint8Array): string {
   return bridgeCall(cmd, JSON.stringify(args), data);
 }
@@ -117,7 +145,9 @@ const handlers: Handlers = {
   load: () => load(),
   async open({ photo, name, data }) {
     await load();
-    return bridge("open", { photo, name }, new Uint8Array(data)) as Commands["open"]["result"];
+    const bytes = new Uint8Array(data);
+    if (isHeif(bytes)) await loadHeif();
+    return bridge("open", { photo, name }, bytes) as Commands["open"]["result"];
   },
   async measure({ photo, options }) {
     await load();

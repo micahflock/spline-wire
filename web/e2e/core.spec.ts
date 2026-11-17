@@ -26,7 +26,7 @@ interface NativePhoto {
   pins_mm: Point[];
   tsv: string;
 }
-interface Native { chain: ChainSpec; photos: Record<"pipe" | "shadow", NativePhoto> }
+interface Native { chain: ChainSpec; photos: Record<"pipe" | "shadow" | "heic", NativePhoto> }
 
 // S1: the browser's OpenCV 4.11 and native OpenCV 5.0 put pins up to 0.043 px
 // apart on these photos (identical on the same OpenCV).
@@ -181,6 +181,17 @@ test("a file that is not a photo is a failure for the person", async () => {
     }
   });
   expect(failure).toMatchObject({ kind: "person", message: expect.stringContaining("notes.txt is not a photo") });
+});
+
+test("an iPhone HEIC photo: the HEIF decoder loads on demand and keeps the EXIF focal length", async () => {
+  const before = await page.evaluate(() => performance.getEntriesByType("resource").filter((e) => /pillow_heif/.test(e.name)).length);
+  expect(before).toBe(0);                          // JPEG photos never load it
+  const { doc, ms } = await measure("heic", "heic", { chain: native.chain });
+  log(`HEIC: measured in ${(ms / 1000).toFixed(2)} s, decoder included`);
+  expect(doc.ok).toBe(true);
+  expect(doc.info.format).toBe("HEIF");
+  expect(doc.result!.focal_source).toBe("exif");
+  expect(maxDistance(doc.view!.pins.map((p) => [p.x, p.y] as Point), native.photos.heic.pins_px)).toBeLessThan(PX_TOLERANCE);
 });
 
 test("a third photo closes the first, and measuring it again reopens it", async () => {

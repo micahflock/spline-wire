@@ -46,6 +46,21 @@ def main() -> None:
             "pins_mm": doc["curve"]["pins"],
             "tsv": s.outputs()["tsv"],
         }
+    # The pipe photo again as HEIC, the iPhone's own format, with its EXIF.
+    from PIL import Image
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    heic = out / "pipe" / "pipe.heic"
+    with Image.open(result["photos"]["pipe"]["photo"]) as im:
+        im.save(heic, exif=im.getexif(), quality=90)
+    s = PhotoSession.open(heic.read_bytes(), heic.name)
+    doc = s.measure({"chain": asdict(spec)})
+    result["photos"]["heic"] = {
+        "photo": str(heic), "truth": result["photos"]["pipe"]["truth"], "cli_truth": None,
+        "pins_px": [[p["x"], p["y"]] for p in doc["view"]["pins"]],
+        "focal_px": s.exif_focal_px, "pins_mm": doc["curve"]["pins"], "tsv": s.outputs()["tsv"],
+    }
     (out / "native.json").write_text(json.dumps(result, indent=1))
 
 

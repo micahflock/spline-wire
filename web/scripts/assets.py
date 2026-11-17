@@ -46,6 +46,9 @@ CORE = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip
 BOOT = ["numpy", "scipy", "opencv-python", "pillow", "pyyaml"]
 # ezdxf's dependencies (numpy aside), loaded only for the DXF output.
 EXTRAS = ["pyparsing", "typing-extensions", "fonttools"]
+# HEIC/HEIF decoding (the iPhone's own format), loaded only when a photo is one:
+# 0.7 s and about 1 MB, which JPEG photos should not pay for.
+HEIF = ["pillow-heif"]
 
 
 def sha256(path: Path) -> str:
@@ -107,11 +110,12 @@ def main() -> None:
             shutil.copyfile(src, dest)
     lock = json.loads((pyo / "pyodide-lock.json").read_text())
     packages = lock["packages"]
-    boot, extras = closure(BOOT, packages), closure(EXTRAS, packages)
+    boot, extras, heif = closure(BOOT, packages), closure(EXTRAS, packages), closure(HEIF, packages)
     extras = [n for n in extras if n not in boot]
+    heif = [n for n in heif if n not in boot and n not in extras]
     cdn = f"https://cdn.jsdelivr.net/pyodide/v{version}/full/"
     print("packages from jsdelivr, sha256 checked against the lock")
-    for n in boot + extras:
+    for n in boot + extras + heif:
         p = packages[n]
         fetch(cdn + p["file_name"], pyo / p["file_name"], p["sha256"])
 
@@ -130,7 +134,7 @@ def main() -> None:
         shutil.copyfile(built, sw)
 
     # The script owns these folders: drop what an earlier run left that is not wanted now.
-    keep = {pyo / n for n in CORE} | {pyo / packages[n]["file_name"] for n in boot + extras}
+    keep = {pyo / n for n in CORE} | {pyo / packages[n]["file_name"] for n in boot + extras + heif}
     keep |= {wheels / ezdxf_file, sw, sw.parent}
     for folder in (pyo, wheels):
         for path in sorted(folder.iterdir(), reverse=True):
@@ -138,13 +142,14 @@ def main() -> None:
                 shutil.rmtree(path) if path.is_dir() else path.unlink()
 
     (PUBLIC / "chains.json").write_text(json.dumps(chains(), indent=2) + "\n")
-    size = {n: (pyo / packages[n]["file_name"]).stat().st_size for n in boot + extras}
+    size = {n: (pyo / packages[n]["file_name"]).stat().st_size for n in boot + extras + heif}
     manifest = {
         "pyodide": {"version": version, "python": lock["info"]["python"], "index": "pyodide/"},
         # Package names for pyodide.loadPackage, which finds their files (and
         # dependencies) in the lock. Sizes are for the load progress.
         "boot": {"packages": boot, "bytes": sum(size[n] for n in boot)},
         "extras": {"packages": extras, "bytes": sum(size[n] for n in extras)},
+        "heif": {"packages": heif, "bytes": sum(size[n] for n in heif)},
         "wheels": {
             "splinewire": sw.relative_to(PUBLIC).as_posix(),
             "ezdxf": (wheels / ezdxf_file).relative_to(PUBLIC).as_posix(),
