@@ -112,14 +112,22 @@ export const SIDE_TEXT = {
   outside: "outside of the bend (chain in a hollow)",
 };
 
-/** The numbers under the photo, as [label, value, detail, warn]. */
-export function numbers(r: MeasurementResult, expectedPins: number): [string, string, string, boolean][] {
+/** Where a photo's focal length came from when the page supplied it (main.ts,
+ * PhotoRecord.focal): the core only sees an override. */
+export function photoFocalText(f: { why: "lens" | "frame"; lens: string | null }): string {
+  if (f.why === "lens") return `remembered for ${f.lens ?? "this lens"} (the photo had no 35 mm focal length)`;
+  return f.lens ? `this camera's last photo (a video frame has no camera data)` : "your saved focal length (a video frame has no camera data)";
+}
+
+/** The numbers under the photo, as [label, value, detail, warn]. `focalDetail`
+ * replaces the focal length's source when the page supplied it. */
+export function numbers(r: MeasurementResult, expectedPins: number, focalDetail?: string): [string, string, string, boolean][] {
   const found = r.pins;
   return [
     ["Pins", `${found} of ${expectedPins}`, r.missing_pins ? `${r.missing_pins} missing, bridged` : "found on the chain",
       found + r.missing_pins !== expectedPins || r.missing_pins > 0],
     ["Tilt", `${r.tilt_deg.toFixed(1)}°`, "camera to table", false],
-    ["Focal length", `${r.focal_35mm.toFixed(1)} mm`, FOCAL_SOURCE[r.focal_source], r.focal_source === "estimated"],
+    ["Focal length", `${r.focal_35mm.toFixed(1)} mm`, focalDetail ?? FOCAL_SOURCE[r.focal_source], r.focal_source === "estimated"],
     ["Links", `${r.link_residual_rms_mm.toFixed(3)} mm`, `rms off the pitch, worst ${r.link_residual_max_mm.toFixed(3)} mm`,
       r.warnings.some((w) => w.startsWith("link lengths deviate"))],
     ["Curve", `${r.curve_points} points`, `object on the ${r.object_side}`, false],

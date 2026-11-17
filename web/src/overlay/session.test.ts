@@ -67,7 +67,7 @@ describe("overlay session", () => {
       chain, focalPx: () => null, analyse, show: () => {}, capture: async () => void captures++,
     });
     for (let i = 0; i < 12; i++) {
-      overlay.frame(workFrame(i * 6).frame, 1920, 1080, i * 100);     // one pitch a second
+      overlay.frame(workFrame(i * 12).frame, 1920, 1080, i * 100);    // two pitches a second
       await turn();
     }
     expect(captures).toBe(0);

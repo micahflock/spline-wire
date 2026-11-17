@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ChainSpec, PhotoInfo } from "../core/types";
+import type { ChainSpec } from "../core/types";
 import { MemoryStore } from "../relay/store";
+import { learn } from "./lenses";
 import {
-  DEFAULT_SETTINGS, chainLabel, chainSpec, defaultPins, focalOffer, loadSettings, parseFocal, parsePins, presetKey,
-  rememberExif, saveSettings,
+  DEFAULT_SETTINGS, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
 } from "./settings";
 
 const chains: Record<string, ChainSpec> = {
@@ -11,15 +11,11 @@ const chains: Record<string, ChainSpec> = {
   snap: { pitch_mm: 13, half_width_mm: 4.68, fiducial_mm: 7.2, n_pins: 11, fiducial: "ring" },
 };
 
-const info = (focal: number | null, model: string | null = "iPhone 13"): PhotoInfo => ({
-  format: "JPEG", width: 4032, height: 3024, make: model ? "Apple" : null, model, focal_mm: null, focal_35mm: focal,
-});
-
 describe("settings", () => {
   it("start from the defaults and survive a round trip", () => {
     const store = new MemoryStore();
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
-    const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const };
+    const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const, photoMode: "upload" as const };
     saveSettings(store, s);
     expect(loadSettings(store)).toEqual(s);
   });
@@ -27,9 +23,9 @@ describe("settings", () => {
   it("drop fields that are out of range or of the wrong type", () => {
     const store = new MemoryStore();
     store.set("phone-settings", JSON.stringify({
-      chain: 3, pins: 2, savedFocal35: 4, focalOverride35: "26", side: "left", lastExif: { focal35: 900 }, declinedFocal35: 26,
+      chain: 3, pins: 2, savedFocal35: 4, focalOverride35: "26", side: "left", lenses: [{ key: "x" }], cameras: { a: 1 }, camera: "Back Camera", photoMode: "file",
     }));
-    expect(loadSettings(store)).toEqual({ ...DEFAULT_SETTINGS, declinedFocal35: 26 });
+    expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     store.set("phone-settings", "{not json");
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
   });
@@ -57,24 +53,21 @@ describe("settings", () => {
   });
 });
 
-describe("the remembered focal length", () => {
-  it("comes from any photo with EXIF and is offered until saved or declined", () => {
-    let s = rememberExif(DEFAULT_SETTINGS, info(null));
-    expect(s).toBe(DEFAULT_SETTINGS);                 // nothing to remember
-    expect(focalOffer(s)).toBeNull();
-    s = rememberExif(s, info(26));
-    expect(s.lastExif).toEqual({ focal35: 26, camera: "Apple iPhone 13" });
-    expect(focalOffer(s)).toEqual({ focal35: 26, camera: "Apple iPhone 13" });
-    expect(focalOffer({ ...s, savedFocal35: 26 })).toBeNull();
-    expect(focalOffer({ ...s, declinedFocal35: 26 })).toBeNull();
-    // A different camera later: offered again even after declining the first.
-    s = rememberExif({ ...s, declinedFocal35: 26 }, info(24, "iPhone 15"));
-    expect(focalOffer(s)).toEqual({ focal35: 24, camera: "Apple iPhone 15" });
+describe("the remembered focal lengths", () => {
+  it("keep each lens and the chosen camera across a reload", () => {
+    const store = new MemoryStore();
+    const s = learn({ ...DEFAULT_SETTINGS, camera: { deviceId: "d1", label: "Back Camera" } },
+      { make: "Apple", model: "iPhone 16 Pro", lens: "iPhone 16 Pro back camera 6.765mm f/1.78", focalMm: 6.765, focal35: 24 },
+      { width: 4032, height: 3024 }, { cameraLabel: "Back Camera", now: 5 });
+    saveSettings(store, s);
+    expect(loadSettings(store)).toEqual(s);
   });
 
-  it("is not changed by the same photo twice", () => {
-    const s = rememberExif(DEFAULT_SETTINGS, info(26));
-    expect(rememberExif(s, info(26))).toBe(s);
-    expect(rememberExif(s, info(26, null)).lastExif).toEqual({ focal35: 26, camera: null });
+  it("drop the single value kept before D17, whose lens is unknown, and keep the person's saved one", () => {
+    const store = new MemoryStore();
+    store.set("phone-settings", JSON.stringify({ savedFocal35: 26, lastExif: { focal35: 30, camera: "Apple iPhone 13" }, declinedFocal35: 26 }));
+    const s = loadSettings(store);
+    expect(s).toEqual({ ...DEFAULT_SETTINGS, savedFocal35: 26 });
+    expect("lastExif" in s).toBe(false);
   });
 });

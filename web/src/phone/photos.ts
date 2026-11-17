@@ -15,6 +15,7 @@
 
 import type { Failure } from "../core/protocol";
 import type { Edits, MeasurementDocument, Point, Side } from "../core/types";
+import type { Exif } from "./exif";
 
 export type Status = "queued" | "loading" | "measuring" | "done" | "error";
 export type BlobKind = "original" | "preview" | "thumb";
@@ -36,8 +37,9 @@ export interface PhotoRecord {
   size: number;
   /** ms since 1970. */
   added: number;
-  /** Which button it came from: the camera or the library (S2 wants to know which keeps EXIF). */
-  via: "take" | "choose";
+  /** Where it came from: the system camera (the file input), the library, or
+   * the page's own camera (S2 wants to know which keep EXIF). */
+  via: "take" | "choose" | "camera";
   /** Chain preset key and pin count the photo is measured with. */
   chain: string;
   pins: number;
@@ -55,6 +57,32 @@ export interface PhotoRecord {
   /** The focal length settings the document was measured with (main.ts focalKey):
    * a photo measured before they changed is measured again when opened. */
   measuredWith: string | null;
+  /** The tags the page read (exif.ts); missing in records from before D17. */
+  exif?: Exif | null;
+  /** A focal length this photo is measured with although its file does not
+   * say so: a takePhoto still without the 35 mm tag (its lens's remembered
+   * value), or a video frame (the frame's). Settings' override still wins. */
+  focal?: PhotoFocal | null;
+  /** For a photo from the page's camera. */
+  camera?: CameraNote | null;
+}
+
+export interface PhotoFocal {
+  focal35: number;
+  why: "lens" | "frame";
+  /** The lens it was learned from; null for the saved setting. */
+  lens: string | null;
+}
+
+export interface CameraNote {
+  label: string;
+  still: "photo" | "frame";
+  /** The overlay's last chain and the video size, to compare fields of view (focal.fovRatio). */
+  frameChain: Point[];
+  frameSize: { width: number; height: number };
+  /** The live view's scale against the still's, once measured: 1 when they agree. */
+  fov: number | null;
+  ms: number;
 }
 
 /** Photos kept. Past it the oldest go: a 12-megapixel photo is 3-6 MB. */

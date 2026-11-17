@@ -5,13 +5,15 @@
 // typed here, the photo's EXIF, the focal length saved here for photos that
 // arrive without EXIF (iOS often strips it, S2), and last the estimate from
 // the chain. So that the person rarely has to look the number up, the page
-// remembers the focal length of any photo that did carry EXIF and offers it
-// as the saved value.
+// remembers the focal length of every lens a photo with EXIF came from
+// (lenses.ts, D17) and offers the newest as the saved value.
 
-import type { ChainSpec, PhotoInfo, Side } from "../core/types";
+import type { CameraInfo } from "../camera/choose";
+import type { ChainSpec, Side } from "../core/types";
 import { readJson, type KeyValueStore } from "../relay/store";
+import type { CameraMemory, LensMemory, LensState } from "./lenses";
 
-export interface Settings {
+export interface Settings extends LensState {
   /** Key of the chain preset in chains.json. */
   chain: string;
   /** Pins in the chain for new photos; null means the preset's own count. */
@@ -22,10 +24,12 @@ export interface Settings {
   focalOverride35: number | null;
   /** The object side new photos start with. */
   side: Side;
-  /** The focal length of the last photo that had one in its EXIF. */
-  lastExif: { focal35: number; camera: string | null } | null;
-  /** A remembered focal length the person said no to: not offered again. */
-  declinedFocal35: number | null;
+  /** The lens offer the person said no to (lenses.offerKey): not offered again. */
+  declinedOffer: string | null;
+  /** The live view's camera, as last chosen (O10). */
+  camera: CameraInfo | null;
+  /** How photos are given: the page's live camera, or uploaded (library or system camera). */
+  photoMode: "live" | "upload";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,8 +38,11 @@ export const DEFAULT_SETTINGS: Settings = {
   savedFocal35: null,
   focalOverride35: null,
   side: "inside",
-  lastExif: null,
-  declinedFocal35: null,
+  lenses: [],
+  cameras: {},
+  declinedOffer: null,
+  camera: null,
+  photoMode: "live",
 };
 
 /** session._focal accepts 5 to 500 mm. */
@@ -61,11 +68,20 @@ export function loadSettings(store: KeyValueStore): Settings {
   s.savedFocal35 = isFocal(raw.savedFocal35) ? raw.savedFocal35 : null;
   s.focalOverride35 = isFocal(raw.focalOverride35) ? raw.focalOverride35 : null;
   if (raw.side === "inside" || raw.side === "outside") s.side = raw.side;
-  const ex = raw.lastExif as Settings["lastExif"];
-  if (ex && typeof ex === "object" && isFocal(ex.focal35)) {
-    s.lastExif = { focal35: ex.focal35, camera: typeof ex.camera === "string" ? ex.camera : null };
+  // Before D17 the page kept one focal length, `lastExif`, with the phone's
+  // make and model but not the lens. It may have come from a selfie, and no
+  // lens can be named for it, so it is dropped (with `declinedFocal35`, the
+  // answer to its offer). A value the person saved stays in savedFocal35.
+  s.lenses = Array.isArray(raw.lenses) ? raw.lenses.filter(isLens) : [];
+  s.cameras = {};
+  if (raw.cameras && typeof raw.cameras === "object") {
+    for (const [label, c] of Object.entries(raw.cameras as Record<string, unknown>)) if (isCameraMemory(c)) s.cameras[label] = c;
   }
-  s.declinedFocal35 = isFocal(raw.declinedFocal35) ? raw.declinedFocal35 : null;
+  s.declinedOffer = typeof raw.declinedOffer === "string" ? raw.declinedOffer : null;
+  const cam = raw.camera as CameraInfo | null;
+  s.camera = cam && typeof cam === "object" && typeof cam.deviceId === "string" && typeof cam.label === "string"
+    ? { deviceId: cam.deviceId, label: cam.label } : null;
+  if (raw.photoMode === "upload") s.photoMode = "upload";
   return s;
 }
 
@@ -103,26 +119,25 @@ export function chainSpec(chains: Record<string, ChainSpec>, preset: string, pin
   return { ...spec, n_pins: pins };
 }
 
-/** After a measurement: remember the focal length if the photo carried one. */
-export function rememberExif(s: Settings, info: PhotoInfo): Settings {
-  if (!isFocal(info.focal_35mm)) return s;
-  const camera = [info.make, info.model].filter(Boolean).join(" ") || null;
-  if (s.lastExif?.focal35 === info.focal_35mm && s.lastExif.camera === camera) return s;
-  return { ...s, lastExif: { focal35: info.focal_35mm, camera } };
-}
-
-/** The focal length to offer as the saved value ("use 26 mm from your last
- * photo?"), or null: there is none, it is already saved, or it was declined. */
-export function focalOffer(s: Settings): { focal35: number; camera: string | null } | null {
-  const ex = s.lastExif;
-  if (!ex || ex.focal35 === s.savedFocal35 || ex.focal35 === s.declinedFocal35) return null;
-  return ex;
-}
-
 function isFocal(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= FOCAL_RANGE.min && v <= FOCAL_RANGE.max;
 }
 
 function isPins(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v >= PIN_RANGE.min && v <= PIN_RANGE.max;
+}
+
+const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const numOrNull = (v: unknown) => v === null || num(v);
+
+function isLens(v: unknown): v is LensMemory {
+  const l = v as LensMemory;
+  return !!l && typeof l === "object" && typeof l.key === "string" && typeof l.name === "string" && isFocal(l.focal35)
+    && numOrNull(l.focalMm) && num(l.width) && num(l.height) && typeof l.ultraWide === "boolean" && num(l.at);
+}
+
+function isCameraMemory(v: unknown): v is CameraMemory {
+  const c = v as CameraMemory;
+  return !!c && typeof c === "object" && (c.key === null || typeof c.key === "string") && numOrNull(c.focal35)
+    && numOrNull(c.focalMm) && typeof c.ultraWide === "boolean" && num(c.at);
 }

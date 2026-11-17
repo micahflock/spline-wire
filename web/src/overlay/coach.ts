@@ -14,13 +14,22 @@ export interface Limits {
   keep: number;
 }
 
-/** The thresholds, in one place. Those marked provisional have not been
- * calibrated against experiments/video_frame_accuracy.py or a real phone. */
+/** The thresholds, in one place. Calibrated (2026-11-17) on S5's renders
+ * (experiments/video_frame_accuracy.py, its 167 scenes) drawn small and gray
+ * as the camera view does: each frame area-averaged to a 640 px work frame and
+ * run through blobs.ts in Node. "1080p" and "4K" below are those renders; the
+ * phone streams 3024×4032 (S3), which shrinks to its work frame by 6.3, like
+ * the 4K renders (6). Not yet checked against a real phone's video. */
 export const COACH = {
   /** Good readings must span this long before the shot. */
   HOLD_MS: 700,
-  /** A gap between readings longer than this starts the hold again: the page was hidden or the analysis stalled. */
-  STALE_MS: 600,
+  /** A gap between readings longer than this starts the hold again: the page
+   * was hidden or the analysis stalled. Analysing a frame takes 76-105 ms in
+   * desktop Chromium with a known focal length and 400-640 ms estimating it
+   * (web-build.md, step 1), and the camera view then analyses at most once a
+   * second (camera-view.ts), so readings can be ~1 s apart and a phone is
+   * slower: 1.5 s. */
+  STALE_MS: 1500,
   /** A problem is shown once it has lasted this long. */
   PROBLEM_MS: 250,
   /** Camera tilt from straight-on, degrees. In simulation a 2% focal error costs
@@ -28,18 +37,33 @@ export const COACH = {
    * above 25°, and nudge toward straighter above 12°. */
   tiltDeg: { enter: 25, keep: 30 } as Limits,
   straighterDeg: 12,
-  /** The chain's extent as a fraction of the frame's shorter side: smaller
-   * than this and the pins are few pixels across. Provisional. */
-  minSpan: { enter: 0.45, keep: 0.38 } as Limits,
+  /** The chain's extent as a fraction of the frame's shorter side. This guards
+   * the overlay's own detector more than the still: the docs' benchmark still
+   * spans 0.28 and measures 0.025 / 0.056 mm (median / p95 worst pin). Every
+   * pin was found by blobs.ts in 120 of 167 4K renders at span 0.55 (dots 12 px
+   * across in the work frame), 123 at 0.44 (10 px), 115 at 0.36 (8 px), then 84
+   * at 0.28 (6 px) and 59 at 0.22. So the shot needs 0.40, and keeps going to
+   * 0.33. (Was 0.45 / 0.38; asking for more also pushes the phone toward its
+   * closest focus: a 120 mm chain at 0.45 of a 24 mm lens's view is 25 cm away.) */
+  minSpan: { enter: 0.40, keep: 0.33 } as Limits,
   /** Clear frame around the chain, as a fraction of the shorter side. A pin at
    * the edge may be cut off in the still, whose field of view can differ (S3). */
   minMargin: { enter: 0.04, keep: 0.025 } as Limits,
-  /** Motion in pitches per second. Provisional: at 1/60 s exposure, 0.3
-   * pitch/s smears a pin by 0.5% of a pitch. */
-  maxMotion: { enter: 0.3, keep: 0.6 } as Limits,
-  /** Median edge sharpness of the pins (blobs.ts), 0-1: 0.35 is an edge spread
-   * over 2 work pixels, 6 px of a 1920-wide frame. Provisional. */
-  minSharpness: { enter: 0.35, keep: 0.28 } as Limits,
+  /** Motion in pitches per second. What matters is the smear during the still's
+   * exposure, on the chain: S5 found 4 px of blur at 1080p (0.5 mm at its
+   * 7.8 px/mm) costs nothing measurable and 8 px (1.0 mm) costs (p95 0.061 ->
+   * 0.092 mm). With a 10 mm pitch at 1/30 s, 1 pitch/s smears 0.33 mm and 1.5
+   * pitch/s 0.5 mm. A phone held still turns 0.5-3°/s (S5), which at 25 cm is
+   * 0.2-1.3 pitch/s: the old 0.3 would have stopped most steady hands. */
+  maxMotion: { enter: 1.0, keep: 1.5 } as Limits,
+  /** Median edge sharpness of the pins (blobs.ts), 0-1. On the 4K renders,
+   * blur that costs nothing (S5: up to 4 px at 1080p) reads 0.79 or more in 90%
+   * of scenes (median 0.96); blur that costs (8 px at 1080p) reads a median of
+   * 0.67 and 0.73 at the 90th percentile. The 1080p renders, shrunk by 3, read
+   * a little lower: 0.74 and 0.65 / 0.73. Enter at 0.65, keep to 0.55: what is
+   * flagged is blur that costs. (Was 0.35 / 0.28, which only a frame blurred
+   * far past 8 px reached.) Defocus was not rendered; it reads the same way. */
+  minSharpness: { enter: 0.65, keep: 0.55 } as Limits,
 };
 
 /** Shown in this order: fix the first before worrying about the rest. */

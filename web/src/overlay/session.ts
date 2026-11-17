@@ -45,6 +45,20 @@ export interface OverlayOptions {
   capture: () => Promise<void>;
   /** With false, the overlay coaches but never takes the still itself (a shutter button does). */
   autoCapture?: boolean;
+  /** Start an analysis at most this often, ms (default 0: whenever the last
+   * one is done). For when each costs more than the phone should spend, such
+   * as estimating the focal length (400-640 ms). */
+  minIntervalMs?: () => number;
+}
+
+/** What the loop has done, for the page's diagnostics and the performance test. */
+export interface OverlayStats {
+  frames: number;
+  analysed: number;
+  /** Time spent finding blobs, ms, over all frames. */
+  blobMs: number;
+  /** The last analysis, ms from asking to the answer. */
+  lastAnalyseMs: number;
 }
 
 export class OverlaySession {
@@ -53,15 +67,22 @@ export class OverlaySession {
   private capturing = false;
   private previous: FrameReading | null = null;
   private chain: Point[] = [];
+  private lastStart = -Infinity;
+  readonly stats: OverlayStats = { frames: 0, analysed: 0, blobMs: 0, lastAnalyseMs: 0 };
 
   constructor(private readonly o: OverlayOptions) {}
 
   /** One video frame: `work` is the frame drawn small and gray (blobs.workSize, toGray). */
   frame(work: GrayFrame, videoWidth: number, videoHeight: number, t: number): void {
     const scale = videoWidth / work.width;
+    const t0 = performance.now();
     const blobs = detectBlobs(work, scale);
+    this.stats.blobMs += performance.now() - t0;
+    this.stats.frames++;
     this.o.show({ state: this.coach.current, chain: this.chain, blobs });
     if (this.busy || this.capturing) return;
+    if (t - this.lastStart < (this.o.minIntervalMs?.() ?? 0)) return;
+    this.lastStart = t;
     this.busy = true;
     void this.analyse(blobs, videoWidth, videoHeight, t).finally(() => (this.busy = false));
   }
@@ -69,6 +90,7 @@ export class OverlaySession {
   private async analyse(blobs: Blob[], width: number, height: number, t: number): Promise<void> {
     let analysis: FrameAnalysis = { order: [], gaps: [], tilt_deg: null, link_residual_max_mm: null };
     if (blobs.length >= 3) {
+      const t0 = performance.now();
       try {
         analysis = await this.o.analyse({
           points: blobs.map((b) => [b.x, b.y]), diameters: blobs.map((b) => b.d),
@@ -77,6 +99,8 @@ export class OverlaySession {
       } catch {
         return;                 // the worker is loading or restarting: no reading for this frame
       }
+      this.stats.lastAnalyseMs = performance.now() - t0;
+      this.stats.analysed++;
     }
     if (this.capturing) return;
     const reading = makeReading(t, { width, height }, blobs, analysis, this.o.chain.n_pins, this.previous);
