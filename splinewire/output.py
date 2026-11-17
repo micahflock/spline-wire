@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from splinewire.pipeline import Measurement
 SCHEMA = "spline-wire/points@1"
 
 
-def write_json(path: Path, m: Measurement, extra: dict | None = None) -> None:
+def json_text(m: Measurement, extra: dict | None = None) -> str:
     r = m.rectification
     doc = {
         "schema": SCHEMA,
@@ -39,17 +40,18 @@ def write_json(path: Path, m: Measurement, extra: dict | None = None) -> None:
     }
     if extra:
         doc.update(extra)
-    Path(path).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    return json.dumps(doc, indent=2) + "\n"
 
 
-def write_csv(path: Path, points_mm: np.ndarray) -> None:
-    with Path(path).open("w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["x_mm", "y_mm"])
-        writer.writerows(_round(points_mm))
+def csv_text(points_mm: np.ndarray) -> str:
+    f = io.StringIO(newline="")
+    writer = csv.writer(f)          # its default line ending is \r\n, as the files have always had
+    writer.writerow(["x_mm", "y_mm"])
+    writer.writerows(_round(points_mm))
+    return f.getvalue()
 
 
-def write_dxf(path: Path, curve_points_mm: np.ndarray) -> None:
+def dxf_text(curve_points_mm: np.ndarray) -> str:
     """DXF in mm for CAD import (Fusion: Insert > Insert DXF).
 
     Layer CURVE holds one spline through the curve points, built the way
@@ -67,15 +69,17 @@ def write_dxf(path: Path, curve_points_mm: np.ndarray) -> None:
     msp.add_cad_spline_control_frame(pts3, dxfattribs={"layer": "CURVE"})
     for p in pts3:
         msp.add_point(p, dxfattribs={"layer": "CURVE_POINTS"})
-    doc.saveas(str(path))
+    f = io.StringIO()
+    doc.write(f)
+    return f.getvalue()
 
 
-def write_fusion_csv(path: Path, curve_points_mm: np.ndarray) -> None:
+def fusion_csv_text(curve_points_mm: np.ndarray) -> str:
     """CSV for Fusion's built-in ImportSplineCSV script: no header, x,y,z per
     line, in centimeters (Fusion's internal unit; the script doesn't convert)."""
     cm = np.asarray(curve_points_mm, dtype=float) / 10.0
     lines = [f"{x:.5f},{y:.5f},0" for x, y in cm]
-    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
 
 
 def points_tsv(points_mm: np.ndarray) -> str:
@@ -88,7 +92,7 @@ def points_tsv(points_mm: np.ndarray) -> str:
     return "\n".join(rows) + "\n"
 
 
-def write_svg(path: Path, m: Measurement, margin_mm: float = 5.0) -> None:
+def svg_text(m: Measurement, margin_mm: float = 5.0) -> str:
     """1:1 scale drawing in mm: the fitted curve plus measured points.
 
     The curve is the only path in the file's "curve" group, so it can be
@@ -116,7 +120,36 @@ def write_svg(path: Path, m: Measurement, margin_mm: float = 5.0) -> None:
         "</g>",
         "</svg>",
     ]
-    Path(path).write_text("\n".join(parts) + "\n", encoding="utf-8")
+    return "\n".join(parts) + "\n"
+
+
+# The same documents as files. The *_text functions are the single source, so
+# a file written here and a download made in the browser cannot differ.
+
+def _write(path: Path, text: str) -> None:
+    # newline="": the text already carries its line endings (CSV's are \r\n)
+    with Path(path).open("w", encoding="utf-8", newline="") as f:
+        f.write(text)
+
+
+def write_json(path: Path, m: Measurement, extra: dict | None = None) -> None:
+    _write(path, json_text(m, extra))
+
+
+def write_csv(path: Path, points_mm: np.ndarray) -> None:
+    _write(path, csv_text(points_mm))
+
+
+def write_dxf(path: Path, curve_points_mm: np.ndarray) -> None:
+    _write(path, dxf_text(curve_points_mm))
+
+
+def write_fusion_csv(path: Path, curve_points_mm: np.ndarray) -> None:
+    _write(path, fusion_csv_text(curve_points_mm))
+
+
+def write_svg(path: Path, m: Measurement, margin_mm: float = 5.0) -> None:
+    _write(path, svg_text(m, margin_mm))
 
 
 def write_image(path: Path, bgr: np.ndarray) -> None:

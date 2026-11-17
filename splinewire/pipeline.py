@@ -1,6 +1,7 @@
 """Photo in, curve points out."""
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -84,18 +85,28 @@ def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
     Raises ValueError, with a message for the person, if the file is not a
     photo or is damaged.
     """
+    return _load(path, Path(path).name)
+
+
+def load_photo_bytes(data: bytes, name: str) -> tuple[np.ndarray, float | None]:
+    """load_photo for a photo held in memory (the browser build has no files).
+    name is only used in messages."""
+    return _load(io.BytesIO(data), name)
+
+
+def _load(source, name: str) -> tuple[np.ndarray, float | None]:
     try:
-        with Image.open(path) as im:
+        with Image.open(source) as im:
             focal = focal_px_from_exif(im)
             upright = ImageOps.exif_transpose(im)
             return np.asarray(upright.convert("L")), focal
     except FileNotFoundError:
         raise
     except UnidentifiedImageError:
-        raise ValueError(f"{Path(path).name} is not a photo this program can read "
+        raise ValueError(f"{name} is not a photo this program can read "
                          "(JPEG, HEIC, PNG, TIFF, BMP or WebP)") from None
     except OSError as err:              # a file cut short in transfer, or damaged
-        raise ValueError(f"could not read the photo {Path(path).name}: {err}") from None
+        raise ValueError(f"could not read the photo {name}: {err}") from None
 
 
 def measure(
