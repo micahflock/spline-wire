@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pyodide spike</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  pre { white-space: pre-wrap; background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<h1>Pyodide spike (S1)</h1>
+<p>Loads Pyodide and the splinewire wheel in a worker. Pick a photo to measure it with data/chain.yaml.</p>
+<p><input type="file" id="file" accept="image/*" disabled> <span id="state">loading…</span></p>
+<pre id="log"></pre>
+<script>
+const worker = new Worker("worker.js", { type: "module" });
+let nextId = 1;
+const pending = new Map();
+worker.onmessage = (ev) => {
+  const { id, ok, result, error, type } = ev.data;
+  const p = pending.get(id);
+  pending.delete(id);
+  ok ? p.resolve(result) : p.reject(Object.assign(new Error(error), { pyType: type }));
+};
+worker.onerror = (ev) => {
+  for (const p of pending.values()) p.reject(new Error("worker failed: " + (ev.message || "error")));
+  pending.clear();
+};
+function call(cmd, payload = {}, transfer = []) {
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, cmd, ...payload }, transfer);
+  });
+}
+async function memory() {
+  if (!self.crossOriginIsolated || !performance.measureUserAgentSpecificMemory) return null;
+  try {
+    const m = await performance.measureUserAgentSpecificMemory();
+    return m.bytes;
+  } catch (e) {
+    return String(e.message || e);
+  }
+}
+const log = (s) => (document.getElementById("log").textContent += s + "\n");
+
+// Driven by run.mjs; ?manual loads on its own for a person to try.
+window.spike = {
+  load: (opts) => call("load", { opts }),
+  measure: (url, name, truthUrl, repeats) => call("measure", { photo: url, name, truthUrl, repeats }),
+  heap: () => call("heap"),
+  memory,
+};
+
+const input = document.getElementById("file");
+input.onchange = async () => {
+  const f = input.files[0];
+  if (!f) return;
+  const buf = await f.arrayBuffer();
+  document.getElementById("state").textContent = "measuring…";
+  try {
+    const r = await call("measure", { photo: buf, name: f.name }, [buf]);
+    log(`${f.name}: ${r.pins_px.length} pins, tilt ${r.tilt_deg.toFixed(1)} deg, ` +
+        `${(r.runs[0].total_s).toFixed(2)} s, heap ${(r.heap_bytes / 2 ** 20).toFixed(0)} MiB`);
+    log("curve points (mm):\n" + r.contacts_mm.map((p) => p.map((v) => v.toFixed(3)).join("\t")).join("\n"));
+  } catch (e) {
+    log(e.pyType === "ValueError" ? e.message : `${e.pyType}: ${e.message}`);
+  }
+  document.getElementById("state").textContent = "ready";
+};
+if (new URLSearchParams(location.search).has("manual")) {
+  spike.load().then((r) => {
+    log(JSON.stringify(r.timings));
+    input.disabled = false;
+    document.getElementById("state").textContent = "ready";
+  }, (e) => log("load failed: " + e.message));
+}
+</script>
+</body>
+</html>

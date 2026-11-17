@@ -1,0 +1,18 @@
+{
+  // The Worker: Cloudflare's runtime types, no DOM (they disagree about
+  // WebSocket, Response and others). Node-side files: tsconfig.node.json.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "files": ["worker.ts", "rules.ts"]
+}

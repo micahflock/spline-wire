@@ -1,0 +1,22 @@
+/* The photo editor (view.ts) and its markers (draw.ts), on both pages. The look is the
+   current app's editor: bright markers that read on any photo, in either theme. The page sets
+   the element's size; --screen, --line and --f-data come from the page's own stylesheet. */
+:root { --ov-pin: #3ddc84; --ov-mine: #58a6ff; --ov-unused: #ff6b6b; --ov-link: #f2cc60; --ov-edge: #ff5fd2; --ov-removed: #e6e6e1; }
+.photo-svg { display: block; width: 100%; background: var(--screen); border: 1px solid var(--line); border-radius: 3px;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.photo-svg.wait { opacity: .85; }
+.photo-svg.picking { outline: 3px solid var(--ov-edge); outline-offset: -3px; }
+.ov-link, .ov-gap, .ov-pin, .ov-mine, .ov-hand, .ov-unused, .ov-removed, .ov-pending { fill: none; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.ov-removed circle, .ov-removed path { fill: none; stroke: var(--ov-removed); stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-dasharray: 4 4; }
+.ov-link { stroke: var(--ov-link); } .ov-gap { stroke: var(--ov-unused); stroke-dasharray: 6 5; }
+.ov-pin { stroke: var(--ov-pin); } .ov-mine { stroke: var(--ov-mine); } .ov-hand { stroke: var(--ov-mine); stroke-dasharray: 5 4; }
+.ov-unused { stroke: var(--ov-unused); stroke-dasharray: 5 3; }
+.ov-pending { stroke: #fff; stroke-dasharray: 3 3; animation: ov-pulse .8s ease-in-out infinite alternate; }
+@keyframes ov-pulse { from { opacity: 1; } to { opacity: .25; } }
+.ov-label { fill: var(--ov-pin); stroke: #0b0e11; paint-order: stroke; stroke-width: 3px; vector-effect: non-scaling-stroke;
+  font-family: var(--f-data); font-weight: 500; }
+.ov-label.mine { fill: var(--ov-mine); }
+.ov-edge { fill: none; stroke: var(--ov-edge); stroke-width: 3.5px; vector-effect: non-scaling-stroke; }
+.ov-side { fill: var(--ov-edge); stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.photo-svg g * { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .ov-pending { animation: none; } }
