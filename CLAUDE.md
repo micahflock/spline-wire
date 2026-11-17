@@ -31,6 +31,7 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 - `docs/cv-robustness.md` — simulated environments, benchmark results, fiducial options for a 0.4 mm nozzle.
 - `docs/printed-chain.md` — the print-in-place chain: layout, joint, setting, colours, open risks.
 - `docs/snap-chain.md` — the snap-fit chain: the link, what it changes in contact, detection and ordering, open items.
+- `docs/web-build.md` — the move from the .exe to a hosted website (measuring in the browser on the phone, curve relayed to the desktop page): decisions, steps, status and a session log. Read it first when asked to continue the web build, and update its Status and Log before finishing.
 - `docs/next-steps.md` — status and near-term tasks, in risk order.
 - `docs/open-questions.md` — unresolved design questions.
 
