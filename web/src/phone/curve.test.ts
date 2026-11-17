@@ -25,6 +25,14 @@ describe("curve from a Python measurement", () => {
 });
 
 describe("files in the message (D14)", () => {
+  it("travels in the curve message and survives the desktop's checks", async () => {
+    const c = curveFrom(doc, ctx, await pack(fixture.outputs))!;
+    const checked = parseCurve(JSON.parse(JSON.stringify(c)))!;
+    expect(checked.files).toEqual(c.files);
+    expect((await unpack(checked.files!)).dxf).toBe(fixture.outputs.dxf);
+    expect(parseCurve({ ...c, files: { dxf: "!!" } })).toBeNull();
+  });
+
   it("round-trips Python's output files, small enough for one message", async () => {
     const packed = await pack(fixture.outputs);
     const size = Object.values(packed).reduce((n, s) => n + s!.length, 0);

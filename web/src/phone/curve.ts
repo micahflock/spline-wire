@@ -38,6 +38,6 @@ export function curveFrom(doc: MeasurementDocument, ctx: CurveContext, files?: P
       link_residual_max_mm: r.link_residual_max_mm,
     },
   };
-  if (files && Object.keys(files).length) (curve as Curve & { files: PackedFiles }).files = files;
+  if (files && Object.keys(files).length) curve.files = files;
   return curve;
 }

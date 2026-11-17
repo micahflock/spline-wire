@@ -12,6 +12,7 @@
 // authenticated by the pairing key, but may be an older or newer build.
 
 import type { Role } from "./crypto";
+import { parseFiles, type PackedFiles } from "./files";
 
 export const CURVE_VERSION = 1;
 
@@ -38,6 +39,8 @@ export interface Curve {
   /** Things that may make the measurement wrong. Shown in orange. */
   warnings: string[];
   notes: string[];
+  /** The output files, gzipped (D14, files.ts). Absent when they would not fit in one message. */
+  files?: PackedFiles;
   diagnostics: {
     focal_source: "exif" | "override" | "default" | "estimated";
     focal_35mm: number;
@@ -102,6 +105,8 @@ export function parseCurve(c: unknown): Curve | null {
   const source = sources.find((s) => s === d.focal_source);
   const nums = [d.focal_35mm, d.tilt_deg, d.missing_pins, d.link_residual_rms_mm, d.link_residual_max_mm];
   if (!source || !nums.every(isNum)) return null;
+  const files = c.files === undefined ? undefined : parseFiles(c.files);
+  if (files === null) return null;
   // Built field by field: unknown fields from a newer build are dropped, not stored.
   return {
     v: CURVE_VERSION,
@@ -122,6 +127,7 @@ export function parseCurve(c: unknown): Curve | null {
       link_residual_rms_mm: d.link_residual_rms_mm as number,
       link_residual_max_mm: d.link_residual_max_mm as number,
     },
+    ...(files ? { files } : {}),
   };
 }
 
