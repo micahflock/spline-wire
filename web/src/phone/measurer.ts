@@ -100,18 +100,23 @@ export class Measurer {
     const id = this.waiting.shift();
     if (id === undefined) return;
     this.running = id;
+    let update: Update | null = null;
     try {
-      await this.run(id);
+      update = await this.run(id);
     } finally {
       this.running = null;
     }
+    // Options changed meanwhile: this result is already out of date, and the
+    // next measurement follows at once. Otherwise it is published once the
+    // photo is no longer busy, so the page can act on it at once.
     if (this.again.delete(id)) this.waiting.unshift(id);
+    else if (update) this.deps.update(id, update);
     void this.pump();
   }
 
-  private async run(id: string): Promise<void> {
+  private async run(id: string): Promise<Update | null> {
     const options = this.deps.options(id);
-    if (!options) return;
+    if (!options) return null;
     this.deps.update(id, { status: "measuring" });
     const t0 = this.now();
     let update: Update;
@@ -121,10 +126,7 @@ export class Measurer {
     } catch (err) {
       update = { status: "error", failure: toFailure(err), ms: this.now() - t0 };
     }
-    // Options changed meanwhile: this result is already out of date, and the
-    // next measurement follows at once.
-    if (this.again.has(id)) return;
-    this.deps.update(id, update);
+    return update;
   }
 }
 

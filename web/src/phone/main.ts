@@ -53,7 +53,7 @@ const core = new CoreClient(() => new Worker(new URL("../core/worker.ts", import
 const timings: { id: string; status: string; ms: number }[] = [];
 // For the end-to-end test, and for looking at a phone's timings and memory
 // from its console: phone.core.call("stats", {}).
-const debug = { core, timings, engine: null as null | { readyAt: number; ms: number } };
+const debug = { core, timings, engine: null as null | { readyAt: number; ms: number }, link: [] as (LinkStatus & { t: number })[] };
 Object.assign(window, { phone: debug });
 
 // ---- photos ----
@@ -255,13 +255,15 @@ async function startEngine(): Promise<void> {
   box.hidden = false;
   box.classList.remove("bad");
   $("engine-retry").hidden = true;
-  $("engine-note").textContent = "The first visit downloads about 40 MB, once. You can take the photo meanwhile.";
+  $("engine-note").textContent = navigator.serviceWorker?.controller
+    ? "Loading from this phone, about 10 s. You can take the photo meanwhile."
+    : "The first visit downloads about 40 MB, once. You can take the photo meanwhile.";
   try {
     const [loaded] = await Promise.all([core.preload(), chainsLoaded]);
     debug.engine = { readyAt: performance.now(), ms: loaded.ms };
     box.hidden = true;
     const v = loaded.versions;
-    footer(`Pyodide ${v.pyodide ?? "?"} · OpenCV ${v.opencv ?? "?"} · ready in ${(loaded.ms / 1000).toFixed(1)} s`);
+    footer(`core ${v.splinewire ?? "?"} · Pyodide ${v.pyodide ?? "?"} · OpenCV ${v.opencv ?? "?"} · ready in ${(loaded.ms / 1000).toFixed(1)} s`);
     measurer.coreReady();
   } catch (e) {
     box.classList.add("bad");
@@ -289,10 +291,12 @@ async function startServiceWorker(): Promise<void> {
   // is. (Written so that Vite does not take it for an asset of its own to bundle.)
   const root = new URL(["..", ""].join("/"), import.meta.url);
   try {
-    await navigator.serviceWorker.register(new URL("sw.js", root), { scope: root.href });
+    const reg = await navigator.serviceWorker.register(new URL("sw.js", root), { scope: root.href });
     if (navigator.serviceWorker.controller) return;
     // First visit: wait a moment for it to take control, so the engine's
-    // download goes through it and is kept for the next visit.
+    // download goes through it and is kept for the next visit. Only when one
+    // is on its way: a browser that blocks it must not delay the engine.
+    if (!reg.installing && !reg.waiting && !reg.active) return;
     await Promise.race([
       new Promise((r) => navigator.serviceWorker.addEventListener("controllerchange", r, { once: true })),
       new Promise((r) => setTimeout(r, 3000)),
@@ -585,7 +589,7 @@ function renderResult(): void {
     b.setAttribute("aria-pressed", String(picking ? b.dataset.side === "tap" : b.dataset.side === sideKey));
   }
   const res = doc?.result;
-  $("side-now").textContent = res ? `: ${SIDE_TEXT[res.object_side]}${Array.isArray(r.side) ? ", from your tap" : ""}` : "";
+  $("side-now").textContent = res ? `${SIDE_TEXT[res.object_side]}${Array.isArray(r.side) ? ", from your tap" : ""}` : "";
   photoPins.value = String(r.pins);
 
   $("numbers").replaceChildren(...(res ? numbers(res, r.pins) : []).map(([k, val, s, warn]) =>
@@ -770,6 +774,7 @@ async function startPairing(): Promise<void> {
       status: (s) => {
         const before = linkStatus;
         linkStatus = s;
+        debug.link.push({ ...s, t: Math.round(performance.now()) });
         outbox?.onStatus(s, before);
         if (s.state === "open" && (before.state !== "open" || s.peers > before.peers)) hello();
         renderPairing();

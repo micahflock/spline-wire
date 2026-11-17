@@ -49,6 +49,7 @@ jobs:
       - name: Install
         run: |
           npm ci
+          npm ci --prefix relay    # the dev relay and its demo desktop page, for e2e/phone.spec.ts
           uv sync
 
       - name: Typecheck

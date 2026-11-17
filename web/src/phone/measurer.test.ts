@@ -75,6 +75,7 @@ describe("Measurer", () => {
     core.calls[1]!.finish({ name: "fresh" });
     await tick();
     expect(log.at(-1)![1].doc!.name).toBe("fresh");
+    expect(m.busy("a")).toBe(false);
     expect(statuses("a").filter((s) => s === "done")).toHaveLength(1);
     expect(m.busy("a")).toBe(false);
   });

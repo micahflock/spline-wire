@@ -41,6 +41,8 @@ let page: Page;
 let photoId: string;
 
 test.describe.configure({ mode: "serial" });
+// A button that stays disabled is a failure, not something to wait ten minutes for.
+test.use({ actionTimeout: 30_000 });
 
 test.beforeAll(async ({ browser }) => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "spline-wire-phone-"));
@@ -222,6 +224,18 @@ test("a reload keeps the photo and its measurement", async () => {
   await expect(page.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
 });
 
+test("settings offer the focal length of the last photo with EXIF as the saved one", async () => {
+  await page.locator("#settings summary").tap();
+  await expect(page.locator("#s-offer-text")).toHaveText("Use 26 mm from your last photo?");
+  await expect(page.locator("#s-chain")).toHaveValue("default");
+  await page.locator("#settings").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS, "settings-light.png"), fullPage: true });
+  await tapButton("Use it");
+  await expect(page.locator("#s-focal")).toHaveValue("26");
+  await expect(page.locator("#s-offer")).toBeHidden();
+  await page.locator("#settings summary").tap();
+});
+
 test("an error is shown as is, and the photo can still be fixed by hand", async () => {
   await page.setInputFiles("#choose", broken);
   const item = page.locator("#photos li").first();
@@ -247,12 +261,15 @@ test.describe("paired with a computer", () => {
   let demo: Demo;
   let desk: BrowserContext;          // the computer's browser: its storage keeps the pairing and the curves
   let desktop: Page;
+  let over = false;
 
   test.beforeAll(async ({ browser }) => {
     demo = await startDemo();
     desk = await browser.newContext();
   });
   test.afterAll(async () => {
+    over = true;
+    await page.goto("phone/");                         // no ?relay=: this build has no relay, so the page stops trying
     await desk?.close();
     await demo?.close();
   });
@@ -266,20 +283,30 @@ test.describe("paired with a computer", () => {
     const link = (await desktop.locator("#pair").textContent())!;
     const secret = new URL(link).hash;                 // #pair=<secret>
     expect(secret).toMatch(/^#pair=/);
+    page.on("websocket", (ws) => {
+      ws.on("close", () => { if (!over) log(`relay socket closed: ${ws.url()}`); });
+    });
     await page.goto(`phone/?relay=${encodeURIComponent(demo.relay.url)}${secret}`);
     await expect(page).toHaveURL(/\/phone\/\?relay=[^#]*$/);   // the secret is taken off the address
     await expect(page.locator("#link-text")).toHaveText("Computer connected");
     await expect(page.locator(`#photos li[data-id="${photoId}"]`)).toHaveAttribute("data-status", "done");
     await page.locator(`#photos li[data-id="${photoId}"] button.open`).tap();
+    // The engine is new after the navigation: sending opens and measures the photo again first.
     await tapButton("Send to computer");
-    await expect(desktop.locator("#curves li")).toHaveCount(1);
+    await expect(desktop.locator("#curves li")).toHaveCount(1, { timeout: 60_000 });
     await expect(page.locator("#send-note")).toHaveText(/Delivered to the computer/);
     const [curve] = await received();
     expect(curve!.points_mm.length).toBeGreaterThan(10);
     expect(curve!.photo).toBe(path.basename(pipe.photo));
     const files = await unpack(curve!.files!);
     const core = await page.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), photoId);
-    for (const kind of ["json", "csv", "svg", "dxf", "fusion_csv"] as const) expect(files[kind]).toBe(core.files[kind]);
+    // The DXF carries GUIDs and a time stamp that ezdxf makes anew for every file written.
+    const guidless = (t: string | undefined) =>
+      t?.replace(/^\{[0-9A-F-]{36}\}$/gm, "{guid}").replace(/^(\d+\.\d+\.\d+) @ \S+$/gm, "$1 @ {time}");
+    for (const kind of ["json", "csv", "svg", "dxf", "fusion_csv"] as const) {
+      expect(guidless(files[kind]), kind).toBe(guidless(core.files[kind]));
+    }
+    log("link states:", JSON.stringify(await page.evaluate(() => (window as unknown as { phone: { link: unknown } }).phone.link)));
   });
 
   test("a curve changed after sending goes as a new curve; one sent while the computer is away waits", async () => {
@@ -313,18 +340,29 @@ test("the second visit: with the service worker and without", async ({ browser }
   // Each case in a fresh context: a first visit fills the caches, the second is timed.
   const visit = async (ctx: BrowserContext) => {
     const p = await ctx.newPage();
-    let network = 0, fromSw = 0;
-    p.on("response", async (r) => {
+    // What reached the server: the core's files fetched by the page or its
+    // worker and not answered by the service worker; and their bytes.
+    let network = 0, fromSw = 0, bytes = 0;
+    const sizes: Promise<void>[] = [];
+    p.on("requestfinished", (r) => {
       if (!/\/(pyodide|wheels)\//.test(r.url())) return;
-      if (r.fromServiceWorker()) fromSw++;
-      else network++;
+      sizes.push(r.response().then(async (res) => {
+        if (res?.fromServiceWorker()) {
+          fromSw++;
+          return;
+        }
+        network++;
+        bytes += (await r.sizes()).responseBodySize;
+      }).catch(() => {}));
     });
     const t0 = Date.now();
     await p.goto("phone/");
     await p.waitForFunction(() => (window as unknown as PhoneWindow).phone.engine !== null, null, { timeout: 120_000 });
     const engine = await p.evaluate(() => (window as unknown as PhoneWindow).phone.engine!);
+    await p.waitForTimeout(500);                       // ezdxf's download follows the load
+    await Promise.all(sizes);
     await p.close();
-    return { readyAt: engine.readyAt, load: engine.ms, wall: Date.now() - t0, network, fromSw };
+    return { readyAt: engine.readyAt, load: engine.ms, wall: Date.now() - t0, network, fromSw, mb: (bytes / 1e6).toFixed(1) };
   };
   const out: string[] = [];
   for (const sw of ["allow", "block"] as const) {
@@ -340,8 +378,9 @@ test("the second visit: with the service worker and without", async ({ browser }
     })() : "";
     await ctx.close();
     out.push(`${sw === "allow" ? "with" : "without"} service worker: first visit ready ${(first.readyAt / 1000).toFixed(1)} s ` +
-      `(${first.network} core files from the network), second ${(second.readyAt / 1000).toFixed(1)} s ` +
-      `(load ${(second.load / 1000).toFixed(1)} s; ${second.network} from the network, ${second.fromSw} from the service worker)` +
+      `(load ${(first.load / 1000).toFixed(1)} s), second ${(second.readyAt / 1000).toFixed(1)} s ` +
+      `(load ${(second.load / 1000).toFixed(1)} s; core files: ${second.network} past the service worker, ${second.mb} MB, ` +
+      `${second.fromSw} from it)` +
       (caches ? `; caches: ${caches}` : ""));
     if (sw === "allow") expect(second.fromSw).toBeGreaterThan(5);
     else expect(second.fromSw).toBe(0);
