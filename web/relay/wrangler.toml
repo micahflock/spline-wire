@@ -1,0 +1,23 @@
+# The relay Worker (worker.ts). Deploy steps: README.md in this folder.
+name = "spline-wire-relay"
+main = "worker.ts"
+# On or after 2026-04-07 the platform answers a page's close frame itself
+# (web_socket_auto_reply_to_close), which worker.ts relies on.
+compatibility_date = "2026-11-01"
+# Served at https://spline-wire-relay.<your-subdomain>.workers.dev
+workers_dev = true
+
+[vars]
+# Comma-separated origins of the pages allowed to connect, e.g.
+# "https://someone.github.io". Empty allows any origin: development only.
+ALLOWED_ORIGINS = ""
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+# SQLite-backed: the only kind the Workers Free plan offers. The relay stores
+# nothing, so the backend only matters for the plan.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

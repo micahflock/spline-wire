@@ -72,10 +72,23 @@ export function route(frame: unknown, recent: number): Route {
   return frame.startsWith("{") ? { do: "forward" } : { do: "drop" };
 }
 
+/** A RateWindow as plain data, for relays that must keep it outside memory
+ * (the Worker's Durable Object forgets its memory when it hibernates). */
+export interface RateState {
+  start: number;
+  count: number;
+}
+
 /** A fixed-window counter for RATE_LIMIT; one per socket. */
 export class RateWindow {
   private start = 0;
   private count = 0;
+  constructor(state?: RateState | null) {
+    if (state && Number.isFinite(state.start) && Number.isFinite(state.count)) {
+      this.start = state.start;
+      this.count = state.count;
+    }
+  }
   /** Count a frame at time `now` (ms) and return the count in its window. */
   hit(now: number): number {
     if (now - this.start >= RATE_LIMIT.windowMs) {
@@ -84,4 +97,27 @@ export class RateWindow {
     }
     return ++this.count;
   }
+  get state(): RateState {
+    return { start: this.start, count: this.count };
+  }
 }
+
+/** The allowed page origins from a comma-separated setting. Empty allows any
+ * origin, for development. */
+export function parseOrigins(setting: string | undefined): string[] {
+  return (setting ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/+$/, ""))
+    .filter((o) => o !== "");
+}
+
+/** Whether a page at `origin` may open a socket. Only browsers send Origin,
+ * so this keeps other sites' pages off the relay, not other programs: the
+ * rate and size limits are what protect it. */
+export function originAllowed(origin: string | null, allowed: readonly string[]): boolean {
+  return allowed.length === 0 || (origin !== null && allowed.includes(origin));
+}
+
+/** The answer to anything that is not a room's WebSocket. */
+export const INFO_TEXT =
+  "Spline Wire relay. It passes sealed messages between a paired phone and computer and stores nothing.\n";
