@@ -67,11 +67,34 @@ describe("overlay session", () => {
       chain, focalPx: () => null, analyse, show: () => {}, capture: async () => void captures++,
     });
     for (let i = 0; i < 12; i++) {
-      overlay.frame(workFrame(i * 6).frame, 1920, 1080, i * 100);     // one pitch a second
+      overlay.frame(workFrame(i * 12).frame, 1920, 1080, i * 100);    // two pitches a second
       await turn();
     }
     expect(captures).toBe(0);
     expect(overlay.coach.current.problems).toContain("moving");
+  });
+
+  it("analyses at most once per minIntervalMs, and never two at once", async () => {
+    let calls = 0, open = 0, most = 0;
+    const slow = async (p: FramePoints) => {
+      calls++;
+      most = Math.max(most, ++open);
+      await turn();
+      open--;
+      return analyse(p);
+    };
+    const overlay = new OverlaySession({
+      chain, focalPx: () => null, analyse: slow, show: () => {}, capture: async () => {}, minIntervalMs: () => 1000,
+    });
+    for (let t = 0; t <= 2500; t += 100) {
+      overlay.frame(workFrame().frame, 1920, 1080, t);
+      overlay.frame(workFrame().frame, 1920, 1080, t + 1);       // a second frame while the first is analysed
+      await turn();
+      await turn();
+    }
+    expect(calls).toBe(3);                                      // at 0, 1000 and 2000 ms
+    expect(most).toBe(1);
+    expect(overlay.stats).toMatchObject({ frames: 52, analysed: 3 });
   });
 
   it("measures motion in pitches per second, whichever end the order starts from", () => {

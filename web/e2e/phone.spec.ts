@@ -36,6 +36,8 @@ const mib = (b: number | null) => (b == null ? "?" : `${(b / 2 ** 20).toFixed(0)
 
 let pipe: NativePhoto;
 let broken: string;               // a crop with too few pins and no EXIF
+let lensPhoto: string;            // a back-camera photo with full EXIF, no chain
+let selfie: string;
 let context: BrowserContext;
 let page: Page;
 let photoId: string;
@@ -56,6 +58,17 @@ test.beforeAll(async ({ browser }) => {
     "im = Image.open(sys.argv[1]); w, h = im.size",
     "im.crop((0, 0, 1850, h)).save(sys.argv[2], 'JPEG', quality=90)",
   ].join("\n"), pipe.photo, broken], { cwd: ROOT, stdio: "inherit" });
+  // Two small photos as a phone's camera app writes them (D17): one from the
+  // back camera, to teach the focal length, and a selfie, which must not.
+  lensPhoto = path.join(out, "lens.jpg");
+  selfie = path.join(out, "selfie.jpg");
+  execFileSync("uv", ["run", "python", "-c", [
+    "import sys; from PIL import Image",
+    "for path, f35, mm, lens in [(sys.argv[1], 26, 4.25, 'Phone back camera 4.25mm f/1.8'), (sys.argv[2], 30, 2.7, 'Phone front camera 2.7mm f/2.2')]:",
+    "    e = Image.Exif(); e[0x010F] = 'Maker'; e[0x0110] = 'Phone'",
+    "    x = e.get_ifd(0x8769); x[0xA405] = f35; x[0x920A] = mm; x[0xA434] = lens",
+    "    Image.new('L', (400, 300), 128).save(path, 'JPEG', exif=e)",
+  ].join("\n"), lensPhoto, selfie], { cwd: ROOT, stdio: "inherit" });
   fs.mkdirSync(SHOTS, { recursive: true });
   context = await browser.newContext({ ...PHONE, permissions: ["clipboard-read", "clipboard-write"] });
   page = await context.newPage();
@@ -224,9 +237,17 @@ test("a reload keeps the photo and its measurement", async () => {
   await expect(page.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
 });
 
-test("settings offer the focal length of the last photo with EXIF as the saved one", async () => {
+test("settings learn a focal length per lens, not from a selfie, and offer it as the saved one", async () => {
   await page.locator("#settings summary").tap();
-  await expect(page.locator("#s-offer-text")).toHaveText("Use 26 mm from your last photo?");
+  // The synthetic photo has the 35 mm tag but names no camera or lens: nothing to remember it under (D17).
+  await expect(page.locator("#s-offer")).toBeHidden();
+  await page.setInputFiles("#s-teach", selfie);
+  await expect(page.locator("#toast")).toContainText("front camera");
+  await expect(page.locator("#s-lenses li")).toHaveCount(0);
+  await page.setInputFiles("#s-teach", lensPhoto);
+  await expect(page.locator("#toast")).toContainText("Learned 26 mm for Phone back camera 4.25mm f/1.8");
+  await expect(page.locator("#s-lenses li")).toHaveCount(1);
+  await expect(page.locator("#s-offer-text")).toHaveText("Use 26 mm from your last photo (Phone back camera 4.25mm f/1.8) for photos without camera data?");
   await expect(page.locator("#s-chain")).toHaveValue("default");
   await page.locator("#settings").scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(SHOTS, "settings-light.png"), fullPage: true });

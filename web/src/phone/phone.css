@@ -61,12 +61,21 @@ h3 { margin: 22px 0 10px; font: 600 11.5px/1 var(--f-ui); letter-spacing: .12em;
 
 .shoot-box { margin-top: 16px; }
 .file { display: none; }
-.shoot { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 18px; background: var(--key); color: var(--key-ink);
+.shoot { width: 100%; border-top: none; border-left: none; border-right: none; display: flex; justify-content: center; align-items: center; gap: 12px; padding: 18px; background: var(--key); color: var(--key-ink);
   border-bottom: 4px solid var(--key-edge); font: 700 20px/1 var(--f-ui); letter-spacing: .04em; border-radius: 3px; cursor: pointer; }
 .shoot:active { transform: translateY(2px); border-bottom-width: 2px; }
 .lib { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 8px; min-height: 48px; padding: 12px;
   border: 1px solid var(--line); border-radius: 3px; background: var(--panel); font-size: 16px; cursor: pointer; }
 .shoot svg, .lib svg { width: 22px; height: 22px; flex: none; }
+.seg.mode { grid-template-columns: 1fr 1fr; margin-bottom: 10px; }
+#upload-box .lib { margin-top: 8px; }
+
+.lenses-box { margin: 12px 0; }
+.lenses { list-style: none; padding: 0; margin: 0 0 8px; font-size: 14px; }
+.lenses li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.lenses li span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.lenses li span:last-child { font-family: var(--f-data); flex: none; }
+.lenses-box .btn { position: relative; }
 
 .result { margin-top: 18px; padding-top: 12px; border-top: 2px solid var(--ink); }
 .hd { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
@@ -157,3 +166,40 @@ select { max-width: 55%; }
   background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 3px; font-size: 15px; opacity: 0; pointer-events: none;
   transition: opacity .2s; z-index: 10; }
 #toast.on { opacity: 1; }
+
+/* The camera view: full screen, black, the video shown whole (what the still holds), the chain traced
+   over it on a canvas, the coach's words at the top, the shutter with its hold ring at the bottom. */
+html.cam-on, html.cam-on body { overflow: hidden; }
+.cam { position: fixed; inset: 0; z-index: 20; background: #000; color: #fff; }
+.cam-live { position: absolute; inset: 0; }
+.cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.cam canvas { pointer-events: none; }
+.cam.flash video { opacity: .6; transition: opacity .1s; }
+.cam-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) var(--gutter-r) 10px var(--gutter-l); background: linear-gradient(rgba(0,0,0,.55), transparent); }
+.cam-btn { width: 44px; height: 44px; border: none; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; font-size: 20px; flex: none; }
+.cam-count { flex: 1; text-align: center; font-size: 16px; font-weight: 500; text-shadow: 0 1px 3px #000; }
+.cam-switch { max-width: 42%; min-height: 40px; background: rgba(0,0,0,.45); color: #fff; border: 1px solid rgba(255,255,255,.4); font-size: 13px; }
+.cam-say { position: absolute; left: var(--gutter-l); right: var(--gutter-r); top: calc(max(10px, env(safe-area-inset-top)) + 58px);
+  text-align: center; text-shadow: 0 1px 4px #000; pointer-events: none; }
+.cam-say b { display: block; font: 700 23px/1.2 var(--f-ui); }
+.cam-say span { display: block; font-size: 15px; margin-top: 4px; opacity: .9; }
+.cam-say span:empty { display: none; }
+.cam-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 24px var(--gutter-r) max(12px, env(safe-area-inset-bottom)) var(--gutter-l); background: linear-gradient(transparent, rgba(0,0,0,.6)); }
+.cam-shutter { width: 84px; height: 84px; border: none; background: none; padding: 0; }
+.cam-shutter svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.cam-shutter .ring-bg { fill: none; stroke: rgba(255,255,255,.35); stroke-width: 6; }
+.cam-shutter .ring { fill: none; stroke: #4cc27a; stroke-width: 6; stroke-dasharray: 226.2; stroke-dashoffset: 226.2; }
+.cam-shutter .dot { fill: #fff; }
+.cam-shutter:active .dot { fill: #ddd; }
+.cam-shutter:disabled { opacity: .5; }
+.cam-shutter[data-phase="adjusting"] .ring-bg { stroke: rgba(242,183,5,.6); }
+.cam-pill { border: 1px solid rgba(255,255,255,.5); background: rgba(0,0,0,.45); color: #fff; font-size: 14px; padding: 6px 12px; border-radius: 999px; min-height: 40px; flex: none; }
+.cam-teach { border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 14px; padding: 8px 14px; border-radius: 999px; min-height: 36px; }
+.cam-teach { background: rgba(178,106,0,.85); }
+.cam-info { font-size: 10.5px; opacity: .75; margin: 0; text-align: center; overflow-wrap: anywhere; max-width: 100%; }
+.cam-fail { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px;
+  padding: 24px var(--gutter-r) 24px var(--gutter-l); background: var(--paper); color: var(--ink); font-size: 15.5px; }
+.cam-fail b { font-size: 20px; }
+.cam-fail p { margin: 0; }

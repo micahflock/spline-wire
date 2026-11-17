@@ -235,13 +235,51 @@ def _dedupe_candidates(cands: list[_Candidate], same_size: bool = False) -> list
     about the same size merge: a larger blob sharing a dot's centre (a halo
     of table around a dark patch) must not stand in for the dot."""
     kept: list[_Candidate] = []
+    claims = _Claims()
     for c in sorted(cands, key=lambda c: -min(c.outer[1])):
         size = min(c.outer[1])
         if all(math.hypot(c.center[0] - k.center[0], c.center[1] - k.center[1])
                > 0.25 * min(size, min(k.outer[1])) or c.polarity != k.polarity
-               or (same_size and min(k.outer[1]) > 1.3 * size) for k in kept):
+               or (same_size and min(k.outer[1]) > 1.3 * size) for k in claims.near(c.center, kept)):
             kept.append(c)
+            claims.add(c.center, 0.25 * min(c.outer[1]), c)
     return kept
+
+
+class _Claims:
+    """The kept detections that may lie close enough to a point to stand
+    for it, found through a grid instead of by checking every one: woven
+    fabric seen close up gives over 10,000 dot-like spots, and checking
+    each against all others took over three minutes of a four minute
+    detection. Each kept detection is listed in every grid cell its reach
+    (the farthest a merged one can lie from it) touches, so the cell
+    holding a point lists every detection that can reach it."""
+
+    _CELL = 32.0         # px
+
+    def __init__(self):
+        self._cells: dict[tuple[int, int], list] = {}
+
+    def add(self, center, reach: float, item) -> None:
+        x, y = center
+        r = reach * (1 + 1e-9) + 1e-6           # equality still merges
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(r)):
+            self._cells.setdefault(None, []).append(item)     # checked against every point
+            return
+        c = self._CELL
+        for i in range(math.floor((x - r) / c), math.floor((x + r) / c) + 1):
+            for j in range(math.floor((y - r) / c), math.floor((y + r) / c) + 1):
+                self._cells.setdefault((i, j), []).append(item)
+
+    def near(self, center, everything: list) -> list:
+        """The kept detections that may reach center, in the order kept
+        (`everything`, if center is not a finite point)."""
+        x, y = center
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return everything
+        c = self._CELL
+        return (self._cells.get((math.floor(x / c), math.floor(y / c)), [])
+                + self._cells.get(None, []))
 
 
 # ---------------------------------------------------------------------------
@@ -405,10 +443,12 @@ def _accept(fit: dict, target_ratio: float, polarity: int) -> Fiducial | None:
 
 def _dedupe(rings: list[Fiducial]) -> list[Fiducial]:
     kept: list[Fiducial] = []
+    claims = _Claims()
     for r in sorted(rings, key=lambda r: -r.outer_axes_px[1]):
         if all(np.hypot(r.center_px[0] - k.center_px[0], r.center_px[1] - k.center_px[1])
-               > 0.5 * k.outer_axes_px[1] or r.polarity != k.polarity for k in kept):
+               > 0.5 * k.outer_axes_px[1] or r.polarity != k.polarity for k in claims.near(r.center_px, kept)):
             kept.append(r)
+            claims.add(r.center_px, 0.5 * r.outer_axes_px[1], r)
     return kept
 
 
@@ -419,6 +459,17 @@ def _dedupe(rings: list[Fiducial]) -> list[Fiducial]:
 # edge blur, inside the link's edge (a 5 mm dot on an 8 mm link leaves 1.5
 # mm, reaching 1.6 radii).
 _DOT_MARGIN = (1.15, 1.45)
+
+# Busy backgrounds. Woven fabric, terrazzo or print seen close up resolve
+# into tens of thousands of dot-like spots; refining each takes about a
+# millisecond, so refining all 46,000 candidates of a 12 MP photo of a chain
+# on fabric took 27 s (and 2-2.5 times that in the browser), only to find
+# 27,000 look-alikes for ordering to sort out. The pins are among the
+# largest candidates in any photo framed on the chain (in the benchmark and
+# the video frame study's stills and sharp frames, 668 photos, no pin
+# ranked below 115th by size, fabric and terrazzo included; 19 of them
+# have more than 1,500 candidates), so only the largest are refined.
+_MAX_CANDIDATES = 1500
 
 
 def detect_dots(image: np.ndarray, min_diameter_px: float = 8.0) -> list[Fiducial]:
@@ -442,7 +493,7 @@ def detect_dots(image: np.ndarray, min_diameter_px: float = 8.0) -> list[Fiducia
                 candidates.extend(_dot_candidates(mask, min_diameter_px if scale == 1 else 10.0, scale))
     grayf = gray.astype(np.float32)
     dots = []
-    for c in _dedupe_candidates(candidates, same_size=True):
+    for c in _dedupe_candidates(candidates, same_size=True)[:_MAX_CANDIDATES]:   # largest first
         d = _refine_dot(grayf, c)
         if d is not None:
             dots.append(d)
@@ -558,7 +609,7 @@ def detect_rims(image: np.ndarray, inner_outer_ratio: float, min_diameter_px: fl
     grayf = gray.astype(np.float32)
     inverted = 255.0 - grayf
     rims = []
-    for c in _dedupe_candidates(candidates, same_size=True):
+    for c in _dedupe_candidates(candidates, same_size=True)[:_MAX_CANDIDATES]:   # largest first
         r = _refine_rim(grayf, inverted, c, inner_outer_ratio)
         if r is not None:
             rims.append(r)

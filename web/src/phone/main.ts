@@ -6,6 +6,8 @@
 
 import "./phone.css";
 import "../photo/photo.css";
+import type { CameraInfo } from "../camera/choose";
+import { fovRatio } from "../camera/focal";
 import { CoreClient, type PhotoSource } from "../core/client";
 import { CoreError, type Commands, type Progress } from "../core/protocol";
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind, Side } from "../core/types";
@@ -22,15 +24,18 @@ import { pointsTsv } from "../relay/messages";
 import { Outbox } from "../relay/outbox";
 import { forgetPairing, phoneSecret } from "../relay/pairing";
 import { LocalStore } from "../relay/store";
+import { CameraView, type Still } from "./camera-view";
 import { curveFrom } from "./curve";
+import { NO_EXIF, exifOfFile, type Exif } from "./exif";
+import { focalOffer, isFront, learn, lensFocal, lensName, offerKey } from "./lenses";
 import { Measurer, type Update } from "./measurer";
-import { PhotoStore, newPhotoId, type BlobKind, type PhotoRecord } from "./photos";
+import { PhotoStore, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord } from "./photos";
 import { curveKey, delivery, deliveryText, sendOffer } from "./send";
 import {
-  chainLabel, chainSpec, defaultPins, focalOffer, loadSettings, parseFocal, parsePins, presetKey, rememberExif, saveSettings,
+  chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
   type Settings,
 } from "./settings";
-import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "./wording";
+import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, photoFocalText, readNote, readWarning } from "./wording";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) => {
@@ -49,7 +54,8 @@ const core = new CoreClient(() => new Worker(new URL("../core/worker.ts", import
 const timings: { id: string; status: string; ms: number }[] = [];
 // For the end-to-end test, and for looking at a phone's timings and memory
 // from its console: phone.core.call("stats", {}).
-const debug = { core, timings, engine: null as null | { readyAt: number; ms: number }, link: [] as (LinkStatus & { t: number })[] };
+const debug = { core, timings, engine: null as null | { readyAt: number; ms: number }, link: [] as (LinkStatus & { t: number })[],
+  camera: null as null | CameraView["stats"], cameraView: null as null | CameraView };
 Object.assign(window, { phone: debug });
 
 // ---- photos ----
@@ -71,7 +77,7 @@ function options(id: string): MeasureOptions | null {
   if (!r) return null;
   return {
     chain: chainSpec(chains, r.chain, r.pins), side: r.side, edits: r.edits,
-    saved_focal_35mm: settings.savedFocal35, focal_override_35mm: settings.focalOverride35,
+    saved_focal_35mm: settings.savedFocal35, focal_override_35mm: settings.focalOverride35 ?? r.focal?.focal35 ?? null,
   };
 }
 
@@ -114,11 +120,10 @@ function onUpdate(r: PhotoRecord, u: Update): void {
       r.doc = u.doc;
       r.failure = null;
       r.measuredWith = focalKey();
-      const next = rememberExif(settings, u.doc.info);
-      if (next !== settings) {
-        settings = next;
-        saveSettings(store, settings);
-        renderSettings();
+      const pins = u.doc.view?.pins;
+      if (r.camera && pins && u.doc.view) {
+        const still = [...pins].sort((a, b) => (a.k ?? 0) - (b.k ?? 0)).map((p): [number, number] => [p.x, p.y]);
+        r.camera.fov = fovRatio(r.camera.frameChain, r.camera.frameSize, still, { width: u.doc.view.width, height: u.doc.view.height });
       }
     } else if (u.failure) {
       r.failure = u.failure;
@@ -137,15 +142,17 @@ function onUpdate(r: PhotoRecord, u: Update): void {
   if (r.id === selected) renderResult();
 }
 
-async function addFiles(files: File[], via: PhotoRecord["via"]): Promise<void> {
+async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | null = null): Promise<void> {
   for (const [i, file] of files.entries()) {
     const id = newPhotoId(Date.now() + i);
-    const made = await previews(file, { thumb: true });
+    const [made, exif] = await Promise.all([previews(file, { thumb: true }), exifOfFile(file)]);
+    const focal = learnFrom(exif, made?.pixels ?? null, still);
     const r: PhotoRecord = {
       id, name: file.name || "photo.jpg", type: file.type, size: file.size, added: Date.now() + i, via,
       chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), side: settings.side, edits: NO_EDITS,
       status: "queued", doc: null, failure: null, pixels: made?.pixels ?? null, preview: made?.previewSize ?? null, sent: [],
-      measuredWith: null,
+      measuredWith: null, exif, focal,
+      camera: still ? { label: still.camera, still: still.kind, frameChain: still.frameChain, frameSize: still.frameSize, fov: null, ms: Math.round(still.ms) } : null,
     };
     const blobs: Partial<Record<BlobKind, Blob>> = { original: file, preview: made?.preview, thumb: made?.thumb };
     let kept = false;
@@ -167,6 +174,34 @@ async function addFiles(files: File[], via: PhotoRecord["via"]): Promise<void> {
   if (photos) {
     for (const id of await photos.prune().catch(() => [] as string[])) drop(id);
   }
+}
+
+/** D17: remember the lens's focal length from a photo that has it, and find
+ * one for a photo that lacks it. Returns the focal length the photo is to be
+ * measured with when its file does not say (PhotoRecord.focal). */
+function learnFrom(exif: Exif, size: { width: number; height: number } | null, still: Still | null): PhotoFocal | null {
+  const before = settings;
+  if (size) settings = learn(settings, exif, size, { cameraLabel: still?.camera ?? null, facing: still?.facing ?? null });
+  if (settings !== before) {
+    saveSettings(store, settings);
+    renderSettings();
+  }
+  const cam = still ? settings.cameras[still.camera] : undefined;
+  if (still && cam?.ultraWide && !isFront(exif, still.facing, still.camera)) {
+    // S3: a Galaxy S23 Ultra's facingMode opened its ultra-wide. Measured all
+    // the same, but the main camera distorts less: open another next time.
+    const f = cam.focal35 ? `${cam.focal35} mm` : `${cam.focalMm} mm lens`;
+    setSettings({ ...settings, camera: null });
+    toast(cameraView.rearCount > 1
+      ? `That photo came from the ultra-wide camera (${f}). It is measured, but the camera will open on another back camera next time.`
+      : `That photo came from an ultra-wide camera (${f}), which distorts more. It is measured all the same.`, 7000);
+  }
+  if (still?.kind === "frame") {
+    const f = still.frameFocal;
+    return f && f.from !== "override" ? { focal35: f.focal35, why: "frame", lens: f.lens } : null;
+  }
+  const known = lensFocal(settings, exif);
+  return known ? { focal35: known.focal35, why: "lens", lens: known.lens } : null;
 }
 
 async function deletePhoto(id: string): Promise<void> {
@@ -338,7 +373,7 @@ addEventListener("resize", () => editor.refit());
 const hasEdits = (e: Edits) => e.add.length > 0 || e.remove.length > 0;
 
 // Object side and pins of the selected photo.
-for (const b of document.querySelectorAll<HTMLButtonElement>(".seg button")) {
+for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg button")) {
   b.onclick = () => {
     const r = selected ? records.get(selected) : undefined;
     if (!r) return;
@@ -415,7 +450,10 @@ function renderResult(): void {
   const info = doc?.info;
   const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
   const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
-  $("r-meta").textContent = [size, focal, `${chainLabel(r.chain)}`, r.via === "take" ? "camera" : "library"].filter(Boolean).join(" · ");
+  const via = r.via === "camera" ? (r.camera?.still === "frame" ? "page camera, video frame" : "page camera")
+    : r.via === "take" ? "system camera" : "library";
+  const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
+  $("r-meta").textContent = [size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
   const [tag, label] = tagOf(r);
   const t = $("r-tag");
   t.className = `tag ${tag}`;
@@ -455,14 +493,15 @@ function renderResult(): void {
     : v ? "Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom." : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
 
   const sideKey = Array.isArray(r.side) ? "tap" : r.side;
-  for (const b of document.querySelectorAll<HTMLButtonElement>(".seg button")) {
+  for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg button")) {
     b.setAttribute("aria-pressed", String(picking ? b.dataset.side === "tap" : b.dataset.side === sideKey));
   }
   const res = doc?.result;
   $("side-now").textContent = res ? `${SIDE_TEXT[res.object_side]}${Array.isArray(r.side) ? ", from your tap" : ""}` : "";
   photoPins.value = String(r.pins);
 
-  $("numbers").replaceChildren(...(res ? numbers(res, r.pins) : []).map(([k, val, s, warn]) =>
+  const focalDetail = res && r.focal && res.focal_source === "override" && settings.focalOverride35 === null ? photoFocalText(r.focal) : undefined;
+  $("numbers").replaceChildren(...(res ? numbers(res, r.pins, focalDetail) : []).map(([k, val, s, warn]) =>
     el("div", { className: warn ? "chk" : "" }, el("dt", { textContent: k }), el("dd", {}, val, el("span", { className: "s", textContent: s })))));
   const item = (x: { title: string; text: string }) => el("li", {}, el("b", { textContent: x.title }), x.text);
   $("warnings").replaceChildren(...(res?.warnings ?? []).map((w) => readWarning(w)).map(item));
@@ -811,8 +850,11 @@ function renderSettings(): void {
   const offer = focalOffer(settings);
   $("s-offer").hidden = !offer;
   if (offer) {
-    $("s-offer-text").textContent = `Use ${offer.focal35} mm from your last photo${offer.camera ? ` (${offer.camera})` : ""}?`;
+    $("s-offer-text").textContent = `Use ${offer.focal35} mm from your last photo (${offer.name}) for photos without camera data?`;
   }
+  $("s-lenses").replaceChildren(...settings.lenses.map((l) => el("li", {},
+    el("span", { textContent: `${l.name}${l.ultraWide ? " (ultra-wide)" : ""}` }), el("span", { textContent: `${l.focal35} mm` }))));
+  $("s-teach-note").hidden = settings.lenses.length > 0;
 }
 
 function setSettings(next: Settings, remeasure = false): void {
@@ -853,7 +895,38 @@ $("s-offer-yes").onclick = () => {
 };
 $("s-offer-no").onclick = () => {
   const offer = focalOffer(settings);
-  if (offer) setSettings({ ...settings, declinedFocal35: offer.focal35 });
+  if (offer) setSettings({ ...settings, declinedOffer: offerKey(offer) });
+};
+
+// Teaching the focal length from any photo of this phone's camera (D17): what
+// Android's in-page stills leave out (S2: the Pixel's takePhoto has no 35 mm tag).
+$<HTMLInputElement>("s-teach").onchange = async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  const exif = await exifOfFile(file);
+  if (isFront(exif)) {
+    toast("That photo is from the front camera. Pick one the back camera took.", 6000);
+    return;
+  }
+  if (exif.focal35 === null || exif.focalMm === null && !exif.lens) {
+    toast("That photo has no focal length in it. Pick one the phone's own camera app took, not a screenshot or a shared copy.", 7000);
+    return;
+  }
+  const made = await previews(file);
+  setSettings(learn(settings, exif, made?.pixels ?? { width: 0, height: 0 }));
+  toast(`Learned ${exif.focal35} mm for ${lensName(exif)}.`, 5000);
+  // Photos already taken with that lens, which lacked it, are measured with it now.
+  for (const r of records.values()) {
+    if (r.focal || !r.exif || r.exif.focal35 !== null) continue;
+    const known = lensFocal(settings, r.exif);
+    if (!known) continue;
+    r.focal = { focal35: known.focal35, why: "lens", lens: known.lens };
+    r.measuredWith = null;
+    persist(r);
+    if (r.id === selected && (r.status === "done" || r.status === "error")) measurer.request(r.id, true);
+  }
 };
 
 // ---- the rest ----
@@ -866,6 +939,53 @@ function toast(text: string, ms = 3500): void {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove("on"), ms);
 }
+
+// ---- the camera ----
+
+const cameraView = new CameraView({
+  chain: async () => {
+    await chainsLoaded;
+    return chainSpec(chains, presetKey(chains, settings.chain), defaultPins(settings, chains));
+  },
+  settings: () => settings,
+  saveCamera: (camera: CameraInfo) => {
+    if (camera.deviceId !== settings.camera?.deviceId || camera.label !== settings.camera?.label) setSettings({ ...settings, camera });
+  },
+  engineReady: () => debug.engine !== null,
+  analyse: (points) => core.call("analyse", points),
+  still: (still) => void addFiles([still.file], "camera", still).catch((e: Error) => toast(`Couldn't add the photo: ${e.message}`)),
+  systemCamera: () => {
+    setMode("upload");
+    $("take").click();
+  },
+  upload: () => setMode("upload"),
+  teach: () => {
+    ($("settings") as HTMLDetailsElement).open = true;     // a closed <details> may not pass the click on
+    $("s-teach").click();
+  },
+});
+debug.cameraView = cameraView;
+debug.camera = cameraView.stats;
+$("take-camera").onclick = () => void cameraView.start();
+
+/** Live camera or Upload a photo, remembered. Upload releases the camera
+ * entirely; choosing Live opens it (a tap is the right moment to ask for it). */
+function setMode(mode: Settings["photoMode"], open = false): void {
+  if (mode === "upload") cameraView.close();
+  if (mode !== settings.photoMode) setSettings({ ...settings, photoMode: mode });
+  renderMode();
+  if (mode === "live" && open) void cameraView.start();
+}
+
+function renderMode(): void {
+  const live = settings.photoMode === "live";
+  $("live-box").hidden = !live;
+  $("upload-box").hidden = live;
+  $("mode-live").setAttribute("aria-pressed", String(live));
+  $("mode-upload").setAttribute("aria-pressed", String(!live));
+}
+$("mode-live").onclick = () => setMode("live", true);
+$("mode-upload").onclick = () => setMode("upload");
 
 for (const [id, via] of [["take", "take"], ["choose", "choose"]] as const) {
   const input = $<HTMLInputElement>(id);
@@ -881,6 +1001,7 @@ $("engine-retry").onclick = () => void startEngine();
 
 async function main(): Promise<void> {
   footer();
+  renderMode();
   core.onProgress = engineProgress;
   chainsLoaded = fetch(new URL("../chains.json", location.href)).then(async (r) => {
     if (!r.ok) throw new Error(`chains.json: HTTP ${r.status}`);

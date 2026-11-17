@@ -134,3 +134,92 @@ def test_a_longer_string_of_look_alikes_does_not_win_on_contrast_alone():
 def test_sharp_bends_need_the_raised_turn_limit():
     pins = pins_from_turns(40.0, np.radians(np.r_[np.zeros(5), SHARP, np.zeros(5)]))
     assert len(order_chain(pins).indices) < len(pins)                  # default 80°: stops at the corner
+
+
+# ---------------------------------------------------------------------------
+# Busy backgrounds: the neighbour search and the bounded walks
+
+def _cluttered(seed: int):
+    """A 13-pin chain with sharp and gentle bends, slightly foreshortened,
+    among look-alikes: some the pins' size (stray dots), some smaller (a
+    texture), a few a pitch or two past the ends, and a near-duplicate."""
+    rng = np.random.default_rng(seed)
+    turns = rng.choice([0.0, 15.0, -30.0, 60.0, SHARP, -SHARP], 11)
+    pins = pins_from_turns(40.0, np.radians(turns), heading_rad=rng.uniform(0, 2 * np.pi))
+    pins = pins * [1.0, np.cos(np.radians(rng.uniform(0, 30)))] + rng.normal(0, 0.3, pins.shape)
+    n = int(rng.integers(20, 120))
+    lo, hi = pins.min(axis=0) - 80, pins.max(axis=0) + 80
+    clutter = rng.uniform(lo, hi, (n, 2))
+    end_dir = pins[-1] - pins[-2]
+    extra = [pins[-1] + end_dir * rng.uniform(0.9, 2.1), pins[0] + rng.normal(0, 0.2, 2)]
+    pts = np.vstack([pins, clutter, extra])
+    size = np.r_[rng.uniform(18, 22, len(pins)), rng.choice([8.0, 12.0, 20.0, 26.0], n),
+                 rng.uniform(18, 22, 2)]
+    axes = np.c_[size, size * rng.uniform(0.85, 1.0, len(size))]
+    strength = rng.uniform(40, 160, len(pts))
+    perm = rng.permutation(len(pts))
+    return pts[perm], axes[perm], strength[perm]
+
+
+@pytest.mark.parametrize("seed", range(16))
+def test_same_order_as_the_all_pairs_version(seed):
+    """The neighbour search gives the order the all-pairs tables gave, link
+    for link and gap for gap, with every combination of what is known."""
+    from tests.dense_order import order_chain as dense_order_chain
+    pts, axes, strength = _cluttered(seed)
+    for kw in (dict(max_turn_deg=80.0), dict(max_turn_deg=125.0, n_pins=13),
+               dict(axes_px=axes, pitch_per_diameter=2.0, max_turn_deg=80.0, n_pins=13, strength=strength),
+               dict(axes_px=axes, pitch_per_diameter=2.0, max_turn_deg=125.0, n_pins=13, strength=strength),
+               dict(axes_px=axes, pitch_per_diameter=2.0, max_turn_deg=125.0)):
+        new, old = order_chain(pts, **kw), dense_order_chain(pts, **kw)
+        assert (new.indices, new.links, new.gaps, new.rejected) == (old.indices, old.links, old.gaps, old.rejected)
+
+
+def _woven(n_spots: int):
+    """A chain among n_spots fainter spots on a lattice (woven fabric seen
+    close up), smaller than a pin and two of their diameters apart, so
+    every walk over them is long."""
+    rng = np.random.default_rng(7)
+    pins = pins_from_turns(40.0, np.radians(np.full(11, 12.0)), start_mm=(600.0, 600.0))
+    g = np.arange(0.0, 1700.0, 16.0)
+    lattice = np.stack(np.meshgrid(g, g), axis=-1).reshape(-1, 2) + rng.normal(0, 0.5, (len(g) ** 2, 2))
+    lattice = lattice[np.min(np.linalg.norm(lattice[:, None] - pins[None], axis=2), axis=1) > 14]
+    lattice = lattice[np.argsort(np.linalg.norm(lattice - pins.mean(axis=0), axis=1))[:n_spots]]
+    pts = np.vstack([pins, lattice])
+    axes = np.vstack([_axes(len(pins)), np.full((len(lattice), 2), 8.0)])
+    strength = np.r_[np.full(len(pins), 100.0), rng.uniform(30, 70, len(lattice))]
+    return pts, dict(axes_px=axes, pitch_per_diameter=2.0, n_pins=13, max_turn_deg=125.0, strength=strength)
+
+
+def test_chain_on_a_woven_texture_is_ordered_in_bounded_time():
+    """10,000 spots: the all-pairs tables took 0.8 GB each and ordering ran
+    for minutes; now about 2 s."""
+    import time
+    pts, kw = _woven(10000)
+    t = time.perf_counter()
+    order = order_chain(pts, **kw)
+    seconds = time.perf_counter() - t
+    assert sorted(order.indices) == list(range(13)) and order.gaps == []
+    assert seconds < 15.0, f"{seconds:.1f} s"
+
+
+def test_ordering_memory_grows_with_the_detections_not_their_square():
+    """5,000 scattered specks smaller than a pin: the all-pairs tables
+    took 200 MB each (the differences twice that); the neighbour search
+    takes a few MB."""
+    import tracemalloc
+    rng = np.random.default_rng(8)
+    pins = pins_from_turns(40.0, np.radians(np.full(11, 12.0)), start_mm=(1000.0, 1000.0))
+    specks = rng.uniform(0, 2500, (5000, 2))
+    specks = specks[np.min(np.linalg.norm(specks[:, None] - pins[None], axis=2), axis=1) > 30]
+    pts = np.vstack([pins, specks])
+    axes = np.vstack([_axes(len(pins)), np.repeat(rng.uniform(4, 13, (len(specks), 1)), 2, axis=1)])
+    tracemalloc.start()
+    try:
+        order = order_chain(pts, axes_px=axes, pitch_per_diameter=2.0, n_pins=13, max_turn_deg=125.0,
+                            strength=np.r_[np.full(len(pins), 100.0), rng.uniform(30, 70, len(specks))])
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert sorted(order.indices) == list(range(13))
+    assert peak < 20 * 2 ** 20, f"{peak / 2 ** 20:.0f} MiB"

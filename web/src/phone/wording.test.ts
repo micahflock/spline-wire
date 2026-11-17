@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MeasurementResult } from "../core/types";
-import { errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "./wording";
+import { errorAdvice, errorTitle, failureText, numbers, photoFocalText, readNote, readWarning } from "./wording";
 
 describe("wording", () => {
   it("puts the core's warnings in plain words", () => {
@@ -44,5 +44,13 @@ describe("wording", () => {
     expect(rows["Focal length"]).toEqual({ v: "27.1 mm", s: "estimated from the chain", w: true });
     expect(rows.Tilt!.v).toBe("12.3°");
     expect(numbers({ ...r, pins: 13, missing_pins: 0, focal_source: "exif" }, 13).filter(([, , , w]) => w)).toEqual([]);
+  });
+});
+
+describe("a focal length the page supplied", () => {
+  it("says where it came from", () => {
+    expect(photoFocalText({ why: "lens", lens: "Pixel 7 Pro back camera 6.81mm f/1.85" })).toMatch(/^remembered for Pixel 7 Pro/);
+    expect(photoFocalText({ why: "frame", lens: null })).toMatch(/saved focal length.*video frame/);
+    expect(photoFocalText({ why: "frame", lens: "Back Camera" })).toMatch(/camera's last photo/);
   });
 });
