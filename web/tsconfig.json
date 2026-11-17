@@ -10,7 +10,11 @@
     "exactOptionalPropertyTypes": false,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "resolveJsonModule": true
   },
-  "include": ["src", "relay", "vite.config.ts"]
+  "include": ["src", "relay", "vite.config.ts"],
+  // The relay's server side needs its own packages (relay/package.json) and
+  // Cloudflare's types; relay/tsconfig*.json check it.
+  "exclude": ["node_modules", "relay/node_modules", "relay/worker.ts", "relay/dev-relay.ts", "relay/test", "relay/demo"]
 }
