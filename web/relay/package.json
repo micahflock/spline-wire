@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:worker": "RELAY_TARGET=worker vitest run test/relay.itest.ts",
     "check:browser": "node --experimental-strip-types test/browser-check.ts",
+    "check:desktop": "node --experimental-strip-types test/desktop-check.ts",
     "demo": "node --experimental-strip-types demo/serve.ts"
   },
   "devDependencies": {

@@ -12,6 +12,7 @@ thin shell around it.
 | `dev-relay.ts` | The same relay as a Node server (`ws`), for development and tests. |
 | `test/relay.itest.ts` | The client backbone (link, outbox, inbox) through a relay over real sockets; runs against either relay. |
 | `test/browser-check.ts`, `demo/` | Two Chromium pages paired by the link, curves passed, reload, relay restart. |
+| `test/desktop-check.ts` | The site's desktop page (`web/desktop/`) under the vite dev server, paired with a test phone (`desktop-check-phone.html`) that sends a Python measurement: clipboard, downloads, reload, unpair. |
 
 This folder has its own `package.json` so its packages (ws, wrangler, Cloudflare's types, esbuild)
 stay out of the site's. `web/`'s `npm test` runs `rules.test.ts` only; the rest is run here.
@@ -23,6 +24,7 @@ npm run relay            # dev relay on ws://127.0.0.1:8787 (PORT, HOST, ALLOWED
 npm test                 # rules + integration tests against the dev relay (~5 s)
 npm run test:worker      # the same integration tests against worker.ts under `wrangler dev` (~40 s)
 npm run check:browser    # two-tab check in Chromium through Playwright
+npm run check:desktop    # the desktop page end to end in Chromium (SCREENSHOTS=<dir> saves them)
 npm run demo             # the demo pages at http://127.0.0.1:8788/desktop.html, by hand
 npm run typecheck        # worker.ts against Cloudflare's types; the rest against Node's and the DOM's
 npm run dev:worker       # the Worker locally on :8787, no account needed
@@ -112,10 +114,10 @@ runtime), which does not reproduce billing, the free plan's limits, or multi-loc
    text page. Redeploy the same way after any change; the `[[migrations]]` entry is applied once.
 5. **Tell the pages.** The relay address the pages need is the same with `wss://`:
    `wss://spline-wire-relay.<subdomain>.workers.dev` (no trailing slash; `LinkOptions.relayUrl`).
-   The site's pages do not read it yet (step 3 of web-build.md). Proposed: a build-time Vite
-   variable, `VITE_RELAY_URL`, set in the deploy workflow from a repository *variable* (not a
-   secret: it is public in every page anyway), with `ws://<host>:8787` as the development default.
-   The demo pages here take it as `?relay=` on their address.
+   The site's pages read it at build time as the Vite variable `VITE_RELAY_URL`
+   (`src/relay/config.ts`), to be set in the deploy workflow from a repository *variable* (not a
+   secret: it is public in every page anyway); in development they default to `ws://<host>:8787`.
+   `?relay=` on a page's address overrides it, here in the demo pages too.
 6. **Later, deploying from CI** (step 4): a Cloudflare API token from the *Edit Cloudflare Workers*
    template stored as the repository secret `CLOUDFLARE_API_TOKEN`, and the account id as
    `CLOUDFLARE_ACCOUNT_ID`; the workflow runs `npx wrangler deploy` in `web/relay`. Never commit
