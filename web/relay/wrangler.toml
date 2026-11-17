@@ -10,7 +10,9 @@ workers_dev = true
 [vars]
 # Comma-separated origins of the pages allowed to connect, e.g.
 # "https://someone.github.io". Empty allows any origin: development only.
-ALLOWED_ORIGINS = ""
+# The site is on GitHub Pages for now (decision D15); when it moves host, add
+# the new origin here (keep both while both serve the site), then deploy.
+ALLOWED_ORIGINS = "https://micahflock.github.io"
 
 [[durable_objects.bindings]]
 name = "ROOMS"

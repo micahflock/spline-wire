@@ -13,7 +13,11 @@ export default defineConfig({
   build: {
     target: "es2022",
     rollupOptions: {
-      input: { desktop: "index.html", phone: "phone/index.html", sw: "src/phone/sw.ts" },
+      input: {
+        desktop: "index.html", phone: "phone/index.html", sw: "src/phone/sw.ts",
+        // The S2/S3 test page, for the owner to open on a phone at spikes/phone-capabilities/.
+        capabilities: "spikes/phone-capabilities/index.html",
+      },
       // The service worker keeps a fixed name at the site's root: its scope is
       // its own folder, and the pages register it by name.
       output: { entryFileNames: (chunk) => (chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js") },
