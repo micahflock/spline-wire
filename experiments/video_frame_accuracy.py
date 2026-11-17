@@ -40,8 +40,8 @@ Conditions:
 
 What a blur level means, at 1080p (f = 1586 px for a 26 mm still lens):
 2 px is 0.072 deg of camera rotation during the exposure, i.e. 2.2 deg/s at
-1/30 s or 4.3 deg/s at 1/60 s; or, at the ~6.5 px/mm the framing gives,
-0.3 mm of sideways travel: ~9 mm/s at 1/30 s, ~19 mm/s at 1/60 s. 4 and 8 px
+1/30 s or 4.3 deg/s at 1/60 s; or, at the ~7.8 px/mm (median) the framing gives,
+0.26 mm of sideways travel: ~8 mm/s at 1/30 s, ~15 mm/s at 1/60 s. 4 and 8 px
 are twice and four times that. A phone held still shakes at roughly
 0.5-3 deg/s; moving it to frame the chain is 5-20 deg/s.
 
@@ -53,7 +53,7 @@ The chain is data/chain.yaml's, with max_bend_deg set by --max-bend
 (default 80, at which docs/cv-robustness.md's figures were measured;
 chain.yaml says 125, which the docs found gives the same dot results).
 
-    uv run python experiments/video_frame_accuracy.py               # 29 presets x 3 seeds, ~25 min first run on 4 cores
+    uv run python experiments/video_frame_accuracy.py               # 29 presets x 3 seeds
     uv run python experiments/video_frame_accuracy.py --quick       # 9 presets x 1 seed, blur 0 and 4
     uv run python experiments/video_frame_accuracy.py --random 40 --json out/video-frame-accuracy/records.json
 """
