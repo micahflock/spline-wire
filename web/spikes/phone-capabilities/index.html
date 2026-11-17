@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phone camera check</title>
+<style>
+  :root {
+    --bg: #f6f6f3; --card: #ffffff; --ink: #1d1d1b; --muted: #66665f; --line: #d8d8d0;
+    --accent: #1f5fbf; --accent-ink: #ffffff; --ok: #1d7a3a; --bad: #b3261e; --warn: #8a5a00;
+    --code: #f0f0ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --card: #1f1f1d; --ink: #ecece6; --muted: #a3a39a; --line: #3a3a36;
+      --accent: #6aa0ff; --accent-ink: #0d0d0c; --ok: #6fd08c; --bad: #ff8a80; --warn: #e8b64c;
+      --code: #2a2a27;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 16px calc(32px + env(safe-area-inset-bottom));
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 20px 0 4px; }
+  h2 { font-size: 1.15rem; margin: 0 0 8px; }
+  h3 { font-size: 1rem; margin: 16px 0 6px; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  section.card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px; margin: 14px 0;
+  }
+  .btn, button {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    min-height: 52px; width: 100%; margin: 8px 0; padding: 10px 14px;
+    border-radius: 10px; border: 1px solid var(--accent); background: var(--accent);
+    color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; position: relative;
+  }
+  button.secondary, .btn.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .45; }
+  .btn small, button small { display: block; font-weight: 400; font-size: .8rem; opacity: .85; }
+  .btn > span, button > span { display: block; }
+  /* file inputs live inside their label; visually hidden but still tappable via the label */
+  .btn input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 140px; }
+  select, input[type=text], textarea {
+    width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-height: 44px;
+  }
+  textarea { font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; }
+  #report { min-height: 260px; }
+  .banner { border-radius: 10px; padding: 10px 12px; margin: 10px 0; border: 1px solid; }
+  .banner.bad { color: var(--bad); border-color: var(--bad); }
+  .banner.ok { color: var(--ok); border-color: var(--ok); }
+  .result { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 10px 0; }
+  .result h3 { margin-top: 0; }
+  .verdict { font-weight: 700; }
+  .verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); } .verdict.warn { color: var(--warn); }
+  table.kv { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  table.kv td { border-top: 1px solid var(--line); padding: 4px 6px 4px 0; vertical-align: top;
+    overflow-wrap: anywhere; }
+  table.kv td:first-child { color: var(--muted); width: 42%; }
+  pre { background: var(--code); border-radius: 8px; padding: 8px; overflow-x: auto;
+    font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; }
+  video, .fov img, canvas.preview { width: 100%; height: auto; display: block; background: #000; border-radius: 8px; }
+  video { max-height: 50vh; object-fit: contain; }
+  .err { color: var(--bad); }
+  .fov-pair { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  @media (min-width: 640px) { .fov-pair { grid-template-columns: 1fr 1fr; } }
+  .overlay { position: relative; width: 100%; overflow: hidden; border-radius: 8px; background: #000; }
+  .overlay img { display: block; width: 100%; height: auto; }
+  .overlay img.top { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 100%; outline: 2px solid #ff3b30; }
+  input[type=range] { width: 100%; min-height: 40px; }
+  summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+  ol { padding-left: 20px; } li { margin: 4px 0; }
+  .thumb { max-width: 100%; max-height: 220px; display: block; margin: 6px 0; border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Phone camera check</h1>
+  <p class="muted">Spikes S2 (does the focal length survive?) and S3 (what can a live camera stream give?).
+    Photos stay on this phone: nothing is uploaded. When you are done, use <b>Copy report</b> or <b>Share</b> at the bottom.</p>
+  <div id="secure-banner"></div>
+
+  <section class="card">
+    <h2>0. About this phone</h2>
+    <label for="device-note">Phone model and OS version (type it in, e.g. "iPhone 13, iOS 18.1")</label>
+    <input type="text" id="device-note" placeholder="Phone model, OS version, browser">
+    <details><summary class="muted">+ Show browser details (they go in the report either way)</summary>
+      <table class="kv" id="env-table"></table></details>
+  </section>
+
+  <section class="card" id="s2">
+    <h2>1. Photos: which route keeps the EXIF? (S2)</h2>
+    <p class="muted">Take or pick one photo with <b>each</b> button. After each one, set "what you tapped in the menu"
+      on its result card if the phone showed a menu.</p>
+    <label class="btn" id="btn-camera"><span>A. Camera<small>&lt;input accept="image/*" capture="environment"&gt;</small></span>
+      <input type="file" id="in-camera" accept="image/*" capture="environment"></label>
+    <label class="btn" id="btn-library"><span>B. Photo library<small>&lt;input accept="image/*"&gt;, no capture</small></span>
+      <input type="file" id="in-library" accept="image/*"></label>
+    <label class="btn" id="btn-files"><span>C. Files (any file type)<small>&lt;input&gt; with no accept filter</small></span>
+      <input type="file" id="in-files"></label>
+    <label class="btn secondary" id="btn-jpeg"><span>D. Library, JPEG only<small>&lt;input accept="image/jpeg"&gt; (may force a conversion)</small></span>
+      <input type="file" id="in-jpeg" accept="image/jpeg"></label>
+    <button id="btn-takephoto" type="button"><span>E. Live camera still<small>ImageCapture.takePhoto() on the rear camera</small></span></button>
+    <div id="s2-results"></div>
+  </section>
+
+  <section class="card" id="s3">
+    <h2>2. Live camera stream (S3)</h2>
+    <button id="btn-start" type="button">Start camera</button>
+    <video id="video" playsinline muted autoplay></video>
+    <p id="stream-status" class="muted">Camera not started.</p>
+    <label for="cam-select">Camera used for the tests below</label>
+    <select id="cam-select"><option value="">Rear camera (facingMode: environment)</option></select>
+    <div class="row">
+      <button id="btn-ladder" type="button" disabled>Try resolution ladder</button>
+      <button id="btn-caps" type="button" class="secondary" disabled>Refresh capabilities</button>
+    </div>
+    <p class="muted">The ladder restarts the camera several times (about 2 s per step); keep the page open.</p>
+    <div id="ladder-out"></div>
+    <h3>Track capabilities and settings</h3>
+    <pre id="caps-out">(start the camera)</pre>
+    <h3>ImageCapture</h3>
+    <div class="row">
+      <button id="btn-photo-caps" type="button" class="secondary" disabled>Photo capabilities</button>
+      <button id="btn-photo-max" type="button" class="secondary" disabled>takePhoto at max size</button>
+    </div>
+    <pre id="ic-out">(start the camera)</pre>
+
+    <h3>Field of view: stream vs still</h3>
+    <ol class="muted">
+      <li>Prop the phone so it does not move (lean it on a cup or a stack of books), pointed at something with
+        clear detail near all four edges, e.g. a page of text or a ruler.</li>
+      <li>Start the camera, then tap <b>Grab video frame</b>.</li>
+      <li>Without moving the phone, take the still: <b>Still via takePhoto</b>, or if that is not available,
+        <b>A. Camera</b> above and then <b>Use latest photo</b>.</li>
+      <li>In the overlay, drag <b>Frame size</b> until the red-outlined video frame lines up with the still
+        (use <b>Frame opacity</b> to compare), then tap <b>Record match</b>. 100% means the stream sees as much as
+        the still; 80% means the stream is a crop of the still's centre.</li>
+    </ol>
+    <div class="row">
+      <button id="btn-grab" type="button" disabled>Grab video frame</button>
+      <button id="btn-still-ic" type="button" disabled>Still via takePhoto</button>
+      <button id="btn-still-latest" type="button" class="secondary">Use latest photo</button>
+    </div>
+    <div class="fov-pair fov">
+      <div><p class="muted" id="fov-frame-info">Video frame: none yet</p><img id="fov-frame" alt=""></div>
+      <div><p class="muted" id="fov-still-info">Still: none yet</p><img id="fov-still" alt=""></div>
+    </div>
+    <h3>Overlay (both scaled to the still's width, centred)</h3>
+    <div class="overlay" id="overlay"><img id="ov-still" alt=""><img id="ov-frame" class="top" alt=""></div>
+    <label for="ov-scale">Frame size: <b id="ov-scale-val">100</b>% of the still's width</label>
+    <input type="range" id="ov-scale" min="30" max="130" step="1" value="100">
+    <label for="ov-alpha">Frame opacity: <b id="ov-alpha-val">50</b>%</label>
+    <input type="range" id="ov-alpha" min="0" max="100" step="1" value="50">
+    <button id="btn-fov-record" type="button" class="secondary">Record match</button>
+  </section>
+
+  <section class="card" id="report-card">
+    <h2>3. Send the results back</h2>
+    <label for="notes">Anything you noticed (menus, prompts, which camera opened, odd behaviour)</label>
+    <textarea id="notes" rows="3" placeholder="Notes"></textarea>
+    <div class="row">
+      <button id="btn-copy" type="button">Copy report</button>
+      <button id="btn-share" type="button">Share</button>
+      <button id="btn-download" type="button" class="secondary">Download .txt</button>
+    </div>
+    <p id="copy-status" class="muted"></p>
+    <p class="muted">If Copy and Share both fail: tap in the box, select all, copy.</p>
+    <textarea id="report" readonly></textarea>
+  </section>
+</main>
+
+<script>
+"use strict";
+const PAGE_VERSION = "phone-capabilities 1 (2026-11-17)";
+const FULL_FRAME_DIAGONAL_MM = Math.hypot(36, 24);   // splinewire/camera.py
+
+const $ = (id) => document.getElementById(id);
+const R = {
+  page: PAGE_VERSION,
+  started: new Date().toISOString(),
+  environment: {},
+  device_note: "",
+  notes: "",
+  s2_photos: [],
+  s3: { devices: null, stream: [], capabilities: null, settings: null, ladder: [], image_capture: {}, fov: {} },
+  errors: [],
+};
+
+function errText(e) {
+  if (e == null) return String(e);
+  if (typeof e === "string") return e;
+  return (e.name ? e.name + ": " : "") + (e.message || String(e));
+}
+function logError(where, e) {
+  const entry = { where, error: errText(e), at: new Date().toISOString() };
+  R.errors.push(entry);
+  updateReport();
+  return entry.error;
+}
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function kvTable(obj) {
+  return Object.entries(obj).map(([k, v]) =>
+    `<tr><td>${esc(k)}</td><td>${esc(v === undefined || v === null ? "-" : typeof v === "object" ? JSON.stringify(v) : v)}</td></tr>`).join("");
+}
+function withTimeout(promise, ms, what) {
+  let t;
+  return Promise.race([
+    promise.finally(() => clearTimeout(t)),
+    new Promise((_, rej) => { t = setTimeout(() => rej(new Error(what + " timed out after " + ms + " ms")), ms); }),
+  ]);
+}
+
+// ---------- environment ----------
+function collectEnvironment() {
+  const env = R.environment;
+  env.userAgent = navigator.userAgent;
+  env.platform = navigator.platform;
+  try { env.userAgentData = navigator.userAgentData ? { mobile: navigator.userAgentData.mobile, platform: navigator.userAgentData.platform, brands: navigator.userAgentData.brands } : null; } catch (e) { env.userAgentData = errText(e); }
+  env.secureContext = window.isSecureContext;
+  env.location_protocol = location.protocol;
+  env.screen = `${screen.width}x${screen.height}`;
+  env.viewport = `${window.innerWidth}x${window.innerHeight}`;
+  env.devicePixelRatio = window.devicePixelRatio;
+  env.maxTouchPoints = navigator.maxTouchPoints;
+  env.has_mediaDevices = !!navigator.mediaDevices;
+  env.has_getUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  env.has_ImageCapture = typeof window.ImageCapture === "function";
+  env.has_requestVideoFrameCallback = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+  env.has_share = typeof navigator.share === "function";
+  env.has_clipboard = !!(navigator.clipboard && navigator.clipboard.writeText);
+  env.has_createImageBitmap = typeof window.createImageBitmap === "function";
+  $("env-table").innerHTML = kvTable(env);
+  $("secure-banner").innerHTML = window.isSecureContext
+    ? `<div class="banner ok">Secure context (HTTPS): the camera APIs can be used.</div>`
+    : `<div class="banner bad">Not a secure context (${esc(location.protocol)}): the live camera (section 2) will not work. Open this page over HTTPS.</div>`;
+}
+
+// ---------- byte-level format and EXIF parsing ----------
+const TAG_NAMES = {
+  0x010F: "Make", 0x0110: "Model", 0x0112: "Orientation", 0x0131: "Software", 0x0132: "DateTime",
+  0x011A: "XResolution", 0x011B: "YResolution",
+  0x8769: "ExifIFDPointer", 0x8825: "GPSInfoIFDPointer",
+  0x829A: "ExposureTime", 0x829D: "FNumber", 0x8827: "ISOSpeedRatings",
+  0x9003: "DateTimeOriginal", 0x9011: "OffsetTimeOriginal",
+  0x920A: "FocalLength", 0xA405: "FocalLengthIn35mmFilm",
+  0xA002: "PixelXDimension", 0xA003: "PixelYDimension",
+  0xA433: "LensMake", 0xA434: "LensModel", 0xA432: "LensSpecification",
+  0xA402: "ExposureMode", 0xA403: "WhiteBalance", 0xA406: "SceneCaptureType", 0xA420: "ImageUniqueID",
+};
+// tags the report lists for every photo (what the spike asks for)
+const REPORT_TAGS = ["Make", "Model", "LensMake", "LensModel", "FocalLength", "FocalLengthIn35mmFilm",
+  "Orientation", "PixelXDimension", "PixelYDimension", "DateTimeOriginal", "OffsetTimeOriginal",
+  "ExposureTime", "FNumber", "ISOSpeedRatings", "Software"];
+const TYPE_SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+
+function ascii(v, off, n) {
+  let s = "";
+  for (let i = 0; i < n && off + i < v.byteLength; i++) s += String.fromCharCode(v.getUint8(off + i));
+  return s;
+}
+
+function sniffFormat(v) {
+  if (v.byteLength >= 3 && v.getUint8(0) === 0xFF && v.getUint8(1) === 0xD8 && v.getUint8(2) === 0xFF) return "JPEG";
+  if (v.byteLength >= 8 && ascii(v, 0, 8) === "\x89PNG\r\n\x1a\n") return "PNG";
+  if (v.byteLength >= 12 && ascii(v, 4, 4) === "ftyp") {
+    const brand = ascii(v, 8, 4);
+    if (/^(heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/.test(brand)) return "HEIF (" + brand + ")";
+    if (/^avi[fs]$/.test(brand)) return "AVIF";
+    return "ISO-BMFF (" + brand + ")";
+  }
+  if (v.byteLength >= 12 && ascii(v, 0, 4) === "RIFF" && ascii(v, 8, 4) === "WEBP") return "WebP";
+  if (v.byteLength >= 6 && /^GIF8[79]a$/.test(ascii(v, 0, 6))) return "GIF";
+  if (v.byteLength >= 4 && (ascii(v, 0, 4) === "II*\0" || ascii(v, 0, 4) === "MM\0*")) return "TIFF";
+  return "unknown";
+}
+
+function scanJpeg(v) {
+  const out = { markers: [], exifTiff: null, sof: null };
+  let off = 2;
+  while (off + 4 <= v.byteLength) {
+    if (v.getUint8(off) !== 0xFF) { out.warning = "marker sync lost at byte " + off; break; }
+    const m = v.getUint8(off + 1);
+    if (m === 0xFF) { off++; continue; }
+    if (m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { off += 2; continue; }
+    if (m === 0xD9 || m === 0xDA) { out.markers.push(m === 0xDA ? "SOS" : "EOI"); break; }
+    const len = v.getUint16(off + 2);
+    const s = off + 4, e = off + 2 + len;
+    let label = "0x" + m.toString(16).toUpperCase();
+    if (m >= 0xE0 && m <= 0xEF) {
+      label = "APP" + (m - 0xE0);
+      const id = ascii(v, s, 32);
+      if (m === 0xE1 && id.startsWith("Exif\0")) {
+        label += " Exif";
+        if (!out.exifTiff) out.exifTiff = { start: s + 6, end: Math.min(e, v.byteLength) };
+      } else if (m === 0xE1 && id.startsWith("http://ns.adobe.com/xap/1.0/")) label += " XMP";
+      else if (m === 0xE0 && id.startsWith("JFIF\0")) label += " JFIF";
+      else if (m === 0xE2 && id.startsWith("ICC_PROFILE")) label += " ICC";
+      else if (m === 0xE2 && id.startsWith("MPF\0")) label += " MPF";
+      else if (m === 0xED) label += " IPTC/Photoshop";
+      else label += " " + JSON.stringify(id.split("\0")[0].slice(0, 16));
+    } else if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+      label = "SOF" + (m - 0xC0);
+      if (!out.sof) out.sof = { height: v.getUint16(s + 1), width: v.getUint16(s + 3) };
+    } else if (m === 0xDB) label = "DQT"; else if (m === 0xC4) label = "DHT"; else if (m === 0xDD) label = "DRI";
+    else if (m === 0xFE) label = "COM";
+    out.markers.push(label + " " + len + " B");
+    off = e;
+  }
+  return out;
+}
+
+// Parse a TIFF structure (the EXIF payload): IFD0, the Exif sub-IFD and the GPS IFD.
+function parseTiff(v, start, end) {
+  const bo = ascii(v, start, 2);
+  if (bo !== "II" && bo !== "MM") throw new Error("bad TIFF byte order " + JSON.stringify(bo));
+  const le = bo === "II";
+  const u16 = (o) => v.getUint16(start + o, le), u32 = (o) => v.getUint32(start + o, le);
+  if (u16(2) !== 42) throw new Error("bad TIFF magic " + u16(2));
+  const size = end - start;
+  function readValue(type, count, at) {
+    const n = TYPE_SIZE[type] * count;
+    if (!TYPE_SIZE[type]) return { unknownType: type, count };
+    if (at < 0 || at + n > size) return { outOfBounds: true };
+    if (type === 2) return ascii(v, start + at, count).replace(/\0+$/, "").replace(/\0/g, " ").trim();
+    if (type === 7 || type === 1 || type === 6) return count <= 8 ? Array.from({ length: count }, (_, i) => v.getUint8(start + at + i)) : { bytes: count };
+    const one = (i) => {
+      const o = at + i * TYPE_SIZE[type];
+      switch (type) {
+        case 3: return u16(o);
+        case 4: return u32(o);
+        case 8: return v.getInt16(start + o, le);
+        case 9: return v.getInt32(start + o, le);
+        case 5: { const a = u32(o), b = u32(o + 4); return { num: a, den: b, value: b ? a / b : null }; }
+        case 10: { const a = v.getInt32(start + o, le), b = v.getInt32(start + o + 4, le); return { num: a, den: b, value: b ? a / b : null }; }
+        case 11: return v.getFloat32(start + o, le);
+        case 12: return v.getFloat64(start + o, le);
+      }
+    };
+    if (count === 1) return one(0);
+    if (count > 16) return { values: count };
+    return Array.from({ length: count }, (_, i) => one(i));
+  }
+  function readIfd(o, name) {
+    if (o < 8 || o + 2 > size) throw new Error(name + " offset " + o + " outside the EXIF block");
+    const n = u16(o);
+    if (o + 2 + n * 12 > size) throw new Error(name + " has " + n + " entries, past the end of the EXIF block");
+    const tags = {};
+    for (let i = 0; i < n; i++) {
+      const e = o + 2 + i * 12;
+      const tag = u16(e), type = u16(e + 2), count = u32(e + 4);
+      const bytes = (TYPE_SIZE[type] || 0) * count;
+      const at = bytes <= 4 ? e + 8 : u32(e + 8);
+      tags[tag] = readValue(type, count, at);
+    }
+    return tags;
+  }
+  const ifd0 = readIfd(u32(4), "IFD0");
+  const res = { byteOrder: le ? "II (little-endian)" : "MM (big-endian)", ifd0, exif: null, gps: null, problems: [] };
+  if (typeof ifd0[0x8769] === "number") {
+    try { res.exif = readIfd(ifd0[0x8769], "Exif IFD"); } catch (e) { res.problems.push(errText(e)); }
+  }
+  if (typeof ifd0[0x8825] === "number") {
+    try { res.gps = readIfd(ifd0[0x8825], "GPS IFD"); } catch (e) { res.problems.push(errText(e)); }
+  }
+  return res;
+}
+
+function scalar(x) {
+  if (x && typeof x === "object" && "value" in x) return x.value;
+  return x;
+}
+function display(x) {
+  if (x && typeof x === "object" && "num" in x) {
+    if (x.den === 0) return `${x.num}/0`;
+    return x.num % x.den === 0 ? String(x.num / x.den) : `${+(x.num / x.den).toPrecision(6)} (${x.num}/${x.den})`;
+  }
+  return x;
+}
+
+// The tags the report lists, looked up as splinewire does: the Exif IFD first, then IFD0.
+function namedTags(tiff) {
+  const out = {};
+  const byName = {};
+  for (const [code, name] of Object.entries(TAG_NAMES)) byName[name] = +code;
+  for (const name of REPORT_TAGS) {
+    const code = byName[name];
+    let val = tiff.exif && tiff.exif[code] !== undefined ? tiff.exif[code] : tiff.ifd0[code];
+    out[name] = val === undefined ? null : display(val);
+  }
+  return out;
+}
+
+// Same rule as splinewire.camera.focal_px_from_exif: FocalLengthIn35mmFilm (Exif IFD, else IFD0);
+// missing or 0 means no focal length. focal_px = f35 * image diagonal (px) / 43.27 mm.
+function pipelineFocal(tiff, width, height) {
+  const raw = tiff ? ((tiff.exif && scalar(tiff.exif[0xA405])) || scalar(tiff.ifd0[0xA405])) : null;
+  if (!raw || !width || !height) {
+    return { focal_35mm: raw || null, focal_px: null,
+      pipeline_would: "estimate the focal length from the chain (no FocalLengthIn35mmFilm in the file)" };
+  }
+  const f35 = Number(raw);
+  return { focal_35mm: f35, focal_px: +(f35 * Math.hypot(width, height) / FULL_FRAME_DIAGONAL_MM).toFixed(3),
+    size_used: `${width}x${height}`, pipeline_would: "use the EXIF focal length" };
+}
+
+function findTiffInBlob(v) {
+  // HEIF keeps EXIF in an item whose data is "<4-byte offset>Exif\0\0<TIFF>", or just the TIFF.
+  // A byte scan for the TIFF header right after "Exif\0\0" finds it without a full box parser.
+  for (let i = 0; i + 10 < v.byteLength; i++) {
+    if (v.getUint8(i) === 0x45 && ascii(v, i, 6) === "Exif\0\0") {
+      const h = ascii(v, i + 6, 4);
+      if (h === "II*\0" || h === "MM\0*") return { start: i + 6, end: v.byteLength };
+    }
+  }
+  return null;
+}
+
+// HEIF stores each image's size in an "ispe" box; the largest one is the primary image (the
+// others are thumbnails or grid tiles). Byte scan, no full box parser.
+function heifSize(v) {
+  let best = null;
+  for (let i = 4; i + 16 <= v.byteLength; i++) {
+    if (v.getUint8(i) === 0x69 && ascii(v, i, 4) === "ispe" && v.getUint32(i - 4) === 20) {
+      const w = v.getUint32(i + 8), h = v.getUint32(i + 12);
+      if (!best || w * h > best.width * best.height) best = { width: w, height: h };
+    }
+  }
+  return best;
+}
+
+function decodedSize(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    const done = (r) => { URL.revokeObjectURL(url); resolve(r); };
+    img.onload = () => done({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => done({ error: "the browser could not decode this file as an image" });
+    setTimeout(() => done({ error: "decode timed out" }), 15000);
+    img.src = url;
+  });
+}
+
+async function analyzeBlob(blob, name) {
+  const t0 = performance.now();
+  const r = { name: name || blob.name || "(blob)", mime: blob.type || "(none)", bytes: blob.size,
+    lastModified: blob.lastModified ? new Date(blob.lastModified).toISOString() : null };
+  let v;
+  try { v = new DataView(await blob.arrayBuffer()); }
+  catch (e) { r.error = "could not read the file's bytes: " + errText(e); return r; }
+  r.format = sniffFormat(v);
+  let tiffLoc = null;
+  if (r.format === "JPEG") {
+    const j = scanJpeg(v);
+    r.jpeg_markers = j.markers;
+    if (j.warning) r.jpeg_warning = j.warning;
+    if (j.sof) r.stored_size = `${j.sof.width}x${j.sof.height}`;
+    r._sof = j.sof;
+    tiffLoc = j.exifTiff;
+    if (!tiffLoc) r.exif_status = "JPEG with no EXIF block (APP1 Exif missing)";
+  } else if (r.format.startsWith("HEIF")) {
+    tiffLoc = findTiffInBlob(v);
+    const hs = heifSize(v);
+    if (hs) { r.stored_size = `${hs.width}x${hs.height}`; r._sof = hs; }
+    r.exif_status = tiffLoc ? "HEIC/HEIF file; EXIF found by byte scan" : "HEIC/HEIF file; no EXIF found by byte scan";
+  } else if (r.format === "PNG" && v.byteLength >= 24) {
+    r.stored_size = `${v.getUint32(16)}x${v.getUint32(20)}`;
+    r._sof = { width: v.getUint32(16), height: v.getUint32(20) };
+    tiffLoc = findTiffInBlob(v);
+    r.exif_status = "PNG file; " + (tiffLoc ? "EXIF found by byte scan" : "no EXIF");
+  } else if (r.format === "TIFF") {
+    tiffLoc = { start: 0, end: v.byteLength };
+  } else {
+    tiffLoc = r.format === "unknown" ? null : findTiffInBlob(v);
+    r.exif_status = r.format + " file; " + (tiffLoc ? "EXIF found by byte scan" : "no EXIF");
+  }
+  let tiff = null;
+  if (tiffLoc) {
+    try {
+      tiff = parseTiff(v, tiffLoc.start, tiffLoc.end);
+      r.exif_byte_order = tiff.byteOrder;
+      r.exif = namedTags(tiff);
+      r.ifd0_tag_count = Object.keys(tiff.ifd0).length;
+      r.exif_ifd_tag_count = tiff.exif ? Object.keys(tiff.exif).length : 0;
+      r.gps_present = !!tiff.gps && Object.keys(tiff.gps).length > 0;
+      r.gps_tag_count = tiff.gps ? Object.keys(tiff.gps).length : 0;
+      if (tiff.problems.length) r.exif_problems = tiff.problems;
+      if (!r.exif_status) r.exif_status = "EXIF present";
+    } catch (e) {
+      r.exif_status = "EXIF block found but could not be parsed: " + errText(e);
+    }
+  } else if (!r.exif_status) r.exif_status = "no EXIF";
+  const dec = await decodedSize(blob);
+  if (dec.error) r.decode = dec.error; else r.decoded_size = `${dec.width}x${dec.height}`;
+  // the pipeline uses the stored pixel size (Pillow's image.size); rotation keeps the diagonal anyway
+  const w = r._sof ? r._sof.width : dec.width, h = r._sof ? r._sof.height : dec.height;
+  delete r._sof;
+  r.focal = pipelineFocal(tiff, w, h);
+  r.analysis_ms = Math.round(performance.now() - t0);
+  return r;
+}
+
+// ---------- S2 ----------
+const ROUTES = {
+  camera: "A. Camera (accept=image/*, capture=environment)",
+  library: "B. Photo library (accept=image/*)",
+  files: "C. Files (no accept filter)",
+  jpeg: "D. Library, JPEG only (accept=image/jpeg)",
+  imagecapture: "E. ImageCapture.takePhoto()",
+  imagecapture_max: "E2. ImageCapture.takePhoto() at max photo size",
+  fov_still: "FOV still via takePhoto",
+};
+const MENU_CHOICES = ["(not recorded)", "no menu: camera opened directly", "Take Photo", "Photo Library",
+  "Choose File / Browse (Files app)", "Camera (Android chooser)", "Photos / Gallery (Android)",
+  "Files / Documents (Android)", "Other (say in notes)"];
+let latestPhoto = null;   // { blob, label } for the field-of-view comparison
+
+async function handlePhoto(route, blob, extra) {
+  const idx = R.s2_photos.length;
+  const card = document.createElement("div");
+  card.className = "result";
+  card.innerHTML = `<h3>#${idx + 1} ${esc(ROUTES[route] || route)}</h3><p class="muted">Reading…</p>`;
+  $("s2-results").prepend(card);
+  let res = {};
+  if (!(extra && extra.error)) {
+    try { res = await analyzeBlob(blob); }
+    catch (e) { res = { error: errText(e) }; }
+  }
+  res = Object.assign({ n: idx + 1, route, route_label: ROUTES[route] || route, menu_choice: MENU_CHOICES[0], at: new Date().toISOString() }, extra || {}, res);
+  R.s2_photos.push(res);
+  if (blob.size && !res.error && res.decoded_size) latestPhoto = { blob, label: `#${idx + 1} ${res.route_label}` };
+  renderPhotoCard(card, res, blob);
+  updateReport();
+  return res;
+}
+
+function renderPhotoCard(card, r, blob) {
+  let verdict, cls;
+  if (r.error) { verdict = "Error: " + r.error; cls = "bad"; }
+  else if (r.focal && r.focal.focal_px) { verdict = `Focal length kept: ${r.focal.focal_35mm} mm (35 mm equiv.) = ${r.focal.focal_px.toFixed(1)} px`; cls = "ok"; }
+  else if (r.exif) { verdict = "EXIF present but no 35 mm focal length"; cls = "warn"; }
+  else { verdict = "No EXIF: " + (r.exif_status || "none"); cls = "bad"; }
+  const rows = {
+    name: r.name, "MIME type": r.mime, bytes: r.bytes != null ? r.bytes.toLocaleString("en-US") : null,
+    format: r.format, "pixels (stored)": r.stored_size, "pixels (decoded, upright)": r.decoded_size || r.decode,
+    EXIF: r.exif_status, "EXIF byte order": r.exif_byte_order,
+    "GPS tags": r.exif ? (r.gps_present ? `present (${r.gps_tag_count} tags, not shown)` : "absent") : null,
+  };
+  if (r.exif) for (const [k, val] of Object.entries(r.exif)) rows[k] = val;
+  if (r.focal) { rows["focal_px (as the pipeline)"] = r.focal.focal_px; rows["pipeline would"] = r.focal.pipeline_would; }
+  if (r.jpeg_markers) rows["JPEG segments"] = r.jpeg_markers.join(", ");
+  if (r.extra_info) rows["extra"] = r.extra_info;
+  card.innerHTML = `<h3>#${r.n} ${esc(r.route_label)}</h3>
+    <p class="verdict ${cls}">${esc(verdict)}</p>
+    <label>What you tapped in the menu (if any)
+      <select>${MENU_CHOICES.map((c) => `<option>${esc(c)}</option>`).join("")}</select></label>
+    <table class="kv">${kvTable(rows)}</table>`;
+  card.querySelector("select").addEventListener("change", (ev) => { r.menu_choice = ev.target.value; updateReport(); });
+  if (blob && blob.size && r.decoded_size) {
+    const img = document.createElement("img");
+    img.className = "thumb"; img.alt = "photo preview";
+    img.src = URL.createObjectURL(blob);
+    card.appendChild(img);
+  }
+}
+
+function wireFileInput(id, route) {
+  const input = $(id);
+  input.addEventListener("change", async () => {
+    const files = Array.from(input.files || []);
+    if (!files.length) { logError(route, "no file chosen (picker cancelled)"); return; }
+    for (const f of files) await handlePhoto(route, f);
+    input.value = "";   // allow choosing the same file again
+  });
+}
+
+// ---------- S3 ----------
+let stream = null, track = null;
+const video = $("video");
+
+function stopStream() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null; track = null;
+  video.srcObject = null;
+}
+
+function videoConstraints(extra) {
+  const sel = $("cam-select").value;
+  const base = sel ? { deviceId: { exact: sel } } : { facingMode: { ideal: "environment" } };
+  return Object.assign(base, extra || {});
+}
+
+async function openStream(extra) {
+  if (!window.isSecureContext) throw new Error("not a secure context: getUserMedia needs HTTPS");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("navigator.mediaDevices.getUserMedia is not available");
+  stopStream();
+  const constraints = { audio: false, video: videoConstraints(extra) };
+  stream = await withTimeout(navigator.mediaDevices.getUserMedia(constraints), 15000, "getUserMedia");
+  track = stream.getVideoTracks()[0];
+  video.srcObject = stream;
+  await withTimeout(new Promise((res) => {
+    if (video.readyState >= 1 && video.videoWidth) return res();
+    video.addEventListener("loadedmetadata", () => res(), { once: true });
+  }), 8000, "video metadata");
+  try { await video.play(); } catch (e) { logError("video.play", e); }
+  return constraints;
+}
+
+function measureFps(ms) {
+  return new Promise((resolve) => {
+    if ("requestVideoFrameCallback" in video) {
+      let frames = 0, first = null, last = null;
+      const t0 = performance.now();
+      const cb = (now, meta) => {
+        if (first === null) first = meta.mediaTime; else frames++;
+        last = meta.mediaTime;
+        if (performance.now() - t0 < ms) video.requestVideoFrameCallback(cb);
+        else resolve({ fps: last > first ? +(frames / (last - first)).toFixed(2) : null, frames, method: "requestVideoFrameCallback" });
+      };
+      video.requestVideoFrameCallback(cb);
+      setTimeout(() => resolve({ fps: null, frames, method: "requestVideoFrameCallback (no frames in time)" }), ms + 3000);
+    } else {
+      let frames = 0, lastT = -1;
+      const t0 = performance.now();
+      const tick = () => {
+        if (video.currentTime !== lastT) { frames++; lastT = video.currentTime; }
+        if (performance.now() - t0 < ms) requestAnimationFrame(tick);
+        else resolve({ fps: +(frames * 1000 / (performance.now() - t0)).toFixed(2), frames, method: "requestAnimationFrame + currentTime (approximate)" });
+      };
+      requestAnimationFrame(tick);
+    }
+  });
+}
+
+function trackInfo() {
+  const info = {};
+  try { info.label = track.label; } catch (e) { info.label = errText(e); }
+  try { info.settings = track.getSettings(); } catch (e) { info.settings = errText(e); }
+  try { info.capabilities = track.getCapabilities ? track.getCapabilities() : "getCapabilities not available"; } catch (e) { info.capabilities = errText(e); }
+  try { info.constraints = track.getConstraints(); } catch (e) { info.constraints = errText(e); }
+  return info;
+}
+
+async function listDevices() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const vids = devs.filter((d) => d.kind === "videoinput");
+    R.s3.devices = vids.map((d, i) => {
+      let facing = null;
+      try { const c = d.getCapabilities && d.getCapabilities(); facing = c && c.facingMode; } catch (e) { facing = errText(e); }
+      return { index: i, label: d.label || "(no label)", deviceId_prefix: d.deviceId ? d.deviceId.slice(0, 8) : "", facingMode: facing };
+    });
+    const sel = $("cam-select"), cur = sel.value;
+    sel.innerHTML = `<option value="">Rear camera (facingMode: environment)</option>` +
+      vids.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || "camera " + (i + 1))}</option>`).join("");
+    sel.value = cur;
+  } catch (e) { R.s3.devices = "enumerateDevices failed: " + logError("enumerateDevices", e); }
+}
+
+function showCaps() {
+  if (!track) return;
+  const info = trackInfo();
+  R.s3.capabilities = info.capabilities;
+  R.s3.settings = info.settings;
+  R.s3.track_label = info.label;
+  $("caps-out").textContent = JSON.stringify({ label: info.label, settings: info.settings, capabilities: info.capabilities }, null, 1);
+  $("stream-status").textContent = `Streaming ${video.videoWidth}x${video.videoHeight} from "${info.label}"`;
+  updateReport();
+}
+
+function setStreamButtons(on) {
+  for (const id of ["btn-ladder", "btn-caps", "btn-grab", "btn-photo-caps", "btn-photo-max", "btn-still-ic"]) $(id).disabled = !on;
+  if (typeof window.ImageCapture !== "function") for (const id of ["btn-photo-caps", "btn-photo-max", "btn-still-ic"]) $(id).disabled = true;
+}
+
+async function startCamera(extra, why) {
+  $("stream-status").textContent = "Starting camera…";
+  try {
+    const constraints = await openStream(extra || { width: { ideal: 1920 }, height: { ideal: 1080 } });
+    R.s3.stream.push({ why: why || "Start camera", requested: constraints, delivered: `${video.videoWidth}x${video.videoHeight}`, settings: track.getSettings() });
+    await listDevices();
+    showCaps();
+    setStreamButtons(true);
+    return true;
+  } catch (e) {
+    const msg = logError("getUserMedia (" + (why || "Start camera") + ")", e);
+    R.s3.stream.push({ why: why || "Start camera", error: msg });
+    $("stream-status").innerHTML = `<span class="err">${esc(msg)}</span>`;
+    setStreamButtons(false);
+    updateReport();
+    return false;
+  }
+}
+
+const LADDER = [
+  { label: "1280x720", c: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+  { label: "1920x1080", c: { width: { ideal: 1920 }, height: { ideal: 1080 } } },
+  { label: "3840x2160", c: { width: { ideal: 3840 }, height: { ideal: 2160 } } },
+  { label: "4032x3024 (4:3)", c: { width: { ideal: 4032 }, height: { ideal: 3024 } } },
+  { label: "1920x1440 (4:3)", c: { width: { ideal: 1920 }, height: { ideal: 1440 } } },
+  { label: "ideal 9999x9999", c: { width: { ideal: 9999 }, height: { ideal: 9999 } } },
+];
+
+async function runLadder() {
+  $("btn-ladder").disabled = true;
+  const out = $("ladder-out");
+  out.innerHTML = "";
+  R.s3.ladder = [];
+  const steps = LADDER.slice();
+  try {
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    if (caps && caps.width && caps.height && caps.width.max) {
+      steps.push({ label: `capabilities max ${caps.width.max}x${caps.height.max}`, c: { width: { ideal: caps.width.max }, height: { ideal: caps.height.max } } });
+    }
+  } catch (e) { logError("getCapabilities before ladder", e); }
+  const table = document.createElement("table");
+  table.className = "kv";
+  out.appendChild(table);
+  let best = null;
+  for (const step of steps) {
+    const row = { requested: step.label };
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${esc(step.label)}</td><td>…</td>`;
+    table.appendChild(tr);
+    try {
+      await openStream(step.c);
+      await new Promise((r) => setTimeout(r, 400));   // let the size settle
+      const fps = await measureFps(1000);
+      const s = track.getSettings();
+      row.delivered = `${video.videoWidth}x${video.videoHeight}`;
+      row.settings_size = `${s.width}x${s.height}`;
+      row.settings_frameRate = s.frameRate;
+      row.measured_fps = fps.fps;
+      row.fps_method = fps.method;
+      const px = video.videoWidth * video.videoHeight;
+      if (!best || px > best.px) best = { px, step };
+      tr.lastChild.textContent = `${row.delivered} @ ${fps.fps ?? "?"} fps (settings ${row.settings_size})`;
+    } catch (e) {
+      row.error = logError("ladder " + step.label, e);
+      tr.lastChild.innerHTML = `<span class="err">${esc(row.error)}</span>`;
+    }
+    R.s3.ladder.push(row);
+    updateReport();
+  }
+  if (best) {
+    try { await openStream(best.step.c); R.s3.ladder_best = { requested: best.step.label, delivered: `${video.videoWidth}x${video.videoHeight}` }; }
+    catch (e) { logError("reopen best ladder step", e); }
+  }
+  if (track) showCaps();
+  setStreamButtons(!!track);
+  updateReport();
+}
+
+function plain(obj) {
+  // MediaSettingsRange etc. are dictionaries already; this copes with odd host objects
+  try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return String(obj); }
+}
+
+async function photoCaps() {
+  const ic = R.s3.image_capture;
+  ic.available = typeof window.ImageCapture === "function";
+  if (!ic.available) { ic.note = "ImageCapture is not available in this browser"; $("ic-out").textContent = ic.note; updateReport(); return null; }
+  if (!track) { $("ic-out").textContent = "start the camera first"; return null; }
+  const cap = new ImageCapture(track);
+  try { ic.photoCapabilities = plain(await withTimeout(cap.getPhotoCapabilities(), 8000, "getPhotoCapabilities")); }
+  catch (e) { ic.photoCapabilities_error = logError("getPhotoCapabilities", e); }
+  try { ic.photoSettings = plain(await withTimeout(cap.getPhotoSettings(), 8000, "getPhotoSettings")); }
+  catch (e) { ic.photoSettings_error = logError("getPhotoSettings", e); }
+  $("ic-out").textContent = JSON.stringify(ic, null, 1);
+  updateReport();
+  return cap;
+}
+
+async function takePhoto(route, atMax) {
+  const ic = R.s3.image_capture;
+  if (typeof window.ImageCapture !== "function") {
+    ic.available = false;
+    ic.note = "ImageCapture is not available in this browser";
+    await handlePhoto(route, new Blob([]), { error: ic.note });
+    return null;
+  }
+  if (!track && !(await startCamera(null, "for takePhoto"))) {
+    await handlePhoto(route, new Blob([]), { error: "camera could not be started; see errors" });
+    return null;
+  }
+  const cap = await photoCaps();
+  const opts = {};
+  if (atMax && ic.photoCapabilities && ic.photoCapabilities.imageWidth) {
+    opts.imageWidth = ic.photoCapabilities.imageWidth.max;
+    opts.imageHeight = ic.photoCapabilities.imageHeight.max;
+  }
+  const t0 = performance.now();
+  try {
+    const blob = await withTimeout(cap.takePhoto(opts), 20000, "takePhoto");
+    const ms = Math.round(performance.now() - t0);
+    const r = await handlePhoto(route, blob, { takePhoto_options: opts, takePhoto_ms: ms, stream_size_at_capture: `${video.videoWidth}x${video.videoHeight}`, extra_info: `takePhoto took ${ms} ms; stream ${video.videoWidth}x${video.videoHeight}` });
+    ic.last_takePhoto = { route, options: opts, bytes: blob.size, mime: blob.type, size: r.decoded_size, ms };
+    $("ic-out").textContent = JSON.stringify(ic, null, 1);
+    updateReport();
+    return blob;
+  } catch (e) {
+    const msg = logError("takePhoto", e);
+    ic.takePhoto_error = msg;
+    await handlePhoto(route, new Blob([]), { error: "takePhoto failed: " + msg });
+    return null;
+  }
+}
+
+// ---------- field of view ----------
+const fov = { frame: null, still: null };
+function aspect(w, h) { return (w / h).toFixed(4) + (Math.abs(w / h - 4 / 3) < 0.01 ? " (4:3)" : Math.abs(w / h - 16 / 9) < 0.01 ? " (16:9)" : Math.abs(w / h - 3 / 4) < 0.01 ? " (3:4)" : Math.abs(w / h - 9 / 16) < 0.01 ? " (9:16)" : ""); }
+
+async function grabFrame() {
+  try {
+    if (!track || !video.videoWidth) throw new Error("no video stream");
+    const c = document.createElement("canvas");
+    c.width = video.videoWidth; c.height = video.videoHeight;
+    c.getContext("2d").drawImage(video, 0, 0);
+    const blob = await new Promise((res, rej) => c.toBlob((b) => b ? res(b) : rej(new Error("canvas.toBlob gave nothing")), "image/jpeg", 0.9));
+    setFov("frame", blob, c.width, c.height, `track "${track.label}"`);
+  } catch (e) { R.s3.fov.frame_error = logError("grab video frame", e); }
+}
+
+function setFov(which, blob, w, h, src) {
+  if (fov[which]) URL.revokeObjectURL(fov[which].url);
+  const url = URL.createObjectURL(blob);
+  fov[which] = { url, w, h };
+  R.s3.fov[which] = { size: `${w}x${h}`, aspect: aspect(w, h), source: src };
+  const label = which === "frame" ? "Video frame" : "Still";
+  $("fov-" + which + "-info").textContent = `${label}: ${w}x${h}, aspect ${aspect(w, h)}, ${src}`;
+  $("fov-" + which).src = url;
+  $(which === "frame" ? "ov-frame" : "ov-still").src = url;
+  if (fov.frame && fov.still) R.s3.fov.width_ratio_note = "frame width / still width (pixels) = " + (fov.frame.w / fov.still.w).toFixed(4);
+  updateReport();
+}
+
+async function stillFromBlob(blob, src) {
+  const d = await decodedSize(blob);
+  if (d.error) { R.s3.fov.still_error = logError("FOV still", d.error); return; }
+  setFov("still", blob, d.width, d.height, src);
+}
+
+function applyOverlay() {
+  const s = +$("ov-scale").value, a = +$("ov-alpha").value;
+  $("ov-scale-val").textContent = s; $("ov-alpha-val").textContent = a;
+  const top = $("ov-frame");
+  top.style.width = s + "%";
+  top.style.opacity = a / 100;
+}
+
+// ---------- report ----------
+function reportText() {
+  R.device_note = $("device-note").value;
+  R.notes = $("notes").value;
+  R.updated = new Date().toISOString();
+  const lines = [];
+  lines.push("SplineWire phone camera check: " + PAGE_VERSION);
+  lines.push("Phone: " + (R.device_note || "(not typed in)"));
+  lines.push("UA: " + R.environment.userAgent);
+  lines.push(`Secure context: ${R.environment.secureContext}, screen ${R.environment.screen}, dpr ${R.environment.devicePixelRatio}`);
+  lines.push("");
+  lines.push("S2 photos:");
+  if (!R.s2_photos.length) lines.push("  (none yet)");
+  for (const p of R.s2_photos) {
+    const f = p.focal || {};
+    lines.push(`  #${p.n} ${p.route_label} | menu: ${p.menu_choice} | ${p.error ? "ERROR " + p.error : `${p.format} ${p.mime} ${p.bytes} B ${p.stored_size || p.decoded_size || "?"} | ${p.exif_status} | f35=${f.focal_35mm ?? "-"} focal_px=${f.focal_px ?? "-"} | Make=${p.exif ? p.exif.Make : "-"} Model=${p.exif ? p.exif.Model : "-"} | GPS ${p.exif ? (p.gps_present ? "present" : "absent") : "-"}`}`);
+  }
+  lines.push("");
+  lines.push("S3 ladder:");
+  if (!R.s3.ladder.length) lines.push("  (not run)");
+  for (const l of R.s3.ladder) lines.push(`  ${l.requested} -> ${l.error ? "ERROR " + l.error : `${l.delivered} @ ${l.measured_fps ?? "?"} fps`}`);
+  const ic = R.s3.image_capture;
+  lines.push(`ImageCapture: ${ic.available === undefined ? "(not tried)" : ic.available ? "available" : "not available"}${ic.last_takePhoto ? `, last takePhoto ${ic.last_takePhoto.size} ${ic.last_takePhoto.bytes} B` : ""}${ic.takePhoto_error ? ", takePhoto error: " + ic.takePhoto_error : ""}`);
+  if (R.s3.fov.match_percent) lines.push(`FOV: stream frame matches ${R.s3.fov.match_percent}% of the still's width (frame ${R.s3.fov.frame && R.s3.fov.frame.size}, still ${R.s3.fov.still && R.s3.fov.still.size})`);
+  lines.push(`Errors: ${R.errors.length}`);
+  lines.push("Notes: " + (R.notes || "-"));
+  lines.push("");
+  lines.push("----- full JSON -----");
+  lines.push(JSON.stringify(R, null, 1));
+  return lines.join("\n");
+}
+function updateReport() { $("report").value = reportText(); }
+
+async function copyReport() {
+  const text = reportText();
+  $("report").value = text;
+  const st = $("copy-status");
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("navigator.clipboard.writeText not available");
+    await navigator.clipboard.writeText(text);
+    st.textContent = `Copied (${text.length} characters). Paste it into a message.`;
+  } catch (e) {
+    try {
+      const ta = $("report");
+      ta.removeAttribute("readonly"); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy");
+      ta.setAttribute("readonly", "");
+      st.textContent = ok ? `Copied with the fallback (${text.length} characters).` : "Copy failed: select the text in the box and copy it by hand.";
+    } catch (e2) { st.textContent = "Copy failed (" + errText(e) + "): select the text in the box and copy it by hand."; }
+  }
+}
+async function shareReport() {
+  const text = reportText();
+  const st = $("copy-status");
+  if (typeof navigator.share !== "function") { st.textContent = "Share is not available in this browser; use Copy or Download."; return; }
+  try {
+    const file = new File([text], "phone-camera-report.txt", { type: "text/plain" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: "Phone camera report" });
+    else await navigator.share({ title: "Phone camera report", text });
+    st.textContent = "Shared.";
+  } catch (e) {
+    st.textContent = "Share did not complete: " + errText(e);
+  }
+}
+function downloadReport() {
+  const blob = new Blob([reportText()], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "phone-camera-report.txt";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ---------- wiring ----------
+window.addEventListener("error", (e) => logError("uncaught", e.error || e.message));
+window.addEventListener("unhandledrejection", (e) => logError("unhandled promise", e.reason));
+collectEnvironment();
+wireFileInput("in-camera", "camera");
+wireFileInput("in-library", "library");
+wireFileInput("in-files", "files");
+wireFileInput("in-jpeg", "jpeg");
+$("btn-takephoto").addEventListener("click", () => takePhoto("imagecapture", false));
+$("btn-start").addEventListener("click", () => startCamera());
+$("btn-caps").addEventListener("click", showCaps);
+$("btn-ladder").addEventListener("click", runLadder);
+$("btn-photo-caps").addEventListener("click", photoCaps);
+$("btn-photo-max").addEventListener("click", () => takePhoto("imagecapture_max", true));
+$("btn-grab").addEventListener("click", grabFrame);
+$("btn-still-ic").addEventListener("click", async () => {
+  const b = await takePhoto("fov_still", true);
+  if (b) await stillFromBlob(b, "takePhoto at max size");
+});
+$("btn-still-latest").addEventListener("click", async () => {
+  if (!latestPhoto) { R.s3.fov.still_error = logError("FOV still", "no photo yet: take one with A. Camera first"); $("fov-still-info").textContent = "Still: take a photo with A. Camera first."; return; }
+  await stillFromBlob(latestPhoto.blob, latestPhoto.label);
+});
+$("cam-select").addEventListener("change", () => { if (track) startCamera(null, "camera changed"); });
+$("ov-scale").addEventListener("input", applyOverlay);
+$("ov-alpha").addEventListener("input", applyOverlay);
+$("btn-fov-record").addEventListener("click", () => {
+  R.s3.fov.match_percent = +$("ov-scale").value;
+  R.s3.fov.recorded_at = new Date().toISOString();
+  updateReport();
+});
+$("btn-copy").addEventListener("click", copyReport);
+$("btn-share").addEventListener("click", shareReport);
+$("btn-download").addEventListener("click", downloadReport);
+$("device-note").addEventListener("input", updateReport);
+$("notes").addEventListener("input", updateReport);
+if (typeof window.ImageCapture !== "function") {
+  $("btn-takephoto").querySelector("small").textContent = "ImageCapture is not available in this browser (tap to record that)";
+}
+setStreamButtons(false);
+applyOverlay();
+updateReport();
+// test hook: lets the automated check call the parser on bytes directly
+window.__spike = { analyzeBlob, report: R, reportText };
+</script>
+</body>
+</html>
