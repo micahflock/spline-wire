@@ -76,7 +76,7 @@ contact → pin editing, object side  →  keyed by a pairing →  downloads (DX
 | `process.process_photo` (paths in, files out) | A new entry point beside it that takes photo bytes and returns JSON. See step 1. |
 | `output` writers (JSON, CSV, SVG, DXF, Fusion CSV) | Same functions, writing to memory. The page turns them into downloads. |
 | `webapp/server.py` (945 lines: photo store, routes, settings, re-measure after edits) | Its job moves into the page. Photos and results live in the browser (IndexedDB), settings in `localStorage`. |
-| `webapp/static/desktop.html`, `phone.html` | Starting point for the new pages. **Check `origin/claude/test-bench-ui` first**: 3 unmerged commits (2026-11-16) redesign both pages, and its phone page already has a fix view and a tap for the object side. Build on that design if it is going to merge. |
+| `webapp/static/desktop.html`, `phone.html` | Starting point for the new pages. They carry the Test bench redesign (merged 2026-11-17); the phone page already has a fix view and a tap for the object side. |
 | Pin editor (mouse: wheel, drag, click) | Needs a touch version: tap to add or remove, pinch to zoom, drag to pan. |
 | Focal length: override, EXIF, saved setting, estimated from the chain | Same order. The saved setting becomes per-phone browser storage. |
 | `data/chain*.yaml` presets | Bundled into the site at build time. |
@@ -157,10 +157,9 @@ Exit: on a real phone, the overlay tracks the chain and the automatic shot measu
 | iOS strips EXIF on every path. | S2 | Already handled: saved per-phone focal length, or the estimate from the chain. One calibration shot of the test plaque could set the saved value. |
 | iOS gives no full-resolution still inside the page. | S3 | Measure from the best video frame if S5 allows, or hand off to the system camera for the final shot. |
 | Browser builds of OpenCV or SciPy differ numerically from the desktop ones. | S1's pin comparison | Golden-file tolerance, and investigate any difference above 0.01 px. |
-| The two UIs (old pages, test-bench redesign, new pages) drift apart. | Three sets of pages in the tree | Settle with the owner whether `claude/test-bench-ui` merges before step 2 starts. |
 
 ## Log
 
 Newest last. One entry per session: date, what was done, numbers, what is next.
 
-- **2026-11-17.** Plan written from a design discussion. Checked for this doc: the pipeline's OpenCV use is thresholds, connected components, contours, ellipse fits, `remap` and `findHomography`, plus SciPy's `least_squares` and `CubicSpline`; `measure` takes an array; `claude/test-bench-ui` is 3 commits ahead of `main` and touches both pages. Nothing run in a browser yet. Next: S1 and S5, and ask the owner about O1 and O2.
+- **2026-11-17.** Plan written from a design discussion. Checked for this doc: the pipeline's OpenCV use is thresholds, connected components, contours, ellipse fits, `remap` and `findHomography`, plus SciPy's `least_squares` and `CubicSpline`; `measure` takes an array. `claude/test-bench-ui` (the redesign of both pages) was merged to `main` together with this doc. Nothing run in a browser yet. Next: S1 and S5, and ask the owner about O1 and O2.
