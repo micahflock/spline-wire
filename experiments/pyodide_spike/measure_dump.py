@@ -77,7 +77,16 @@ def run(photo: str, chain: str, out_dir: str, truth: str | None = None,
         "notes": m.notes,
         "truth_comparison": result.truth_comparison,
         "output_bytes": outputs,
+        "peak_rss_bytes": _peak_rss(),
     }
+
+
+def _peak_rss() -> int | None:
+    try:
+        import resource
+    except ImportError:          # under Pyodide
+        return None
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
 
 
 def main() -> None:

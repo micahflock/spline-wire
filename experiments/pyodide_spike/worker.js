@@ -10,7 +10,9 @@ const PYO = BASE + "out/pyodide_spike/pyodide/";
 const WHEELS = BASE + "out/pyodide_spike/wheels/";
 const PACKAGES = ["numpy", "scipy", "opencv-python", "pillow", "pyyaml", "micropip"];
 
-importScripts(PYO + "pyodide.js");
+// Pyodide 314 refuses classic workers ("Classic web workers are not supported"): this is a module worker.
+// Imported without a top-level await so onmessage is set before any message arrives.
+const pyodideModule = import(PYO + "pyodide.mjs");
 
 let py = null;
 
@@ -29,6 +31,7 @@ async function text(url) {
 async function load(opts = {}) {
   const t = {};
   const t0 = performance.now();
+  const { loadPyodide } = await pyodideModule;
   py = await loadPyodide({ indexURL: PYO });
   t.pyodide_core_ms = performance.now() - t0;
 
@@ -56,13 +59,14 @@ async function load(opts = {}) {
   if (opts.tryDeps) {
     // What a plain install does: the wheel lists pillow-heif and segno.
     try {
-      await micropip.install(swUrl);
+      await micropip.install.callKwargs(swUrl, { keep_going: true });
       notes.push("splinewire installed with its dependencies");
     } catch (e) {
-      notes.push("splinewire with dependencies failed: " + String(e.message || e).split("\n").slice(-3).join(" | "));
+      const lines = String(e.message || e).split("\n").filter((l) => l.startsWith("ValueError"));
+      notes.push("splinewire with dependencies failed: " + lines.join(" | "));
     }
   }
-  await micropip.install(swUrl, { deps: false });
+  await micropip.install.callKwargs(swUrl, { deps: false });
   t.splinewire_wheel_ms = performance.now() - a;
 
   py.FS.mkdirTree("/spike/data");
@@ -72,12 +76,19 @@ async function load(opts = {}) {
 
   a = performance.now();
   await py.runPythonAsync(`
-import sys, time
+import sys, time, importlib
 sys.path.insert(0, "/spike")
+_import_ms = {}
+# In dependency order, so each figure is that module's own cost.
+for _name in ["numpy", "PIL.Image", "yaml", "cv2", "scipy.interpolate", "scipy.optimize",
+              "ezdxf", "splinewire.process", "splinewire.output", "measure_dump"]:
+    _a = time.perf_counter()
+    importlib.import_module(_name)
+    _import_ms[_name] = round((time.perf_counter() - _a) * 1000)
 import measure_dump
-import splinewire.process, splinewire.output, ezdxf
 `);
   t.import_ms = performance.now() - a;
+  t.import_breakdown_ms = py.globals.get("_import_ms").toJs({ dict_converter: Object.fromEntries });
 
   const probe = py.runPython(`
 import sys, json

@@ -15,7 +15,7 @@
 <p><input type="file" id="file" accept="image/*" disabled> <span id="state">loading…</span></p>
 <pre id="log"></pre>
 <script>
-const worker = new Worker("worker.js");
+const worker = new Worker("worker.js", { type: "module" });
 let nextId = 1;
 const pending = new Map();
 worker.onmessage = (ev) => {
@@ -23,6 +23,10 @@ worker.onmessage = (ev) => {
   const p = pending.get(id);
   pending.delete(id);
   ok ? p.resolve(result) : p.reject(Object.assign(new Error(error), { pyType: type }));
+};
+worker.onerror = (ev) => {
+  for (const p of pending.values()) p.reject(new Error("worker failed: " + (ev.message || "error")));
+  pending.clear();
 };
 function call(cmd, payload = {}, transfer = []) {
   const id = nextId++;
@@ -33,8 +37,12 @@ function call(cmd, payload = {}, transfer = []) {
 }
 async function memory() {
   if (!self.crossOriginIsolated || !performance.measureUserAgentSpecificMemory) return null;
-  const m = await performance.measureUserAgentSpecificMemory();
-  return m.bytes;
+  try {
+    const m = await performance.measureUserAgentSpecificMemory();
+    return m.bytes;
+  } catch (e) {
+    return String(e.message || e);
+  }
 }
 const log = (s) => (document.getElementById("log").textContent += s + "\n");
 
