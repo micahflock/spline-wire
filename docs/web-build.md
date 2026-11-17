@@ -15,14 +15,14 @@ Spline Wire is moving from a Windows program (`SplineWire.exe`, which serves pag
 
 | Step | State |
 |---|---|
-| 0. Spikes (S1–S5) | not started |
-| 1. Browser core: `splinewire` running in the page | not started |
-| 2. Phone page: photo in, curve out, pin editing | not started |
-| 3. Pairing and relay: points reach the desktop page | not started |
-| 4. Hosting, add-in install path, retire the .exe | not started |
-| 5. Live camera overlay | not started |
+| 0. Spikes | **S1** desktop half done (numbers in the Log); phone half needs a phone. **S2, S3**: test page written and checked in desktop Chromium (`web/spikes/phone-capabilities/`); needs hosting (O1), then a phone. **S4**: in progress. **S5**: in progress. |
+| 1. Browser core | In progress. Done: `splinewire/session.py` (bytes in, JSON out, `process_photo` wraps it), the worker contract and client (`web/src/core/`). In progress: the Pyodide worker, its Playwright test, CI. |
+| 2. Phone page | not started |
+| 3. Pairing and relay | In progress. Done: the client side (`web/src/relay/`), tested against an in-memory relay. In progress: the relay server. Not started: the pages. |
+| 4. Hosting, add-in install path, retire the .exe | not started. Blocked on O1 and O2 (owner). |
+| 5. Live camera overlay | Backbone written (`web/src/overlay/`, `splinewire/live.py`), tested on drawn frames. Thresholds uncalibrated, no camera code, no page. Depends on S3 and S5. |
 
-Nothing of the web build exists in the repo yet. This doc was written on 2026-11-17 from a design discussion; no part of it has been tested.
+The code map is [web/README.md](../web/README.md). Nothing has run on a phone yet.
 
 ## Goal
 
@@ -55,6 +55,10 @@ contact → pin editing, object side  →  keyed by a pairing →  downloads (DX
 | D7 | The live overlay coaches and triggers. The measurement comes from one still taken at that moment and run through the full pipeline. | Video frames are smaller, may be cropped by stabilisation, and blur with motion. |
 | D8 | The .exe and the local server stay in the repo and keep working until step 4's exit criterion is met. | The real-photo test matrix (`next-steps.md`, item 1) is still in progress on it. |
 | D9 | The desktop page can also measure a photo dropped onto it, using the same worker. | Parity with today's app, and the easiest way to test the core without a phone. |
+| D10 | Front end: TypeScript and Vite, no UI framework; tests with Vitest. Logic is kept apart from the browser (sockets, workers, storage, timers and the camera are passed in), so it is tested in Node. (Was O3.) | The hard parts are protocol and state logic, which need tests more than they need components. |
+| D11 | Relay messages are encrypted end to end: one random pairing secret in the QR link's `#fragment`; HKDF gives the room id (which the relay sees) and an AES-GCM key (which it does not). (Was O4.) | The relay then needs no trust and no storage. |
+| D12 | The relay only forwards. Delivery is the pages' job: the phone keeps each curve until the desktop acknowledges it, and the desktop stores each curve once by its id. | A dropped frame, a closed tab or a relay restart then loses nothing, and the relay stays a few dozen lines. |
+| D13 | The overlay splits the work: TypeScript finds bright dots in every video frame (`blobs.ts`, about 4 ms); the Python `order` and `rectify`, in the worker, say which are the chain and how the camera is tilted (`live.py`, about 50 ms native). | Ordering and rectifying are the subtle parts and already exist; only the pixel work has to be fast. |
 
 ### Open decisions
 
@@ -62,10 +66,9 @@ contact → pin editing, object side  →  keyed by a pairing →  downloads (DX
 |---|---|---|---|
 | O1 | Where the static site is hosted. | GitHub Pages, deployed by a workflow. Free, HTTPS, already where the code lives. | Owner |
 | O2 | Where the relay runs. | A Cloudflare Worker with a Durable Object per pairing (WebSocket). Needs an account. | Owner |
-| O3 | Front-end tooling. | TypeScript and Vite, no UI framework. Today's pages are single HTML files with no build. | Agent, in step 2 |
-| O4 | Whether the relay messages are encrypted end to end. | Yes: a secret in the QR link's `#fragment`, AES-GCM through WebCrypto, the room id a hash of the secret. Cheap to do from the start. | Agent, in step 3 |
 | O5 | How the Fusion add-in gets installed once there is no .exe to do it. | A zip download and three lines of instructions on the site. | Owner, in step 4 |
-| O6 | Whether to port the pipeline to TypeScript at all. | Only if S1 shows Pyodide is too slow or too heavy on phones, or step 5 needs it. | After S1 |
+| O6 | Whether to port the pipeline to TypeScript at all. | Not yet. S1 on desktop: it works, but memory (580 MB of wasm heap for a 12 MP photo) and a 10 s load are close to what a phone allows. Try the cheap levers first (see O8), then measure on a phone. | After S1 on a phone |
+| O8 | How to cut the core's memory and load time. | In order: detect on a downscaled image and refine at full size in tiles (detection's temporaries are 293 MB of the 580); load SciPy and ezdxf lazily (3.5 s of the 10 s); pin the native OpenCV to Pyodide's 4.11 so golden files match exactly. Each needs the benchmark before and after. | Agent |
 | O7 | The Fusion add-in receiving points from the relay directly, in an HTML palette, with no desktop tab and no clipboard. | Worth a spike after step 4. Not checked. | Later |
 
 ## What carries over, what changes, what goes
@@ -163,3 +166,9 @@ Exit: on a real phone, the overlay tracks the chain and the automatic shot measu
 Newest last. One entry per session: date, what was done, numbers, what is next.
 
 - **2026-11-17.** Plan written from a design discussion. Checked for this doc: the pipeline's OpenCV use is thresholds, connected components, contours, ellipse fits, `remap` and `findHomography`, plus SciPy's `least_squares` and `CubicSpline`; `measure` takes an array. `claude/test-bench-ui` (the redesign of both pages) was merged to `main` together with this doc. Nothing run in a browser yet. Next: S1 and S5, and ask the owner about O1 and O2.
+- **2026-11-17/18, overnight.** Step 0 and the backbone of steps 1, 3 and 5.
+  - **S1, desktop half** (`experiments/pyodide_spike/`, reproduce with its README). Pyodide 314.0.8 runs the package unchanged in a module worker. Pins on two 12 MP synthetic photos are identical (0.0 px) to native Python on the same OpenCV (4.11); against the locked native OpenCV 5.0 the worst pin differs by 0.043 px (0.003 mm), so the difference is the OpenCV version, not the browser. Download 37.9 MB compressed (SciPy 13.9, OpenCV 10.7). Load about 10 s even with a warm cache (imports 4.3 s, of which `scipy.interpolate` 2.1 and `ezdxf` 1.4). A 12 MP photo measures in 1.4–2.7 s, about 2–2.5× native. Wasm heap 162 MB after load, 555–584 MB after one photo, and it never shrinks; the renderer process peaked at 1.04 GB. The machine was heavily loaded, so absolute times are pessimistic. A plain `micropip.install` of the wheel fails on the `opencv-python-headless` name: install with `deps=False`. Classic workers are refused: use a module worker. No real chain photo is in the repo, so that comparison was not done.
+  - **S2/S3**: `web/spikes/phone-capabilities/` is a single static page that records, for each way of getting a photo, what EXIF survives (parsed in the page; its focal length in pixels agrees with `camera.focal_px_from_exif` to 0.001 px on seven test files) and what the camera stream offers. Its Playwright check passes 96 of 96 in desktop Chromium. Not tried on a phone: it needs HTTPS hosting (O1). The owner's steps are in its README.
+  - **Step 1**: `splinewire/session.py` is the file-free entry point (`PhotoSession`: bytes in, one JSON document out, detections kept between calls). `process_photo` is now a wrapper over it and the output writers build text first, so the CLI, the local app and the browser share one implementation; the existing process, CLI and app tests pass unchanged.
+  - **Step 3**: the pairing and delivery logic (D11, D12), tested end to end against an in-memory relay: desktop closed while the phone sends, a lost acknowledgement, the relay down, a dead connection, a second phone, a second pairing. The clipboard table written in TypeScript is byte for byte `output.points_tsv`'s.
+  - **Step 5**: the overlay's detector, coach and loop (D13). `blobs.ts` finds every dot of a drawn chain on dark, gray and white tables to within 0.25 px at 640×360 in about 4 ms. `live.analyse` recovers a 25° tilt to within 1° from projected pins among clutter, in 51 ms with the focal length and 258 ms estimating it (native, loaded machine). The coach's limits for span, motion and sharpness are provisional.
