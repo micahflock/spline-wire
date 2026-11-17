@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:worker": "RELAY_TARGET=worker vitest run test/relay.itest.ts",
-    "check:browser": "node --experimental-strip-types test/browser-check.ts"
+    "check:browser": "node --experimental-strip-types test/browser-check.ts",
+    "demo": "node --experimental-strip-types demo/serve.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261117.1",

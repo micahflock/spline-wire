@@ -64,6 +64,11 @@ export const BACKOFF = { firstMs: 1000, maxMs: 30_000, jitter: 0.3 };
 /** A ping every 25 s keeps idle connections alive through proxies and tells
  * a dead socket from a quiet one. No pong (or anything) in 2 pings: reconnect. */
 export const PING_MS = 25_000;
+/** A connection attempt that has neither opened nor failed by then is given
+ * up and retried. Some never end on their own: a server that accepts the TCP
+ * connection but does not answer the upgrade (a relay starting up, a captive
+ * portal, a half-dead network), and a browser may wait minutes before failing it. */
+export const CONNECT_TIMEOUT_MS = 10_000;
 
 export class RelayLink {
   private socket: SocketLike | null = null;
@@ -71,6 +76,7 @@ export class RelayLink {
   private attempt = 0;
   private retryTimer: unknown = null;
   private pingTimer: unknown = null;
+  private connectTimer: unknown = null;
   private heard = true;                 // anything received since the last ping
   private readonly o: Required<Omit<LinkOptions, "socket">> & { socket: (url: string) => SocketLike };
 
@@ -96,6 +102,7 @@ export class RelayLink {
 
   stop(): void {
     this.o.clearTimeout(this.retryTimer);
+    this.o.clearTimeout(this.connectTimer);
     this.o.clearTimeout(this.pingTimer);
     const s = this.socket;
     this.socket = null;
@@ -137,8 +144,20 @@ export class RelayLink {
       return;
     }
     this.socket = s;
+    this.connectTimer = this.o.setTimeout(() => {
+      if (this.socket !== s || this.status.state !== "connecting") return;
+      this.socket = null;
+      s.onclose = s.onmessage = s.onopen = s.onerror = null;
+      try {
+        s.close();
+      } catch {
+        /* not open yet in some implementations */
+      }
+      this.retry();
+    }, CONNECT_TIMEOUT_MS);
     s.onopen = () => {
       if (this.socket !== s) return;
+      this.o.clearTimeout(this.connectTimer);
       this.attempt = 0;
       this.heard = true;
       this.set({ state: "open", peers: 0 });
@@ -153,6 +172,7 @@ export class RelayLink {
       if (this.socket !== s) return;
       this.socket = null;
       this.o.clearTimeout(this.pingTimer);
+      this.o.clearTimeout(this.connectTimer);
       // 4001: the room is full. Retrying at once would not help, but a stale
       // tab may close, so keep trying at the slowest pace and say why.
       if (ev.code === 4001) {

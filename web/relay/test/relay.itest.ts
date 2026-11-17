@@ -141,7 +141,6 @@ describe(`delivery through the ${targetName} relay`, () => {
     expect(phone.outbox.items.map((i) => i.state)).toEqual(["queued"]);
 
     await target.start();
-    const log = setInterval(() => console.log(JSON.stringify([phone.link.current, desktop.link.current, phone.outbox.items.map((i) => i.state)])), 1000);
     await until("delivered after the restart", () => phone.outbox.items.length === 0, 30_000 * slow);
     await pause(500);
     expect(desktop.arrived.map((x) => x.id)).toEqual([first.id, c.id]);
@@ -149,6 +148,27 @@ describe(`delivery through the ${targetName} relay`, () => {
     expect(phone.link.current).toMatchObject({ state: "open", peers: 1 });
     expect(desktop.link.current).toMatchObject({ state: "open", peers: 1 });
   }, 90_000);
+
+  // A Durable Object hibernates after 10 s without events; pings are answered
+  // without waking it. After that its memory is gone and only the sockets and
+  // their attachments remain. Whether workerd hibernated is not observable
+  // from outside; the idle gap is long enough that it may.
+  it.runIf(targetName === "worker")("keeps a quiet room working after an idle spell", async () => {
+    keys = await deriveKeys(newSecret());
+    const phone = page("phone"), desktop = page("desktop");
+    phone.link.start();
+    desktop.link.start();
+    await until("paired", () => phone.link.current.peers === 1 && desktop.link.current.peers === 1);
+    const a = raw();
+    await until("joined", () => phone.link.current.peers === 2);
+    a.ws.send("?");
+    await pause(15_000);
+    a.ws.close();
+    await until("the room shrank", () => phone.link.current.peers === 1 && desktop.link.current.peers === 1);
+    await phone.outbox.send(curve());
+    await until("delivered", () => phone.outbox.items.length === 0);
+    expect(desktop.arrived.length).toBe(1);
+  }, 60_000);
 
   it("keeps two pairings apart", async () => {
     keys = await deriveKeys(newSecret());
