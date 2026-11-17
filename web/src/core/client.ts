@@ -14,11 +14,13 @@ import {
 } from "./protocol";
 import type { MeasureOptions, MeasurementDocument } from "./types";
 
-/** The parts of Worker the client uses, so tests can supply a fake. */
+/** The parts of Worker the client uses, so tests can supply a fake. The
+ * handlers take the DOM's event types so that a real Worker fits; a fake
+ * passes `{ data } as MessageEvent`. */
 export interface WorkerLike {
   postMessage(message: unknown, transfer?: Transferable[]): void;
-  onmessage: ((ev: { data: unknown }) => void) | null;
-  onerror: ((ev: { message?: string }) => void) | null;
+  onmessage: ((ev: MessageEvent) => void) | null;
+  onerror: ((ev: ErrorEvent) => void) | null;
   terminate(): void;
 }
 

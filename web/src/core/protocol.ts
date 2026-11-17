@@ -28,6 +28,9 @@ export interface Commands {
   close: { args: { photo: string }; result: null };
   /** For the live overlay: order and rectify points a frame detector found (splinewire/live.py). */
   analyse: { args: FramePoints; result: FrameAnalysis };
+  /** What the worker holds: the wasm heap's size (it only grows) and the open
+   * photos, least recently used first. For deciding when to restart(). */
+  stats: { args: Record<string, never>; result: { heap_bytes: number | null; open: string[] } };
 }
 
 export type Command = keyof Commands;

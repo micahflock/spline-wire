@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spline Wire core test</title>
+  <style>
+    :root { color-scheme: light dark; font: 14px/1.4 system-ui, sans-serif; }
+    body { margin: 0 auto; padding: 16px; max-width: 1100px; }
+    #drop { border: 2px dashed #888; border-radius: 8px; padding: 16px; text-align: center; }
+    #drop.over { border-color: #2a7; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+    progress { width: 240px; }
+    canvas { max-width: 100%; border: 1px solid #8884; }
+    table { border-collapse: collapse; }
+    td { padding: 1px 12px 1px 0; }
+    .warn { color: #d70; }
+    .err { color: #c22; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <!-- Throwaway page (web-build step 1): measures a dropped photo with the core worker.
+       The desktop and phone pages of steps 2 and 3 replace it. -->
+  <h1>Spline Wire core test</h1>
+  <div id="drop">Drop a photo here, or <input type="file" id="file" accept="image/*"></div>
+  <div class="row">
+    <label>Chain <select id="chain"></select></label>
+    <label>Object side <select id="side"><option>inside</option><option>outside</option></select></label>
+    <progress id="progress" max="1" value="0"></progress> <span id="stage">not loaded</span>
+  </div>
+  <div id="error" class="err"></div>
+  <table id="numbers"></table>
+  <ul id="warnings" class="warn"></ul>
+  <ul id="notes"></ul>
+  <div class="row" id="downloads"></div>
+  <canvas id="photo" width="0" height="0"></canvas>
+  <script type="module" src="./src/dev/main.ts"></script>
+</body>
+</html>

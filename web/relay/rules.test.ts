@@ -19,7 +19,7 @@ const ROOM = "AAAAAAAAAAAAAAAAAAAAAA";
 describe("room paths", () => {
   it("parses what roomPath makes, and nothing else", () => {
     expect(roomFromPath(roomPath(ROOM))).toBe(ROOM);
-    expect(roomFromPath("/room/abc_DEF-0123456789xyz")).toBe("abc_DEF-0123456789xyz");
+    expect(roomFromPath("/room/abc_DEF-0123456789wxyz")).toBe("abc_DEF-0123456789wxyz");
     for (const bad of [
       "/", "/room", "/room/", `/room/${ROOM}/`, `/room/${ROOM}x`, `/room/${ROOM.slice(1)}`,
       `/rooms/${ROOM}`, `room/${ROOM}`, `/room/${ROOM.slice(1)}=`, `/room/${ROOM.slice(1)}+`,
