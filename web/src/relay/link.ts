@@ -230,7 +230,11 @@ export class RelayLink {
       }
       return;
     }
+    const socket = this.socket;
     const opened = await open(this.o.keys, data);
+    // Decrypting takes a turn of the event loop: the link may have been
+    // stopped or reconnected meanwhile, and then the frame is not ours to report.
+    if (this.socket !== socket || this.status.state === "off") return;
     // Frames from our own role are another tab of ours: not for us.
     if (!opened || opened.sender === this.o.role) return;
     const message = parseMessage(opened.body);

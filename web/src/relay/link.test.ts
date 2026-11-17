@@ -1,6 +1,6 @@
 // RelayLink on its own, for what the in-memory relay cannot imitate.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { deriveKeys, newSecret } from "./crypto";
+import { deriveKeys, newSecret, seal } from "./crypto";
 import { CONNECT_TIMEOUT_MS, RelayLink, type LinkStatus, type SocketLike } from "./link";
 
 beforeEach(() => {
@@ -55,4 +55,27 @@ it("gives up a connection attempt that never answers, and tries again", async ()
   expect(link.current.state).toBe("open");
   expect(sockets.length).toBe(2);
   link.stop();
+});
+
+// Found by the desktop page: a frame still being decrypted when stop() was
+// called was reported afterwards, to a page that had already let go of the link.
+it("reports nothing that arrives while it is being stopped", async () => {
+  vi.useRealTimers();
+  const keys = await deriveKeys(newSecret());
+  const socket = new Silent();
+  const got: unknown[] = [];
+  const link = new RelayLink({
+    relayUrl: "ws://relay.test", keys, role: "desktop", socket: () => socket,
+    events: { status: () => {}, message: (m) => got.push(m) },
+  });
+  link.start();
+  socket.onopen?.({});
+  const frame = await seal(keys, "phone", { type: "ack", ids: ["abcdefgh"] });
+  socket.onmessage?.({ data: frame });
+  await new Promise((r) => setTimeout(r, 20));
+  expect(got.length).toBe(1);                      // delivered while open
+  socket.onmessage?.({ data: frame });
+  link.stop();                                     // before the decryption finishes
+  await new Promise((r) => setTimeout(r, 20));
+  expect(got.length).toBe(1);
 });
