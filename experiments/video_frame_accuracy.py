@@ -66,7 +66,8 @@ import os
 import sys
 import time
 import zlib
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 from pathlib import Path
 
@@ -207,10 +208,56 @@ def evaluate_one(args) -> dict:
     return rec
 
 
+def _rec_path(cond: str, sid: str, max_bend: float) -> Path:
+    return OUT / SPEC.fiducial / "records" / f"bend{max_bend:g}" / cond.replace(" ", "-") / f"{sid}.json"
+
+
 def evaluate(scenes, conds, workers: int, max_bend: float) -> list[dict]:
+    """Records are cached per photo, so an interrupted run resumes. Workers are
+    recycled, and a pool that loses a worker (out of memory on a shared
+    machine) is rebuilt; a photo that kills a worker twice is recorded as failed."""
     jobs = [(c[0], sid, max_bend) for c in conds for sid, *_ in scenes]
-    with ProcessPoolExecutor(workers) as ex:
-        return list(ex.map(evaluate_one, jobs, chunksize=4))
+    todo = [j for j in jobs if not _rec_path(*j[:2], max_bend).exists()]
+    kills: dict[tuple, int] = {}
+    t = time.time()
+    if todo:
+        print(f"evaluating {len(todo)} photos ...", flush=True)
+    done = len(jobs) - len(todo)
+    while todo:
+        n = workers if not kills else 1
+        with ProcessPoolExecutor(n, max_tasks_per_child=10) as ex:
+            futs = {ex.submit(evaluate_one, j): j for j in todo}
+            broken = False
+            for fut in as_completed(futs):
+                j = futs[fut]
+                try:
+                    rec = fut.result()
+                except BrokenProcessPool:
+                    broken = True
+                    continue
+                path = _rec_path(*j[:2], max_bend)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(rec), encoding="utf-8")
+                done += 1
+                if done % 100 == 0:
+                    print(f"  {done}/{len(jobs)}  ({time.time() - t:.0f} s)", flush=True)
+        todo = [j for j in todo if not _rec_path(*j[:2], max_bend).exists()]
+        if not broken:
+            break
+        print(f"  a worker was killed; {len(todo)} left, retrying", flush=True)
+        if n == 1 and todo:                 # the first job left kills even a lone worker
+            j = todo[0]
+            kills[j] = kills.get(j, 0) + 1
+            if kills[j] >= 2:
+                fail = {"chain_ok": False, "err_mm": None, "rms_mm": None, "error": "worker killed"}
+                rec = {"condition": j[0], "id": j[1], "environment": "?", "killed": True, "found": 0,
+                       "false": 0, "px_per_mm": float("nan"), "motion_blur_px": float("nan"),
+                       "fill": float("nan"), "in_frame": True, "true": fail, "est": dict(fail)}
+                _rec_path(*j[:2], max_bend).parent.mkdir(parents=True, exist_ok=True)
+                _rec_path(*j[:2], max_bend).write_text(json.dumps(rec), encoding="utf-8")
+        else:
+            kills[("pool",)] = 1            # from now on one worker at a time
+    return [json.loads(_rec_path(*j[:2], max_bend).read_text(encoding="utf-8")) for j in jobs]
 
 
 # ---------------------------------------------------------------------------
@@ -245,8 +292,8 @@ def summarize(records: list[dict], conds) -> str:
         n_t, w_t, r_t = _stats(g, "true")
         n_e, w_e, r_e = _stats(g, "est")
         fr = [abs(r["est"]["focal_ratio"] - 1) for r in g if r["est"].get("focal_ratio") and r["est"]["chain_ok"]]
-        lines.append(f"| {cond} | {np.median([r['px_per_mm'] for r in g]):.1f} | "
-                     f"{np.median([r['motion_blur_px'] for r in g]):.0f} | "
+        lines.append(f"| {cond} | {np.nanmedian([r['px_per_mm'] for r in g]):.1f} | "
+                     f"{np.nanmedian([r['motion_blur_px'] for r in g]):.0f} | "
                      f"{np.mean([r['found'] for r in g]):.1f}/{SPEC.n_pins} | {n_t}/{n} · {n_e}/{n} | "
                      f"{w_t} | {r_t} | {w_e} | {r_e} | {_fmt(float(np.median(fr)) * 100 if fr else None, 1)}% |")
     # Paired: only scenes every condition recovered (true focal), so the error
@@ -273,7 +320,7 @@ def summarize(records: list[dict], conds) -> str:
         if cond in fails:
             lines.append(f"- {cond}: {', '.join(fails[cond])}")
     out_of_frame = sorted({r["id"] for r in records if not r["in_frame"]})
-    fill = [r["fill"] for r in records if r["condition"].startswith("1080p")]
+    fill = [r["fill"] for r in records if r["condition"].startswith("1080p") and not r.get("killed")]
     lines += ["", f"Chain span / frame short side at 1080p: median {np.median(fill):.2f}, "
               f"max {np.max(fill):.2f}; scenes with a pin out of frame: {out_of_frame or 'none'}"]
     return "\n".join(lines)

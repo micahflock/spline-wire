@@ -1,0 +1,159 @@
+// The phone's photos and what was measured in them, in IndexedDB.
+//
+// Photos never leave the phone (D1, D5). They are kept here, keyed by the id
+// the page gives CoreClient, so that a reload keeps them and the core worker,
+// which closes photos to save memory, can open one again from its bytes.
+//
+// Two object stores: "photos" holds one small record per photo (its settings,
+// edits, status and last measurement document); "blobs" holds the files
+// themselves under "<id>:<kind>". Listing the photos then never reads a photo.
+// Each photo has the original (what the core measures), a preview downscaled
+// for the editor, and a thumbnail for the list; the page shows at most one
+// preview at a time, so it never holds several decoded photos (S1's memory).
+//
+// The IDBFactory is passed in, so tests run against fake-indexeddb.
+
+import type { Failure } from "../core/protocol";
+import type { Edits, MeasurementDocument, Point, Side } from "../core/types";
+
+export type Status = "queued" | "loading" | "measuring" | "done" | "error";
+export type BlobKind = "original" | "preview" | "thumb";
+
+/** A curve sent from this photo (send.ts). */
+export interface SentCurve {
+  id: string;
+  /** curveKey of what was sent, to tell whether the curve changed since. */
+  key: string;
+  at: string;
+  delivered: boolean;
+}
+
+export interface PhotoRecord {
+  /** Also the core's photo id. */
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  /** ms since 1970. */
+  added: number;
+  /** Which button it came from: the camera or the library (S2 wants to know which keeps EXIF). */
+  via: "take" | "choose";
+  /** Chain preset key and pin count the photo is measured with. */
+  chain: string;
+  pins: number;
+  side: Side | Point;
+  edits: Edits;
+  status: Status;
+  doc: MeasurementDocument | null;
+  /** A failure that left no document (not a photo, a bug). */
+  failure: Failure | null;
+  /** The photo's size in px, upright, as the core sees it; null when this browser could not decode it. */
+  pixels: { width: number; height: number } | null;
+  /** The preview's size in px; null without one. */
+  preview: { width: number; height: number } | null;
+  sent: SentCurve[];
+  /** The focal length settings the document was measured with (main.ts focalKey):
+   * a photo measured before they changed is measured again when opened. */
+  measuredWith: string | null;
+}
+
+/** Photos kept. Past it the oldest go: a 12-megapixel photo is 3-6 MB. */
+export const KEEP_PHOTOS = 30;
+const DB_VERSION = 1;
+
+export class PhotoStore {
+  private constructor(private readonly db: IDBDatabase) {}
+
+  static open(factory: IDBFactory, name = "splinewire-phone"): Promise<PhotoStore> {
+    return new Promise((resolve, reject) => {
+      const req = factory.open(name, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("photos")) db.createObjectStore("photos", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs");
+      };
+      req.onsuccess = () => resolve(new PhotoStore(req.result));
+      req.onerror = () => reject(req.error ?? new Error("could not open the photo store"));
+      req.onblocked = () => reject(new Error("the photo store is open in an older tab: close it and reload"));
+    });
+  }
+
+  /** Every photo, newest first. */
+  async list(): Promise<PhotoRecord[]> {
+    const all = await this.request<PhotoRecord[]>("photos", "readonly", (s) => s.getAll());
+    return all.sort((a, b) => b.added - a.added);
+  }
+
+  get(id: string): Promise<PhotoRecord | undefined> {
+    return this.request<PhotoRecord | undefined>("photos", "readonly", (s) => s.get(id));
+  }
+
+  /** Store a new photo with its files, in one transaction. */
+  async add(record: PhotoRecord, blobs: Partial<Record<BlobKind, Blob>>): Promise<void> {
+    await this.transaction(["photos", "blobs"], "readwrite", (tx) => {
+      tx.objectStore("photos").put(record);
+      for (const [kind, blob] of Object.entries(blobs)) {
+        if (blob) tx.objectStore("blobs").put(blob, blobKey(record.id, kind as BlobKind));
+      }
+    });
+  }
+
+  /** Replace a photo's record (not its files). */
+  async put(record: PhotoRecord): Promise<void> {
+    await this.request("photos", "readwrite", (s) => s.put(record));
+  }
+
+  blob(id: string, kind: BlobKind): Promise<Blob | undefined> {
+    return this.request<Blob | undefined>("blobs", "readonly", (s) => s.get(blobKey(id, kind)));
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.transaction(["photos", "blobs"], "readwrite", (tx) => {
+      tx.objectStore("photos").delete(id);
+      for (const kind of ["original", "preview", "thumb"] as const) tx.objectStore("blobs").delete(blobKey(id, kind));
+    });
+  }
+
+  /** Delete all but the newest `keep` photos; returns the ids deleted. */
+  async prune(keep = KEEP_PHOTOS): Promise<string[]> {
+    const old = (await this.list()).slice(keep).map((r) => r.id);
+    for (const id of old) await this.delete(id);
+    return old;
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  private request<T>(store: string, mode: IDBTransactionMode, make: (s: IDBObjectStore) => IDBRequest): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(store, mode);
+      const req = make(tx.objectStore(store));
+      // Resolve when the transaction commits, not when the request succeeds:
+      // a write is only safe once its transaction is done.
+      tx.oncomplete = () => resolve(req.result as T);
+      tx.onerror = () => reject(tx.error ?? req.error ?? new Error("photo store error"));
+      tx.onabort = () => reject(tx.error ?? new Error("photo store write aborted (is the phone's storage full?)"));
+    });
+  }
+
+  private transaction(stores: string[], mode: IDBTransactionMode, work: (tx: IDBTransaction) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(stores, mode);
+      work(tx);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("photo store error"));
+      tx.onabort = () => reject(tx.error ?? new Error("photo store write aborted (is the phone's storage full?)"));
+    });
+  }
+}
+
+function blobKey(id: string, kind: BlobKind): string {
+  return `${id}:${kind}`;
+}
+
+/** A new photo id: time-ordered, unique on this phone, safe in a URL and as a Python dict key. */
+export function newPhotoId(now: number = Date.now()): string {
+  const rand = crypto.getRandomValues(new Uint8Array(4));
+  return "p" + now.toString(36).padStart(9, "0") + Array.from(rand, (b) => b.toString(16).padStart(2, "0")).join("");
+}

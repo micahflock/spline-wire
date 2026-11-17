@@ -1,12 +1,138 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Spline Wire</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Spline Wire</title>
+<!-- The phone page (web-build.md, step 2): take a photo of the chain, measure it
+     here with the core worker, fix it by touch, then copy, share or send the curve. -->
+<script type="module" src="../src/phone/main.ts"></script>
 </head>
 <body>
-  <!-- Placeholder: the phone page is web-build step 2. -->
-  <p>The phone page is not written yet.</p>
+<header class="top">
+  <svg width="36" height="13" viewBox="0 0 24 12" aria-hidden="true">
+    <rect x="1" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/><rect x="10" y="2.2" width="13" height="7.6" rx="3.8" fill="var(--brand)" opacity=".75"/>
+    <circle cx="5.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="14.8" cy="6" r="2" fill="var(--brand-dot)"/>
+  </svg>
+  <h1>Spline Wire</h1>
+  <span class="spacer"></span>
+  <a class="chip" id="link-chip" href="#computer"><span class="lamp" id="lamp"></span><span id="link-text" role="status">Not paired</span></a>
+</header>
+
+<main class="wrap">
+  <div class="engine" id="engine" role="status" aria-live="polite">
+    <div class="engine-text"><span id="engine-stage">Getting the measuring engine ready…</span><span class="mono" id="engine-pct"></span></div>
+    <div class="bar"><div id="engine-bar"></div></div>
+    <p class="small" id="engine-note">The first visit downloads about 40 MB, once. You can take the photo meanwhile.</p>
+    <button type="button" class="btn" id="engine-retry" hidden>Try again</button>
+  </div>
+
+  <section class="shoot-box" aria-label="Photo">
+    <label class="shoot">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      Take photo
+      <input type="file" accept="image/*" capture="environment" id="take" class="file">
+    </label>
+    <label class="lib">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 5 5 3-3 5 5"/></svg>
+      Choose from library
+      <input type="file" accept="image/*" multiple id="choose" class="file">
+    </label>
+  </section>
+
+  <section class="result" id="result" hidden aria-labelledby="r-name">
+    <div class="hd">
+      <img class="th" id="r-thumb" alt="">
+      <div class="who"><div class="name" id="r-name"></div><div class="meta mono" id="r-meta"></div></div>
+      <span class="tag" id="r-tag"></span>
+    </div>
+    <div class="status" id="r-status" role="status" aria-live="polite"></div>
+    <div class="problem" id="r-problem" hidden></div>
+
+    <div class="editor" id="editor">
+      <svg id="photo" role="img" aria-label="The photo with the measured chain"><image id="photo-img" x="0" y="0" preserveAspectRatio="none"/><g id="overlay"></g></svg>
+      <div class="tools">
+        <button type="button" class="btn" id="undo" aria-label="Undo the last pin change">Undo</button>
+        <button type="button" class="btn" id="reset" aria-label="Remove all pin changes">Reset</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="fit" aria-label="Fit the chain to the view">Fit</button>
+      </div>
+      <p class="hint" id="hint">Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom.</p>
+    </div>
+
+    <div class="sidebox">
+      <div class="label">Object side <span class="muted" id="side-now"></span></div>
+      <div class="seg" role="group" aria-label="Which side of the chain touched the object">
+        <button type="button" data-side="inside" aria-pressed="false">Inside</button>
+        <button type="button" data-side="outside" aria-pressed="false">Outside</button>
+        <button type="button" data-side="tap" aria-pressed="false" id="side-tap">Tap its side</button>
+      </div>
+    </div>
+    <div class="field"><span>Pins in this photo</span>
+      <div class="stepper" id="r-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
+        inputmode="numeric" min="3" max="999" aria-label="Pins in this photo"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
+
+    <dl class="numbers" id="numbers"></dl>
+    <ul class="msgs warn" id="warnings" aria-label="Warnings"></ul>
+    <ul class="msgs note" id="notes" aria-label="Notes"></ul>
+
+    <div class="actions">
+      <button type="button" class="key" id="copy">Copy points</button>
+      <button type="button" class="btn big" id="send" hidden>Send to computer</button>
+      <button type="button" class="btn big" id="share" hidden>Share files</button>
+    </div>
+    <p class="small" id="send-note" role="status" aria-live="polite"></p>
+    <div class="downloads" id="downloads" aria-label="Downloads"></div>
+  </section>
+
+  <section aria-labelledby="photos-title" id="photos-box" hidden>
+    <h3 id="photos-title">Photos on this phone</h3>
+    <ul class="photos" id="photos"></ul>
+    <p class="small muted">Photos stay on this phone. Only the measured curve is sent.</p>
+  </section>
+
+  <section aria-labelledby="computer" class="computer">
+    <h3 id="computer">Computer</h3>
+    <p id="pair-text"></p>
+    <ul class="photos outbox" id="outbox" aria-label="Curves sent to the computer"></ul>
+    <button type="button" class="btn" id="unpair" hidden>Forget this computer</button>
+  </section>
+
+  <details class="settings" id="settings">
+    <summary>Settings</summary>
+    <div class="field"><label for="s-chain">Chain</label><select id="s-chain"></select></div>
+    <div class="field"><span>Pins in the chain</span>
+      <div class="stepper" id="s-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
+        inputmode="numeric" min="3" max="999" aria-label="Pins in the chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
+    <div class="field"><label for="s-focal">Phone's focal length, mm (35 mm equiv.)</label>
+      <input id="s-focal" class="num" inputmode="decimal" placeholder="none"></div>
+    <div class="offer" id="s-offer" hidden>
+      <span id="s-offer-text"></span>
+      <button type="button" class="btn" id="s-offer-yes">Use it</button>
+      <button type="button" class="btn plain" id="s-offer-no">No</button>
+    </div>
+    <p class="small">Used only for photos that arrive without camera data, which iPhones often strip. Main (1×) camera:
+      24&nbsp;mm on iPhone 14&nbsp;Pro, iPhone 15 and later; 26&nbsp;mm on earlier models. Shoot at 1×.</p>
+    <div class="field"><label for="s-override">Use this focal length for every photo, mm</label>
+      <input id="s-override" class="num" inputmode="decimal" placeholder="off"></div>
+    <p class="small">Leave it off unless a lens reports a wrong focal length.</p>
+    <p class="small bad-text" id="s-error" role="alert"></p>
+  </details>
+
+  <details class="tips">
+    <summary>For a good photo</summary>
+    <ul>
+      <li>Lay the chain flat on a plain surface, dots facing up.</li>
+      <li>Get the whole chain in the frame and fill most of it.</li>
+      <li>Shoot at 1× (no zoom). A slight angle is fine.</li>
+      <li>Avoid glare and hard shadows on the chain.</li>
+    </ul>
+  </details>
+</main>
+<footer class="foot mono" id="build"></footer>
+<div id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
