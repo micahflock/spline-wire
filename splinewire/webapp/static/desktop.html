@@ -5,206 +5,334 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spline Wire</title>
 <style>
+/* Test bench: bench test gear and catalogue density. Warm grey panels and hairlines, monospaced readouts,
+   one loud key (Copy points). Light viewports are pale chart paper; in dark mode they are scope screens.
+   Blue/green/red/pink on the photo are reserved for what was detected; the chrome never uses them. */
+@font-face { font-family: "Plex Cond"; font-weight: 400; src: url("/fonts/plex-sans-condensed-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Cond"; font-weight: 500; src: url("/fonts/plex-sans-condensed-500.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Cond"; font-weight: 600; src: url("/fonts/plex-sans-condensed-600.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Cond"; font-weight: 700; src: url("/fonts/plex-sans-condensed-700.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Mono"; font-weight: 400; src: url("/fonts/plex-mono-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Plex Mono"; font-weight: 500; src: url("/fonts/plex-mono-500.woff2") format("woff2"); font-display: swap; }
 :root {
-  --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2024; --muted: #636b75; --line: #dde1e6;
-  --accent: #1f6feb; --accent-ink: #ffffff; --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e;
-  --chip: #eef1f4; --grid: #eef1f4; --pin: #8c959f; --link: #d0d7de; --curve: #1d2024; --point: #d1242f;
-  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 1px 8px rgba(0,0,0,.04);
+  --paper: #e9e7e0; --panel: #f3f1eb; --panel-2: #dedbd2; --ink: #1d2023; --muted: #64625b; --line: #b4b0a5;
+  --sel: #d3e4df;
+  --screen: #f8f7f3; --grat: #d3cfc4; --grat-2: #e8e5dd; --trace: #0f6e6a; --screen-ink: #3a3e41; --plot-pt: #d6339f;
+  --key: #f2b705; --key-ink: #1d2023; --key-edge: #a87e00;
+  --brand: #0f6e6a; --brand-dot: #f3f1eb;
+  --ok: #2c7a4b; --warn: #b26a00; --bad: #c0392b; --lamp-off: #9a978e;
+  /* on the photo, both themes */
+  --ov-pin: #3ddc84; --ov-mine: #58a6ff; --ov-unused: #ff6b6b; --ov-link: #f2cc60; --ov-edge: #ff5fd2; --ov-removed: #e6e6e1;
+  --f-ui: "Plex Cond", "IBM Plex Sans Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+  --f-data: "Plex Mono", "IBM Plex Mono", Consolas, ui-monospace, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1216; --panel: #171b21; --ink: #e6e9ed; --muted: #9aa4af; --line: #2a313a;
-    --accent: #4c8dff; --accent-ink: #0b1220; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
-    --chip: #222932; --grid: #212830; --pin: #8b949e; --link: #36404b; --curve: #e6e9ed; --point: #ff6b6b;
-    --shadow: none; color-scheme: dark;
+    --paper: #161918; --panel: #1d2120; --panel-2: #262b29; --ink: #e5e3dc; --muted: #8e938e; --line: #353c39;
+    --sel: #20332f;
+    --screen: #0a0d0c; --grat: #233029; --grat-2: #19221e; --trace: #6fe3cc; --screen-ink: #c9d3cf; --plot-pt: #ff5fd2;
+    --key-edge: #8a6700; --brand: #3fb8ae; --brand-dot: #161918;
+    --ok: #4cc27a; --warn: #e3a134; --bad: #f0675a; --lamp-off: #5d625f;
+    color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { background: var(--paper); color: var(--ink); font: 14px/1.4 var(--f-ui); display: flex; flex-direction: column; }
 button, input, select { font: inherit; color: inherit; }
-header { display: flex; align-items: center; gap: 12px; padding: 10px 18px; background: var(--panel);
-  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
-header h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
-header .version { color: var(--muted); font-size: 12px; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--key); outline-offset: 2px; }
+.num, kbd, .mono { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+
+.btn { border: 1px solid var(--line); background: var(--panel); padding: 6px 11px; border-radius: 3px; display: inline-flex;
+  gap: 8px; align-items: center; white-space: nowrap; text-decoration: none; color: inherit; }
+.btn:hover { background: var(--panel-2); }
+.btn:disabled { opacity: .45; cursor: default; background: var(--panel); }
+.btn.small { padding: 3px 8px; font-size: 12.5px; }
+.btn.key { background: var(--key); color: var(--key-ink); border-color: var(--key-edge); font-weight: 600; }
+.btn.plain { border-color: transparent; background: none; color: var(--muted); }
+.btn.plain:hover { color: var(--ink); background: var(--panel-2); }
+kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 2px; color: var(--muted); }
+
+/* top bar */
+header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.mark { display: flex; align-items: center; gap: 10px; }
+.mark h1 { margin: 0; font: 700 15px/1 var(--f-ui); letter-spacing: .14em; text-transform: uppercase; }
+.mark .version { font: 11px/1 var(--f-data); color: var(--muted); }
 header .spacer { flex: 1; }
-.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 12px;
-  cursor: pointer; white-space: nowrap; }
-.btn:hover { border-color: var(--muted); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-.btn.big { padding: 10px 18px; font-size: 15px; }
-.btn:disabled { opacity: .5; cursor: default; }
-.btn.link { border: none; background: none; color: var(--accent); padding: 4px 6px; }
-a.btn { text-decoration: none; color: inherit; display: inline-block; }
-.layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; padding: 16px 18px;
-  min-height: calc(100% - 56px); }
-@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
-.side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.phone { padding: 14px; display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: center; }
-.phone img { width: 120px; height: 120px; border-radius: 8px; background: #fff; display: block; }
-.phone h2 { font-size: 14px; margin: 0 0 4px; }
-.phone p { margin: 0; color: var(--muted); font-size: 12.5px; }
-.phone .url { grid-column: 1 / -1; font: 11.5px ui-monospace, Consolas, monospace; color: var(--muted);
-  word-break: break-all; }
-.net { grid-column: 1 / -1; font-size: 12.5px; }
-.net:empty { display: none; }
-.net .note { border-radius: 8px; padding: 8px 10px; }
-.net .note.ok { color: var(--ok); padding: 0; }
-.net .note.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); }
-.net .note p { color: var(--ink); margin: 0 0 8px; }
-.net details { color: var(--muted); margin-top: 6px; }
-.net summary { cursor: pointer; color: var(--accent); }
-.net ol { margin: 6px 0 0; padding-left: 18px; }
-.net li { margin: 3px 0; }
-.list { padding: 6px; min-height: 120px; }
-.list h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 8px 8px 6px; }
-.item { display: grid; grid-template-columns: 56px 1fr; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer;
-  align-items: center; }
-.item:hover { background: var(--chip); }
-.item.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.item .thumb { width: 56px; height: 42px; border-radius: 6px; background: var(--chip) center/cover no-repeat; }
-.item .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub.ok { color: var(--ok); } .sub.warn { color: var(--warn); } .sub.bad { color: var(--bad); }
-.empty { padding: 36px; text-align: center; color: var(--muted); }
-.empty h2 { color: var(--ink); font-size: 18px; margin: 0 0 8px; }
-.main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.title { padding: 14px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
-.title h2 { margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; }
-.title .meta { color: var(--muted); font-size: 12.5px; }
-.title .actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.hint { color: var(--muted); font-size: 12.5px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; }
-.chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
-.views { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
-.view { padding: 10px; display: flex; flex-direction: column; min-height: 360px; }
-.view h3 { margin: 2px 4px 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
-.view .body { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 300px;
-  border-radius: 8px; overflow: hidden; background: var(--bg); }
-.view img { max-width: 100%; max-height: 520px; display: block; }
-.view svg { width: 100%; height: 100%; max-height: 520px; }
-.view h3 { display: flex; align-items: center; gap: 8px; }
-.view h3 .tools { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; text-transform: none; letter-spacing: 0; }
-.btn.small { padding: 3px 9px; font-size: 12.5px; border-radius: 6px; }
-.views.busy .view { opacity: .72; transition: opacity .15s; }
-.view .body.editor-body { min-height: 0; padding: 0; background: #14171b; align-items: stretch; }
-.view svg.editor { height: 520px; max-height: none; display: block; cursor: crosshair; touch-action: none; user-select: none; }
-.view svg.editor.over { cursor: pointer; }
-.view svg.editor.wait { cursor: progress; }
-.ed-hint { margin: 8px 4px 2px; min-height: 20px; font-size: 12.5px; color: var(--muted); }
-.ed-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 4px 4px; font-size: 12px; color: var(--muted); }
-.ed-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 2px solid; vertical-align: -1px; margin-right: 4px; }
+.link-chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px;
+  font-size: 12.5px; background: var(--panel); }
+.link-chip:hover { background: var(--panel-2); }
+.lamp { width: 8px; height: 8px; border-radius: 50%; background: var(--lamp-off); flex: none; }
+.lamp.ok { background: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 25%, transparent); }
+.lamp.warn { background: var(--warn); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 25%, transparent); }
+.offline { background: var(--bad); color: #fff; padding: 8px 14px; display: none; }
+.offline.show { display: block; }
+
+/* three columns: photo log | photo and pins | curve readout */
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr) 340px; }
+.sec { font: 600 11px/1 var(--f-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: 12px 14px 8px;
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+.log { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+#list { overflow: auto; flex: 1; min-height: 60px; }
+.item { display: grid; grid-template-columns: 22px 48px minmax(0, 1fr); gap: 8px; padding: 8px 12px 8px 8px; cursor: pointer;
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); align-items: center; }
+.item:hover { background: var(--panel-2); }
+.item.sel { background: var(--sel); }
+.item .n { font: 11px/1 var(--f-data); color: var(--muted); text-align: right; }
+.item .thumb { width: 48px; height: 36px; border-radius: 2px; background: var(--screen) center/cover no-repeat; border: 1px solid var(--line); }
+.item .name { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .sub { font: 11.5px/1.35 var(--f-data); color: var(--muted); display: flex; gap: 6px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.item .sub span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.tag { font: 600 10px/1 var(--f-data); letter-spacing: .06em; padding: 3px 4px 2px; border-radius: 2px; color: var(--panel); background: var(--muted); flex: none; }
+.tag.ok { background: var(--ok); } .tag.chk { background: var(--warn); } .tag.bad { background: var(--bad); }
+.log .none { padding: 10px 14px; color: var(--muted); font-size: 13px; }
+.phone-mini { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; padding: 10px 12px 12px; border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--muted); background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; }
+.phone-mini:hover { background: var(--panel-2); }
+.phone-mini img { width: 64px; height: 64px; background: #fff; padding: 3px; display: block; }
+.phone-mini b { color: var(--ink); font-weight: 600; display: block; }
+
+.work { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.head h2 { margin: 0; font: 600 17px/1.15 var(--f-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.head .meta { font: 12px var(--f-data); color: var(--muted); white-space: nowrap; }
+.head .spacer { flex: 1; }
+.steps { display: flex; flex-wrap: wrap; gap: 6px 0; padding: 8px 14px; border-bottom: 1px solid var(--line); font: 11.5px/1 var(--f-data); align-items: center; }
+.stp { display: flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; padding-right: 8px; }
+.stp::after { content: ""; width: 22px; height: 1px; background: var(--line); margin-left: 2px; }
+.stp:last-child::after { display: none; }
+.stp i { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--line); display: inline-grid; place-items: center;
+  font-style: normal; font-size: 9px; line-height: 1; }
+.stp b { font-weight: 500; color: var(--ink); }
+.stp.done i { background: var(--ok); border-color: var(--ok); color: var(--panel); }
+.stp.chk i { background: var(--warn); border-color: var(--warn); color: var(--panel); }
+.stp.fail i { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+.stp.fail b { color: var(--bad); }
+.stp.run i { border-style: dashed; animation: spin 1.4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.field { position: relative; flex: 1; min-height: 340px; margin: 10px 14px 0; background: var(--screen); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.field.busy { opacity: .75; transition: opacity .15s; }
+.field .tools { position: absolute; top: 8px; left: 8px; display: flex; flex-wrap: wrap; gap: 4px; z-index: 2; }
+.field .tools .btn { background: color-mix(in srgb, var(--panel) 88%, transparent); }
+.field .banner { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); background: var(--key); color: var(--key-ink);
+  padding: 6px 12px; font-weight: 600; font-size: 13px; border-radius: 3px; z-index: 2; white-space: nowrap; }
+svg.editor { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; user-select: none; }
+svg.editor.over { cursor: pointer; } svg.editor.wait { cursor: progress; } svg.editor.picking { cursor: cell; }
+.ed-hint { margin: 6px 14px 0; min-height: 18px; font-size: 12.5px; color: var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 14px 12px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { width: 14px; height: 14px; flex: none; }
 .ov-link, .ov-gap, .ov-pin, .ov-mine, .ov-hand, .ov-unused, .ov-removed, .ov-pending { fill: none; stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
-.ov-link { stroke: #f2cc60; } .ov-gap { stroke: #ff6b6b; stroke-dasharray: 6 5; }
-.ov-pin { stroke: #3fb950; } .ov-mine { stroke: #58a6ff; } .ov-hand { stroke: #58a6ff; stroke-dasharray: 5 4; }
-.ov-unused { stroke: #ff6b6b; } .ov-removed { stroke: #c9d1d9; stroke-dasharray: 4 4; opacity: .85; }
+.ov-link { stroke: var(--ov-link); } .ov-gap { stroke: var(--ov-unused); stroke-dasharray: 6 5; }
+.ov-pin { stroke: var(--ov-pin); } .ov-mine { stroke: var(--ov-mine); } .ov-hand { stroke: var(--ov-mine); stroke-dasharray: 5 4; }
+.ov-unused { stroke: var(--ov-unused); stroke-dasharray: 5 3; } .ov-removed { stroke: var(--ov-removed); stroke-dasharray: 4 4; opacity: .9; }
 .ov-pending { stroke: #fff; stroke-dasharray: 3 3; animation: ov-pulse .8s ease-in-out infinite alternate; }
 @keyframes ov-pulse { from { opacity: 1; } to { opacity: .25; } }
-.ov-dot { pointer-events: none; } .ov-dot.pin { fill: #3fb950; } .ov-dot.mine { fill: #58a6ff; } .ov-dot.unused { fill: #ff6b6b; }
-.ov-label { fill: #3fb950; stroke: #0b0e11; paint-order: stroke; stroke-width: 3px; vector-effect: non-scaling-stroke;
-  font-weight: 600; pointer-events: none; }
-.ov-label.mine { fill: #58a6ff; }
-.opts { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 10px;
-  border-top: 1px solid var(--line); font-size: 13px; }
-.opts label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-.opts input { width: 64px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); text-align: right; }
-.opts .sidebox { display: flex; align-items: center; gap: 6px; }
-.opts .sidebox b { font-weight: 600; }
-.btn.small.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.view svg.editor.picking { cursor: cell; }
-.ov-edge { fill: none; stroke: #e879f9; stroke-width: 3px; vector-effect: non-scaling-stroke; pointer-events: none; }
-.ov-side { fill: #e879f9; stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
-.details { padding: 14px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 24px; }
-.details h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px;
-  color: var(--muted); }
-.details h3:first-child { margin-top: 0; }
-.row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); }
-.row span:first-child { color: var(--muted); }
-.row span:last-child { text-align: right; }
-.warnings { grid-column: 1 / -1; margin: 6px 0 0; padding-left: 18px; color: var(--warn); }
-.notes { grid-column: 1 / -1; margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
-.error { padding: 16px; color: var(--bad); white-space: pre-wrap; font: 12.5px ui-monospace, Consolas, monospace; }
-dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink);
-  padding: 0; width: min(560px, 94vw); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+.ov-dot { pointer-events: none; } .ov-dot.pin { fill: var(--ov-pin); } .ov-dot.mine { fill: var(--ov-mine); } .ov-dot.unused { fill: var(--ov-unused); }
+.ov-label { fill: var(--ov-pin); stroke: #0b0e11; paint-order: stroke; stroke-width: 3px; vector-effect: non-scaling-stroke;
+  font-family: var(--f-data); font-weight: 500; pointer-events: none; }
+.ov-label.mine { fill: var(--ov-mine); }
+.ov-edge { fill: none; stroke: var(--ov-edge); stroke-width: 3px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ov-side { fill: var(--ov-edge); stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.read { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+.read .scroll { flex: 1; overflow: auto; min-height: 0; padding-bottom: 12px; }
+.plot { margin: 0 14px; background: var(--screen); border: 1px solid var(--line); border-radius: 3px; aspect-ratio: 1 / .8; }
+.plot svg { display: block; width: 100%; height: 100%; }
+.plot .empty-plot { height: 100%; display: grid; place-items: center; text-align: center; font: 12px/1.5 var(--f-data); color: var(--muted); padding: 12px; }
+.nums { display: grid; grid-template-columns: 1fr 1fr; margin: 10px 14px 0; border-top: 1px solid var(--line); }
+.cell { padding: 8px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.cell:nth-child(odd) { border-right: 1px solid var(--line); padding-right: 10px; }
+.cell:nth-child(even) { padding-left: 10px; }
+.cell .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cell .v { font: 500 19px/1.25 var(--f-data); font-variant-numeric: tabular-nums; }
+.cell .v small { font-size: 12px; color: var(--muted); margin-left: 2px; }
+.cell .s { font-size: 11.5px; color: var(--muted); }
+.cell.warn .v { color: var(--warn); }
+.opts { padding: 12px 14px 0; display: grid; gap: 10px; }
+.opt { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 10px; }
+.opt > .lbl { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.stepper { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; width: max-content; background: var(--panel); }
+.stepper button { background: none; border: 0; width: 30px; height: 30px; font-size: 16px; }
+.stepper button:hover:not(:disabled) { background: var(--panel-2); }
+.stepper input { width: 46px; text-align: center; font: 500 15px/28px var(--f-data); border: 0; border-inline: 1px solid var(--line);
+  background: var(--panel); -moz-appearance: textfield; }
+.stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.sides { display: grid; grid-template-columns: 1fr 1fr auto; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.sides button { background: var(--panel); border: 0; border-right: 1px solid var(--line); padding: 6px; font-size: 12.5px; display: flex; gap: 6px;
+  align-items: center; justify-content: center; }
+.sides button:last-child { border-right: 0; }
+.sides button:hover:not(:disabled) { background: var(--panel-2); }
+.sides button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+.sides button:disabled { opacity: .45; cursor: default; }
+.sides svg { width: 22px; height: 15px; flex: none; }
+.opt .sub { grid-column: 2; font-size: 11.5px; color: var(--muted); margin-top: -4px; }
+.notes { margin: 12px 14px 0; display: grid; gap: 6px; }
+.note { padding: 8px 10px; font-size: 12.5px; border-left: 3px solid var(--muted); background: var(--panel-2); }
+.note.chk { border-color: var(--warn); } .note.bad { border-color: var(--bad); } .note.info { border-color: var(--line); color: var(--muted); }
+.note b { display: block; margin-bottom: 2px; color: var(--ink); }
+.note .raw { display: block; margin-top: 4px; font: 11px var(--f-data); color: var(--muted); }
+details.file { margin: 12px 14px 0; font-size: 12.5px; }
+details.file summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.kv span:first-child { color: var(--muted); }
+.kv span:last-child { text-align: right; font-family: var(--f-data); font-size: 12px; }
+.out { padding: 12px 14px 14px; display: grid; gap: 8px; border-top: 1px solid var(--line); }
+.copy { background: var(--key); color: var(--key-ink); border: 0; border-bottom: 3px solid var(--key-edge); padding: 12px 14px;
+  font: 700 16px/1 var(--f-ui); letter-spacing: .04em; display: flex; justify-content: space-between; align-items: center; border-radius: 3px; }
+.copy:active:not(:disabled) { transform: translateY(1px); border-bottom-width: 2px; }
+.copy kbd { color: var(--key-ink); border-color: color-mix(in srgb, var(--key-ink) 35%, transparent); }
+.copy:disabled { opacity: .4; cursor: default; }
+.then { font-size: 12px; color: var(--muted); }
+.then b { color: var(--ink); }
+.exp { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
+.exp .btn { padding: 3px 7px; font: 500 11.5px var(--f-data); }
+
+/* no photo selected */
+.welcome { grid-column: 2 / 4; display: grid; place-items: center; padding: 30px; }
+.welcome .box { max-width: 640px; display: grid; grid-template-columns: 200px 1fr; gap: 28px; align-items: center; }
+.welcome img { width: 200px; height: 200px; background: #fff; padding: 8px; border: 1px solid var(--line); }
+.welcome h2 { margin: 0 0 10px; font: 600 22px/1.2 var(--f-ui); }
+.welcome ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.welcome .url { font: 12px var(--f-data); color: var(--muted); margin-top: 12px; word-break: break-all; }
+
+/* dialogs */
+dialog { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--ink); padding: 0; width: min(560px, 94vw);
+  box-shadow: 0 12px 40px rgba(0,0,0,.25); }
 dialog::backdrop { background: rgba(0,0,0,.35); }
-dialog form { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; max-height: 86vh; overflow: auto; }
-dialog h2 { margin: 0; font-size: 17px; }
-fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 12px; margin: 0; }
-legend { padding: 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
-.grid2 { display: grid; grid-template-columns: 1fr 120px; gap: 8px 12px; align-items: center; }
-.grid2 input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); text-align: right; }
-label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+dialog form, dialog .dbody { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; max-height: 86vh; overflow: auto; }
+dialog h2 { margin: 0; font: 600 18px/1.2 var(--f-ui); }
+fieldset { border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px 12px; margin: 0; }
+legend { padding: 0 6px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+.grid2 { display: grid; grid-template-columns: 1fr 150px; gap: 8px 12px; align-items: center; }
+.grid2 input, .grid2 select { width: 100%; padding: 5px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--paper);
+  text-align: right; font-family: var(--f-data); }
+.grid2 .hide { display: none; }
+.grid2 select { text-align: left; font-family: var(--f-ui); }
 .small { font-size: 12.5px; color: var(--muted); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.phone-dlg { display: grid; grid-template-columns: 180px 1fr; gap: 18px; align-items: start; }
+.phone-dlg img { width: 180px; height: 180px; background: #fff; padding: 6px; border: 1px solid var(--line); }
+.phone-dlg .url { font: 12px var(--f-data); color: var(--muted); word-break: break-all; margin-top: 8px; }
+#net .note p { margin: 0 0 8px; }
+#net details { margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+#net summary { cursor: pointer; color: var(--ink); }
+#net ol { margin: 6px 0 0; padding-left: 18px; } #net li { margin: 3px 0; }
+.btn.link { border: 0; background: none; padding: 0; text-decoration: underline; color: inherit; }
+
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--panel);
-  padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; }
+  padding: 10px 16px; border-radius: 3px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; }
 #toast.show { opacity: 1; }
-#drop { position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent); border: 3px dashed var(--accent);
+#drop { position: fixed; inset: 0; background: color-mix(in srgb, var(--key) 18%, transparent); border: 3px dashed var(--key-edge);
   display: none; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; z-index: 30; }
 #drop.show { display: flex; }
-.offline { background: var(--bad); color: #fff; padding: 8px 18px; display: none; }
-.offline.show { display: block; }
+.stopped { margin: auto; text-align: center; }
+
+/* narrower windows: readout under the photo, then one column with the photo first */
+@media (max-width: 1180px) {
+  html, body { height: auto; }
+  .layout { flex: none; grid-template-columns: 230px minmax(0, 1fr); grid-template-rows: auto auto; }
+  .work, .read, .log { min-height: auto; }
+  .log { position: sticky; top: 0; align-self: start; max-height: 100vh; }
+  .read { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); }
+  .read .scroll { overflow: visible; }
+  .log { grid-row: 1 / 3; }
+  .field { min-height: 460px; }
+  .plot { aspect-ratio: auto; height: 360px; }
+  .welcome { grid-column: 2; }
+}
+@media (max-width: 820px) {
+  .layout { display: flex; flex-direction: column; }
+  .log { order: 3; border-right: 0; border-top: 1px solid var(--line); position: static; align-self: stretch; max-height: none; }
+  .welcome .box { grid-template-columns: 1fr; }
+  .phone-dlg { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .stp.run i, .ov-pending { animation: none; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Spline Wire</h1><span class="version">{{VERSION}}</span>
+  <div class="mark">
+    <svg width="44" height="16" viewBox="0 0 33 12" aria-hidden="true">
+      <rect x="1" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/><rect x="10" y="2.2" width="13" height="7.6" rx="3.8" fill="var(--brand)" opacity=".75"/>
+      <rect x="19" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/>
+      <circle cx="5.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="14.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="23.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="27.2" cy="6" r="0" fill="none"/>
+    </svg>
+    <h1>Spline Wire</h1><span class="version">{{VERSION}}</span>
+  </div>
   <span class="spacer"></span>
-  <button class="btn" id="add">Add photos…</button>
+  <button class="link-chip" id="phone-chip" title="Connect your phone"><span class="lamp" id="lamp"></span><span id="chip-text">Phone</span></button>
+  <button class="btn" id="add">Add photos</button>
   <input type="file" id="file" accept="image/*,.heic,.heif" multiple hidden>
-  <button class="btn" id="settings-btn">Settings</button>
   <button class="btn" id="install">Install Fusion add-in</button>
+  <button class="btn" id="settings-btn">Settings</button>
   <button class="btn" id="quit" title="Stop Spline Wire">Quit</button>
 </header>
 <div class="offline" id="offline">Spline Wire isn't running. Start SplineWire.exe again, then reload this page.</div>
 
-<div class="layout">
-  <aside class="side">
-    <section class="card phone">
-      <img id="qr" alt="QR code for the phone upload page">
-      <div>
-        <h2>Send photos from your iPhone</h2>
-        <p>Scan with the Camera app. The phone and this computer need the same Wi-Fi, or put this computer on your phone's hotspot.</p>
-      </div>
-      <div class="url" id="phone-url"></div>
-      <div class="net" id="net"></div>
-    </section>
-    <section class="card list">
-      <h2>Photos</h2>
-      <div id="list"></div>
-    </section>
+<div class="layout" id="layout">
+  <aside class="log">
+    <div class="sec"><span>Photos</span><span class="mono" id="count"></span></div>
+    <div id="list"></div>
+    <button class="phone-mini" id="phone-mini" type="button"><img class="qr" alt="QR code for the phone page"><span><b>Send from your phone</b>Scan with the Camera app. Same Wi-Fi, or this computer on the phone's hotspot.</span></button>
   </aside>
-  <main class="main" id="main"></main>
+  <div id="main" style="display: contents"></div>
 </div>
+
+<dialog id="phone">
+  <div class="dbody">
+    <h2>Send photos from your phone</h2>
+    <div class="phone-dlg">
+      <img class="qr" alt="QR code for the phone page">
+      <div>
+        <p style="margin:0">Scan the code with your phone's Camera app and open the page. The phone and this computer need the
+          same Wi-Fi, or put this computer on the phone's hotspot.</p>
+        <div class="url" id="phone-url"></div>
+        <div id="net"></div>
+      </div>
+    </div>
+    <div class="dialog-actions"><button class="btn" data-close>Close</button></div>
+  </div>
+</dialog>
+
+<dialog id="msg">
+  <div class="dbody">
+    <h2 id="msg-title"></h2>
+    <div id="msg-body" class="small" style="color:var(--ink); white-space: pre-line"></div>
+    <div class="dialog-actions" id="msg-actions"></div>
+  </div>
+</dialog>
 
 <dialog id="settings">
   <form method="dialog" id="settings-form">
     <h2>Settings</h2>
     <fieldset>
+      <legend>Camera</legend>
+      <div class="grid2">
+        <span>iPhone focal length, mm (35 mm equiv.)</span><input name="phone_focal_35mm" inputmode="decimal" placeholder="none">
+        <span>Use this focal length for every photo</span><input name="focal_override_35mm" inputmode="decimal" placeholder="off">
+      </div>
+      <p class="small">Photos sent from an iPhone's browser lose their camera data, so the app uses the first number. Main (1×) camera:
+        24&nbsp;mm on iPhone 14&nbsp;Pro, iPhone 15 and later; 26&nbsp;mm on earlier models. Shoot at 1×.</p>
+    </fieldset>
+    <fieldset>
       <legend>Chain</legend>
       <div class="grid2">
         <span>Fill in for a chain</span><select id="chain-preset"></select>
-        <span>Pitch, pin to pin (mm)</span><input name="pitch_mm" inputmode="decimal">
-        <span>Half width, pin line to edge or sleeve radius (mm)</span><input name="half_width_mm" inputmode="decimal">
+        <span>Link length, pin to pin (mm)</span><input name="pitch_mm" inputmode="decimal">
         <span>What touches the object</span><select name="contact"><option value="edge">Link edges</option><option value="round">Round sleeves</option></select>
-        <span>Fiducial on each pin</span><select name="fiducial"><option value="dot">Dot</option><option value="ring">Ring</option></select>
-        <span>Dot or ring diameter (mm)</span><input name="fiducial_mm" inputmode="decimal">
-        <span>Ring hole diameter (mm, rings only)</span><input name="ring_inner_mm" inputmode="decimal">
-        <span>Sharpest bend at a pin (°; 80, 125 for the O-ring chain, 110 for the snap-fit chain)</span><input name="max_bend_deg" inputmode="decimal">
+        <span>Pin to link edge, or sleeve radius (mm)</span><input name="half_width_mm" inputmode="decimal">
+        <span>Mark on each pin</span><select name="fiducial"><option value="dot">Dot</option><option value="ring">Ring</option></select>
+        <span>Mark diameter (mm)</span><input name="fiducial_mm" inputmode="decimal">
+        <span class="ring-only">Ring hole diameter (mm)</span><input class="ring-only" name="ring_inner_mm" inputmode="decimal">
+        <span>Sharpest bend at a joint (°)</span><input name="max_bend_deg" inputmode="decimal">
       </div>
-    </fieldset>
-    <p class="small">The number of pins and the side the object was on are set for each photo, next to it.</p>
-    <fieldset>
-      <legend>Camera</legend>
-      <div class="grid2">
-        <span>iPhone focal length (mm, 35 mm equiv.)</span><input name="phone_focal_35mm" inputmode="decimal" placeholder="none">
-        <span>Override for every photo</span><input name="focal_override_35mm" inputmode="decimal" placeholder="off">
-      </div>
-      <p class="small">The first is used only when an uploaded photo has lost its camera data. iPhone main (1×) camera:
-        24&nbsp;mm on iPhone 14&nbsp;Pro and iPhone 15 or later, 26&nbsp;mm on earlier models. Shoot at 1×.</p>
+      <p class="small">Change these only for a different chain; "Fill in for a chain" sets them for a known one. The O-ring chain bends up to 125°, the snap-fit chain 110°, the print-in-place chain 80°.
+        The pin count and the object's side are set for each photo.</p>
     </fieldset>
     <fieldset>
       <legend>Test part</legend>
@@ -217,7 +345,7 @@ label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
     </fieldset>
     <fieldset>
       <legend>Files</legend>
-      <p class="small" id="workspace"></p>
+      <p class="small mono" id="workspace"></p>
       <div style="display:flex; gap:8px">
         <button type="button" class="btn" data-open="photos">Open photos folder</button>
         <button type="button" class="btn" data-open="results">Open results folder</button>
@@ -226,12 +354,12 @@ label.radio { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
     <p class="small" id="settings-error" style="color: var(--bad)"></p>
     <div class="dialog-actions">
       <button class="btn" value="cancel">Cancel</button>
-      <button class="btn primary" id="settings-save" value="save">Save</button>
+      <button class="btn key" id="settings-save" value="save">Save and measure again</button>
     </div>
   </form>
 </dialog>
 
-<div id="toast"></div>
+<div id="toast" role="status"></div>
 <div id="drop">Drop photos to measure them</div>
 
 <script>
@@ -244,6 +372,8 @@ let lastCount = 0;
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+const clock = (t) => new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {...opts, headers: {...(opts.headers || {}), "X-Token": TOKEN}});
@@ -261,6 +391,18 @@ function toast(msg, ms = 2600) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), ms);
 }
 
+// An in-page message box (the browser's own alert/confirm look out of place and block the page).
+function message(title, body, buttons = [["OK", true, "key"]]) {
+  return new Promise((resolve) => {
+    const d = $("#msg");
+    $("#msg-title").textContent = title; $("#msg-body").textContent = body;
+    $("#msg-actions").innerHTML = buttons.map(([label, , cls], i) => `<button class="btn ${cls || ""}" data-i="${i}">${esc(label)}</button>`).join("");
+    $("#msg-actions").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; d.close(); resolve(buttons[b.dataset.i][1]); };
+    d.onclose = () => resolve(false);
+    d.showModal();
+  });
+}
+
 async function init() {
   const m = location.hash.match(/t=([^&]+)/);
   if (m) TOKEN = decodeURIComponent(m[1]);
@@ -268,7 +410,7 @@ async function init() {
   if (!TOKEN) TOKEN = (await (await fetch("/api/local-token")).json()).token;
   sessionStorage.setItem("sw-token", TOKEN);
   history.replaceState(null, "", "/");
-  $("#qr").src = withToken("/api/qr.svg");
+  document.querySelectorAll("img.qr").forEach((img) => { img.src = withToken("/api/qr.svg"); });
   api("/api/firewall/check", {method: "POST"}).catch(() => {});
   poll();
 }
@@ -296,17 +438,19 @@ async function poll() {
   setTimeout(poll, 900);
 }
 
+// ---- phone connection: a lamp in the top bar, details in the phone dialog ----
 let netKey = null;
 let allowing = false;
 
 function renderNetwork(n, urls) {
   if (!n) return;
   const fw = n.firewall || {};
-  const seen = n.phone_seen ? new Date(n.phone_seen * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : null;
+  const seen = n.phone_seen ? clock(n.phone_seen) : null;
   const key = JSON.stringify([seen, fw.ok, fw.busy, fw.blocking_rules, fw.error, allowing, urls && urls[0]]);
   if (key === netKey) return;          // keep an open <details> open
   netKey = key;
   const address = (urls && urls[0] || "").replace(/#t=.*/, "");
+  $("#phone-url").textContent = address || "No network found. Connect this computer to Wi-Fi or to your phone's hotspot.";
   const nets = (fw.networks || []).map((x) => `${esc(x.name)} (${esc(x.category)})`).join(", ");
   const help = `<details><summary>Phone can't connect?</summary><ol>
     <li>Put the phone on the same Wi-Fi as this computer${nets ? ` (${nets})` : ""}. Guest networks and some
@@ -318,23 +462,29 @@ function renderNetwork(n, urls) {
     <li>Other security software (Norton, McAfee, …) has its own firewall; allow SplineWire.exe there.</li>
     <li>Then open <b>${esc(address || "the address above")}</b> in Safari on the phone.</li>
   </ol></details>`;
-  let html;
+  let html, lamp = "", chip;
   if (seen) {
-    html = `<div class="note ok">✓ Your phone reached Spline Wire (last at ${seen}).</div>`;
+    lamp = "ok"; chip = `Phone linked · ${seen}`;
+    html = `<div class="note info" style="margin-top:12px"><b>Your phone reached Spline Wire</b>Last at ${seen}.</div>`;
   } else if (allowing) {
-    html = `<div class="note warn"><p>Click <b>Yes</b> on the Windows prompt to let your phone connect…</p></div>`;
+    lamp = "warn"; chip = "Waiting for Windows…";
+    html = `<div class="note chk" style="margin-top:12px"><p>Click <b>Yes</b> on the Windows prompt to let your phone connect…</p></div>`;
   } else if (fw.ok === false) {
+    lamp = "warn"; chip = "Firewall blocks the phone";
     const why = fw.blocking_rules
       ? "Windows Firewall is blocking Spline Wire (it was denied at the firewall prompt), so your phone's request times out."
       : "Windows Firewall will probably block your phone, so its request times out.";
-    html = `<div class="note warn"><p>${why}</p>
-      <button type="button" class="btn primary" data-fw="allow">Allow phone connections</button>
-      <button type="button" class="btn link" data-fw="check">${fw.busy ? "Checking…" : "Check again"}</button>
+    html = `<div class="note chk" style="margin-top:12px"><p>${why}</p>
+      <button type="button" class="btn key" data-fw="allow">Allow phone connections</button>
+      <button type="button" class="btn plain" data-fw="check">${fw.busy ? "Checking…" : "Check again"}</button>
       ${help}</div>`;
   } else {
+    chip = "No phone yet";
     html = help;
   }
   $("#net").innerHTML = html;
+  $("#lamp").className = "lamp " + lamp;
+  $("#chip-text").textContent = chip;
 }
 
 async function allowFirewall() {
@@ -350,33 +500,85 @@ async function allowFirewall() {
   }
 }
 
-function statusLine(p) {
-  if (p.status === "queued") return ["", "Waiting…"];
-  if (p.status === "processing") return ["", "Measuring…"];
-  if (p.status === "error") return ["bad", (p.error || "Couldn't measure this photo").split("\n").pop()];
+// ---- plain words for what the measuring code reports ----
+// Stray look-alikes are normal on a busy table: they are noted, not warned about.
+function readWarning(w) {
+  let m;
+  if ((m = w.match(/^ignored (\d+) look-alike/))) return {level: "info", title: `${plural(+m[1], "stray dot")} ignored`,
+    text: "Dots that aren't on the chain, such as washers or a patterned table. Click one on the photo to use it as a pin."};
+  if ((m = w.match(/^(\d+) pin\(s\) you added were left out/))) return {level: "chk", title: `${plural(+m[1], "pin")} you added ${+m[1] === 1 ? "doesn't" : "don't"} fit the chain`,
+    text: "Each pin must be about one link from its neighbours, in line with the chain. Click it to delete it."};
+  if ((m = w.match(/^(\d+) pin\(s\) you added have no fiducial/))) return {level: "chk", title: `${plural(+m[1], "pin")} placed where you clicked`,
+    text: "There was no dot under the click, so the pin was fitted to the links around it. Zoom in and click the middle of the dot if you can see it."};
+  if ((m = w.match(/^(\d+) pin\(s\) not detected/))) return {level: "chk", title: `${plural(+m[1], "pin")} not found`,
+    text: "The curve bridges the gap. Click the missing dot on the photo to add it."};
+  if ((m = w.match(/^the chain seems to go on past its end \((\d+) more/))) return {level: "chk", title: "The chain seems to go on past its end",
+    text: `${plural(+m[1], "more dot")} about one link on. Is the pin count right?`};
+  if ((m = w.match(/^found (\d+) pins on the chain(?:,| but)[^\d]*(\d+)/))) return {level: "chk", title: `Found ${m[1]} pins, expected ${m[2]}`,
+    text: "Is the whole chain in the photo, with no glare on the links? If the chain has a different number of pins, change Pins below."};
+  if (/^no focal length/.test(w)) return {level: "chk", title: "Focal length estimated",
+    text: "The photo had no camera data, so the focal length was worked out from the chain. Set your iPhone's focal length in Settings for a better measurement."};
+  if ((m = w.match(/^link lengths deviate from the pitch by up to ([\d.]+) mm/))) return {level: "chk", title: `A link is ${m[1]} mm off its length`,
+    text: "Check the pins on the photo. A pin on the wrong dot, or a badly printed dot, does this."};
+  return {level: "chk", title: "Check this measurement", text: w};
+}
+
+function readError(raw) {
+  const e = (raw || "").split("\n").pop();
+  let m;
+  if ((m = e.match(/found (\d+) fiducials/)) || (m = e.match(/need at least 3 detections to find a chain, got (\d+)/))) {
+    return {step: 0, short: +m[1] < 3 ? "No chain in the photo" : `Only ${m[1]} dots found`, title: +m[1] < 3 ? "No chain found in this photo." : `Only ${m[1]} dots found.`,
+      text: "Get the whole chain in the frame with the dots facing up, in focus and without glare. Then take the photo again.", raw: e};
+  }
+  if ((m = e.match(/found (\d+) pins in a row, joined by/))) {
+    return {step: 1, short: "Too few pins in a row", title: `Only ${m[1]} pins in a row.`,
+      text: "Is the whole chain in the photo? Glare or a shadow may be hiding some dots: move the lamp or turn the chain and take the photo again. Or click each pin on the photo by hand.", raw: e};
+  }
+  if (/is not a photo this program can read/.test(e)) return {step: 0, short: "Not a photo it can read", title: "This file isn't a photo Spline Wire can read.",
+    text: "Send a JPEG, HEIC, PNG, TIFF, BMP or WebP photo.", raw: e};
+  if (/could not read the photo/.test(e)) return {step: 0, short: "Couldn't read the file", title: "Couldn't read this photo.",
+    text: "The file may have been cut short on the way. Send it again.", raw: e};
+  if (/could not fit a plane/.test(e)) return {step: 2, short: "Couldn't flatten", title: "Couldn't work out the camera angle.",
+    text: "Check the pins on the photo, and the focal length in Settings.", raw: e};
+  if ((m = e.match(/need at least \d+ links to rectify, got (\d+)/))) {
+    return {step: 1, short: "Too few pins in a row", title: `Only ${+m[1] + 1} pins in a row.`,
+      text: "Glare or a shadow is probably hiding some dots. Move the lamp or turn the chain, and take the photo again. Or click each pin on the photo by hand.", raw: e};
+  }
+  return {step: 2, short: "Couldn't measure", title: "Couldn't measure this photo.", text: "Try another photo of the chain. If it keeps happening, the reason below helps.", raw: e};
+}
+
+// Everything the measurement reports, warnings and notes (notes are information only).
+const messages = (r) => [...r.warnings, ...(r.notes || [])].map(readWarning);
+
+// OK, CHECK or FAILED: the one signal the list gives.
+function status(p) {
+  if (p.status === "queued") return {tag: "", label: "WAIT", text: "Waiting…"};
+  if (p.status === "processing") return {tag: "", label: "…", text: "Measuring…"};
+  if (p.status === "error") return {tag: "bad", label: "FAILED", text: readError(p.error).short};
   const r = p.result;
-  const t = r.truth ? ` · error ${r.truth.max_error_mm.toFixed(2)} mm` : "";
-  const edited = p.edits ? ` · ${p.edits} edit${p.edits > 1 ? "s" : ""}` : "";
-  const cls = r.warnings.length || (r.truth && r.truth.max_error_mm > 1) ? "warn" : "ok";
-  return [cls, `${r.pins} pins · ${r.curve_points} curve points${t}${edited}`];
+  const checks = messages(r).filter((w) => w.level !== "info");
+  const truthBad = r.truth && r.truth.max_error_mm > 1;
+  const t = r.truth ? ` · err ${r.truth.max_error_mm.toFixed(2)}` : "";
+  const text = checks.length ? checks[0].title : `${r.pins}/${p.n_pins} · ${r.curve_points} pts${t}`;
+  return {tag: checks.length || truthBad ? "chk" : "ok", label: checks.length || truthBad ? "CHECK" : "OK", text};
 }
 
 function render() {
-  $("#phone-url").textContent = (state.phone_urls && state.phone_urls[0] || "No network found").replace(/#t=.*/, "");
   if (!selected && state.photos.length) selected = state.photos[0].id;
   if (selected && !state.photos.find((p) => p.id === selected)) selected = state.photos[0]?.id || null;
+  $("#count").textContent = state.photos.length || "";
   const list = $("#list");
   if (!state.photos.length) {
-    list.innerHTML = '<p class="small" style="margin: 4px 8px 10px">No photos yet.</p>';
+    list.innerHTML = '<p class="none">No photos yet.</p>';
   } else {
-    list.innerHTML = state.photos.map((p) => {
-      const [cls, text] = statusLine(p);
+    const n = state.photos.length;
+    list.innerHTML = state.photos.map((p, i) => {
+      const s = status(p);
       const thumb = p.status === "done" ? `style="background-image:url('${withToken(`/api/photo/${p.id}/thumb.jpg`)}&v=${state.state_version}')"` : "";
-      const when = new Date(p.received * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
-      return `<div class="item ${p.id === selected ? "sel" : ""}" data-id="${p.id}">
-        <div class="thumb" ${thumb}></div>
+      return `<div class="item ${p.id === selected ? "sel" : ""}" data-id="${p.id}" title="${p.source === "phone" ? "From phone" : "Added here"} · ${clock(p.received)}">
+        <span class="n">${String(n - i).padStart(2, "0")}</span><div class="thumb" ${thumb}></div>
         <div style="min-width:0"><div class="name">${esc(p.name)}</div>
-        <div class="sub ${cls}">${esc(text)}</div><div class="sub">${p.source === "phone" ? "From phone" : "Added here"} · ${when}</div></div></div>`;
+        <div class="sub"><span class="tag ${s.tag}">${s.label}</span><span>${esc(s.text)}</span></div></div></div>`;
     }).join("");
   }
   renderMain();
@@ -391,10 +593,15 @@ async function renderMain() {
   const p = state.photos.find((x) => x.id === selected);
   if (!p) {
     viewer.pid = null; viewer.svg = null;
-    main.innerHTML = `<section class="card empty"><h2>Photograph the chain with your phone</h2>
-      <p>Lay the chain flat, dots facing up, the whole chain in the frame. Scan the QR code on the left
-      with your iPhone and take the photo from that page. It shows up here within a few seconds.</p>
-      <p>Photos already on this computer: use <b>Add photos…</b> or drop them on this window.</p></section>`;
+    const url = (state.phone_urls && state.phone_urls[0] || "").replace(/#t=.*/, "");
+    main.innerHTML = `<section class="welcome"><div class="box">
+      <img class="qr" src="${withToken("/api/qr.svg")}" alt="QR code for the phone page">
+      <div><h2>Photograph the chain with your phone</h2>
+      <ol><li>Lay the chain flat, dots facing up.</li>
+        <li>Scan this code with the phone's Camera app.</li>
+        <li>Take the photo on that page, with the whole chain in the frame. It shows up here within seconds.</li></ol>
+      <p class="small">Photos already on this computer: <b>Add photos</b>, or drop them on this window.</p>
+      <div class="url">${esc(url)}</div></div></div></section>`;
     return;
   }
   let d = null;
@@ -406,50 +613,152 @@ async function renderMain() {
     d = lastDetail[p.id] || null;     // measuring again, e.g. after an edit: keep the old picture up
   }
   if (seq !== renderSeq || selected !== p.id) return;   // something newer is being drawn
-  const help = `<section class="card empty"><p>Check that the whole chain is in the photo, dots facing up and in focus,
-    without glare, and that the chain settings match your chain. Then take the photo again.${
-    d && d.view ? " Or, if you can see the dots, click each pin on the photo below." : ""}</p></section>`;
   const typing = document.activeElement && document.activeElement.id === "opt-pins" ? document.activeElement.value : null;
-  main.innerHTML = titleCard(p, d) + (p.status === "error" ? help : "")
-    + (d ? viewsCard(p, d) + (d.result ? detailsCard(d) : "") : "");
+  main.innerHTML = workColumn(p, d) + readColumn(p, d);
   if (typing !== null && $("#opt-pins") && !$("#opt-pins").disabled) {
     const el = $("#opt-pins"); el.value = typing; el.focus();
   }
   if (d && d.view) mountEditor(p, d);
 }
 
-function titleCard(p, d) {
-  const [cls, text] = statusLine(p);
-  const ready = p.status === "done" && d && d.result;
-  const dl = ready ? d.downloads.map((k) => `<a class="btn" href="${withToken(`/api/photo/${p.id}/download/${k}`)}">${
-    {dxf: "DXF", csv: "CSV", svg: "SVG", json: "JSON", fusion_csv: "Fusion CSV"}[k]}</a>`).join("") : "";
-  return `<section class="card title">
-    <div style="min-width:0"><h2>${esc(p.name)}</h2><div class="meta sub ${cls}">${esc(text)}</div></div>
-    <div class="actions">
-      ${ready ? `<button class="btn primary big" id="copy">Copy points</button><span class="hint">then <b>Paste points</b> in a Fusion sketch</span>` : ""}
-      ${dl}
-      <button class="btn link" id="delete">Remove</button>
-    </div>
-    ${optionsRow(p, d)}</section>`;
+// Detect → Order → Flatten → Edge: what each stage found, and where a failure happened.
+function stepsStrip(p, d) {
+  const busy = p.status === "queued" || p.status === "processing";
+  const r = d && d.result;
+  const names = ["Detect", "Order", "Flatten", "Edge"];
+  let cls = ["", "", "", ""], vals = ["", "", "", ""];
+  if (busy) {
+    cls = ["run", "", "", ""];
+  } else if (p.status === "error") {
+    const e = readError(p.error);
+    cls = names.map((_, i) => i < e.step ? "done" : i === e.step ? "fail" : "");
+    const seen = d && d.view ? d.view.unused.length : null;
+    vals[0] = seen !== null ? plural(seen, "dot") : "";
+    vals[e.step] = e.step === 0 ? vals[0] : e.short.toLowerCase();
+  } else if (r) {
+    const checks = messages(r).filter((w) => w.level !== "info");
+    cls = ["done", r.missing_pins ? "chk" : "done", r.link_residual_max_mm > 0.5 ? "chk" : "done", checks.length && !r.missing_pins ? "chk" : "done"];
+    vals = [plural(r.pins + r.rejected, "dot"), `${r.pins} pins${r.missing_pins ? `, ${r.missing_pins} missing` : ""}`,
+      `${r.tilt_deg}° tilt`, `${r.object_side}${p.side === "picked" ? ", picked" : ""}`];
+  }
+  return `<div class="steps" aria-label="Measuring steps">${names.map((k, i) =>
+    `<span class="stp ${cls[i]}"><i>${{done: "✓", chk: "!", fail: "✕"}[cls[i]] || ""}</i><b>${k}</b>${vals[i] ? `<span>${esc(vals[i])}</span>` : ""}</span>`).join("")}</div>`;
 }
 
-const SIDE_TEXT = {inside: "inside of the bend", outside: "outside of the bend"};
-
-// This photo's own pin count and object side. Changing either measures it again.
-function optionsRow(p, d) {
+function workColumn(p, d) {
+  const info = d && d.info || {};
+  const meta = [p.source === "phone" ? "from phone" : "added here", clock(p.received),
+    info.width ? `${info.width}×${info.height}` : ""].filter(Boolean).join(" · ");
   const busy = p.status === "queued" || p.status === "processing";
-  const measured = d && d.result ? d.result.object_side : null;
-  const side = p.side === "picked" ? (measured ? `${SIDE_TEXT[measured]}, picked on the photo` : "picked on the photo")
-    : SIDE_TEXT[p.side];
   const picking = viewer.mode === "side" && viewer.pid === p.id;
-  return `<div class="opts">
-    <label title="Pins on the chain in this photo (links + 1)">Pins in chain
-      <input type="number" id="opt-pins" min="3" max="999" step="1" value="${p.n_pins}" ${busy ? "disabled" : ""}></label>
-    <span class="sidebox"><span style="color:var(--muted)">Object touched the</span> <b>${esc(side)}</b>
-      <button class="btn small" id="opt-flip" ${busy || !measured ? "disabled" : ""} title="Use the chain's other edge">Flip side</button>
-      ${d && d.view && d.view.pins.length ? `<button class="btn small ${picking ? "on" : ""}" id="opt-pick" ${busy ? "disabled" : ""}
-        title="Click the photo on the side of the chain the object touched">${picking ? "Click the photo…" : "Pick on photo"}</button>` : ""}</span>
+  const editor = d && d.view ? `
+    <div class="field ${busy ? "busy" : ""}" id="editor-slot">
+      <div class="tools">
+        <button class="btn small" id="ed-undo" title="Undo the last change">Undo <kbd>Ctrl Z</kbd></button>
+        <button class="btn small" id="ed-reset" title="Back to what was detected">Reset</button>
+        <button class="btn small" id="ed-fit">Fit chain</button>
+        <button class="btn small" id="ed-all">Whole photo</button>
+      </div>
+      ${picking ? '<div class="banner">Click the side of the chain that touched the object · Esc cancels</div>' : ""}
+    </div>
+    <p class="ed-hint" id="ed-hint"></p>
+    <div class="legend">
+      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--ov-pin)" stroke-width="2"/></svg>Pin on the chain</span>
+      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--ov-mine)" stroke-width="2"/></svg>Pin you added</span>
+      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--ov-unused)" stroke-width="2" stroke-dasharray="3 2"/></svg>Stray dot, ignored (click to use)</span>
+      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="2 2"/><path d="M4 4l6 6M4 10l6-6" stroke="var(--muted)" stroke-width="1.5"/></svg>Removed (click to restore)</span>
+      <span><svg viewBox="0 0 14 14"><line x1="1" y1="7" x2="13" y2="7" stroke="var(--ov-edge)" stroke-width="3"/></svg>Edge that touched the object</span>
+    </div>` : `<div class="field"><div class="empty-plot" style="height:100%;display:grid;place-items:center;color:var(--muted);font-family:var(--f-data);font-size:12px">${busy ? "Measuring…" : "No photo to show."}</div></div><div style="height:12px"></div>`;
+  return `<section class="work">
+    <div class="head"><h2>${esc(p.name)}</h2><span class="meta">${esc(meta)}</span><span class="spacer"></span>
+      <button class="btn plain small" id="delete" title="Takes it off this list. The photo and its results stay in the workspace folder.">Remove from list</button></div>
+    ${stepsStrip(p, d)}
+    ${editor}
+  </section>`;
+}
+
+function pict(kind) {
+  if (kind === "inside") return `<svg viewBox="0 0 60 40" aria-hidden="true"><circle cx="30" cy="24" r="10" fill="currentColor" opacity=".35"/><path d="M14 32 A17 17 0 0 1 46 32" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>`;
+  return `<svg viewBox="0 0 60 40" aria-hidden="true"><path d="M4 10 H18 A12 12 0 0 0 42 10 H56 V38 H4Z" fill="currentColor" opacity=".35"/><path d="M12 5 H17 A13 13 0 0 0 43 5 H48" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>`;
+}
+
+function readColumn(p, d) {
+  const r = d && d.result, info = d && d.info || {};
+  const busy = p.status === "queued" || p.status === "processing";
+  const ready = p.status === "done" && r;
+  const plot = r ? curveSvg(d.curve) : `<div class="empty-plot">${busy ? "Measuring…" : p.status === "error" ? "No curve yet.<br>Fix the pins on the photo, or take another photo." : ""}</div>`;
+  let cells = "";
+  if (r) {
+    const focalSrc = {exif: "from the photo", override: "your override", default: "your iPhone setting", estimated: "estimated from the chain"}[r.focal_source] || "";
+    const hand = d.view ? d.view.edits.add.length + d.view.edits.remove.length : 0;
+    const pinSub = r.missing_pins ? `${r.missing_pins} missing` : hand ? `${plural(hand, "hand edit")}` : r.rejected ? `${plural(r.rejected, "stray dot")} ignored` : "all found";
+    const t = r.truth;
+    cells = [
+      ["Pins", `${r.pins}<small>/${p.n_pins}</small>`, pinSub, r.pins !== p.n_pins - r.missing_pins],
+      ["Tilt", `${r.tilt_deg}<small>°</small>`, "camera to table"],
+      ["Link error", r.link_residual_rms_mm.toFixed(3), `rms · max ${r.link_residual_max_mm.toFixed(3)} mm`, r.link_residual_max_mm > 0.5],
+      ["Focal length", `${r.focal_35mm}<small>mm</small>`, focalSrc, r.focal_source === "estimated"],
+      ...(t ? [["Error vs truth", t.max_error_mm.toFixed(3), `max · rms ${t.rms_error_mm.toFixed(3)} mm`, t.max_error_mm > 1],
+               ["After scale fit", t.max_error_scaled_mm.toFixed(3), `part ${((t.scale - 1) * 100).toFixed(2)} % vs design`]] : []),
+    ].map(([k, v, s, bad]) => `<div class="cell ${bad ? "warn" : ""}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${esc(s)}</div></div>`).join("");
+    cells = `<div class="nums">${cells}</div>`;
+  } else if (p.status === "error") {
+    const seen = d && d.view ? d.view.unused.length : 0;
+    cells = `<div class="nums"><div class="cell"><div class="k">Dots found</div><div class="v">${seen}</div><div class="s">chain has ${p.n_pins} pins</div></div>
+      <div class="cell"><div class="k">Focal length</div><div class="v">${info.focal_35mm ? `${info.focal_35mm}<small>mm</small>` : "—"}</div><div class="s">${info.focal_35mm ? "from the photo" : "not in the photo"}</div></div></div>`;
+  }
+
+  const measured = r ? r.object_side : null;
+  const picking = viewer.mode === "side" && viewer.pid === p.id;
+  const canPick = d && d.view && d.view.pins.length;
+  const sideSub = p.side === "picked" ? `Picked on the photo: ${measured || "…"} of the bend.` : "";
+  const opts = `<div class="opts">
+    <div class="opt"><span class="lbl">Pins</span><span class="stepper"><button type="button" data-step="-1" aria-label="One pin fewer" ${busy ? "disabled" : ""}>−</button><input
+      type="number" id="opt-pins" min="3" max="999" step="1" value="${p.n_pins}" aria-label="Pins in chain" ${busy ? "disabled" : ""}><button type="button" data-step="1" aria-label="One pin more" ${busy ? "disabled" : ""}>+</button></span></div>
+    <div class="opt"><span class="lbl">Object</span><span class="sides">
+      <button type="button" data-side="inside" aria-pressed="${p.side === "inside"}" ${busy ? "disabled" : ""} title="The chain was wrapped around the object">${pict("inside")}Inside</button>
+      <button type="button" data-side="outside" aria-pressed="${p.side === "outside"}" ${busy ? "disabled" : ""} title="The chain was pressed into a hollow">${pict("outside")}Outside</button>
+      <button type="button" id="opt-pick" aria-pressed="${picking || p.side === "picked"}" ${busy || !canPick ? "disabled" : ""} title="Click the photo on the side of the chain the object touched">Pick</button></span></div>
+    ${sideSub ? `<div class="opt"><span class="sub" style="margin:0">${esc(sideSub)}</span></div>` : ""}
   </div>`;
+
+  let notes = "";
+  if (p.status === "error") {
+    const e = readError(p.error);
+    notes = `<div class="note bad"><b>${esc(e.title)}</b>${esc(e.text)}<span class="raw">${esc(e.raw)}</span></div>`;
+  } else if (r) {
+    notes = messages(r).sort((a, b) => (a.level === "info") - (b.level === "info"))
+      .map((w) => `<div class="note ${w.level}"><b>${esc(w.title)}</b>${esc(w.text)}</div>`).join("");
+    // Only photos of the test part are compared with the truth file: "auto" skips a photo whose shape doesn't match.
+    const truthBtn = (mode, label) => `<button type="button" class="btn small" data-truth="${mode}" style="margin-top:6px">${label}</button>`;
+    const truthNote = r.truth ? ["Compared to the test-part truth", "Not a photo of the test part?", truthBtn("off", "Don't compare")]
+      : r.truth_status === "shape" ? ["Not compared to the truth file", "This chain's shape doesn't match the test part.", truthBtn("on", "Compare anyway")]
+      : r.truth_status === "pins" ? ["Not compared to the truth file", "It has a different number of pins from the test part.", ""]
+      : r.truth_status === "off" ? ["Not compared to the truth file", "Marked as not the test part.", truthBtn("auto", "Compare")] : null;
+    if (truthNote) notes += `<div class="note info"><b>${truthNote[0]}</b>${truthNote[1]}<br>${truthNote[2]}</div>`;
+  }
+  const camera = [info.make, info.model].filter(Boolean).join(" ") || "not recorded";
+  const file = info.format ? `<details class="file"><summary>Photo file</summary>
+    <div class="kv"><span>Format</span><span>${esc(info.format)} · ${info.width} × ${info.height}</span></div>
+    ${d.via ? `<div class="kv"><span>Sent from the phone with</span><span>${esc(d.via)}</span></div>` : ""}
+    <div class="kv"><span>Camera</span><span>${esc(camera)}</span></div>
+    <div class="kv"><span>Focal length in file</span><span>${info.focal_35mm ? `${info.focal_35mm} mm` : '<span style="color:var(--warn)">missing</span>'}</span></div>
+  </details>` : "";
+
+  const dl = ready ? d.downloads.map((k) => `<a class="btn" href="${withToken(`/api/photo/${p.id}/download/${k}`)}">${
+    {dxf: "DXF", csv: "CSV", svg: "SVG 1:1", json: "JSON", fusion_csv: "Fusion CSV"}[k] || esc(k)}</a>`).join("") : "";
+  return `<aside class="read">
+    <div class="sec"><span>Curve · mm</span><span class="mono">${r ? plural(r.curve_points, "point") : ""}</span></div>
+    <div class="scroll">
+      <div class="plot">${plot}</div>
+      ${cells}${opts}${notes ? `<div class="notes">${notes}</div>` : ""}${file}
+    </div>
+    <div class="out">
+      <button class="copy" id="copy" ${ready ? "" : "disabled"}><span>Copy points</span><kbd>Ctrl C</kbd></button>
+      <div class="then">then <b>Paste points</b> in a Fusion sketch</div>
+      ${dl ? `<div class="exp">Save as ${dl}</div>` : ""}
+    </div>
+  </aside>`;
 }
 
 async function setOptions(pid, body) {
@@ -469,100 +778,45 @@ async function followUp(pid) {
   }
 }
 
-function viewsCard(p, d) {
-  const busy = p.status === "queued" || p.status === "processing";
-  const curve = d.result ? `<section class="card view"><h3>Measured curve</h3><div class="body">${curveSvg(d.curve)}</div></section>` : "";
-  const editor = d.view ? `<section class="card view">
-      <h3>Pins <span class="tools">
-        <button class="btn small" id="ed-undo" title="Undo the last change (Ctrl+Z)">Undo</button>
-        <button class="btn small" id="ed-reset" title="Back to what was detected">Reset</button>
-        <button class="btn small" id="ed-fit">Zoom to chain</button>
-        <button class="btn small" id="ed-all">Whole photo</button></span></h3>
-      <div class="body editor-body" id="editor-slot"></div>
-      <p class="ed-hint" id="ed-hint"></p>
-      <div class="ed-legend"><span><i style="border-color:#3fb950"></i>pin on the chain</span>
-        <span><i style="border-color:#58a6ff"></i>pin you added</span>
-        <span><i style="border-color:#ff6b6b"></i>left out (click to use)</span>
-        <span><i style="border-color:#c9d1d9;border-style:dashed"></i>removed (click to restore)</span>
-        <span><i style="border-color:#e879f9;border-radius:2px;height:3px;border-width:2px 6px"></i>edge that touched the object</span></div>
-    </section>` : "";
-  return `<div class="views ${busy ? "busy" : ""}">${curve}${editor}</div>`;
-}
-
+// The measured curve on a millimetre graticule: 10 mm major lines, 2 mm minor (5 and 10 mm on big curves).
 function curveSvg(c) {
   const all = c.spline.concat(c.pins);
   const xs = all.map((p) => p[0]), ys = all.map((p) => p[1]);
-  const pad = 6;
-  const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+  const pad = 8;
+  let x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+  const big = Math.max(x1 - x0, y1 - y0) > 160;
+  const major = big ? 50 : 10, minor = big ? 10 : 2;
+  x0 = Math.floor(x0 / major) * major; y0 = Math.floor(y0 / major) * major;
+  x1 = Math.ceil(x1 / major) * major; y1 = Math.ceil(y1 / major) * major;
   const w = x1 - x0, h = y1 - y0;
-  const step = Math.max(w, h) > 150 ? 20 : 10;
   const grid = [];
-  for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) grid.push(`<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}"/>`);
-  for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) grid.push(`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>`);
+  for (let x = x0; x <= x1 + 1e-6; x += minor) {
+    const M = Math.abs(x / major - Math.round(x / major)) < 1e-6;
+    grid.push(`<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" stroke="var(${M ? "--grat" : "--grat-2"})"/>`);
+  }
+  for (let y = y0; y <= y1 + 1e-6; y += minor) {
+    const M = Math.abs(y / major - Math.round(y / major)) < 1e-6;
+    grid.push(`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="var(${M ? "--grat" : "--grat-2"})"/>`);
+  }
   const path = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(3)} ${p[1].toFixed(3)}`).join(" ");
   const r = Math.max(w, h) / 160;
-  const bar = `<g transform="translate(${x0 + 3} ${y0 + 3})"><line x1="0" y1="0" x2="${step}" y2="0" stroke="var(--ink)" stroke-width="3" vector-effect="non-scaling-stroke"/></g>`;
-  return `<svg viewBox="${x0} ${-y1} ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Measured curve">
+  return `<svg viewBox="${x0} ${-y1} ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Measured curve, millimetre grid">
     <g transform="scale(1,-1)">
-      <g stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke">${grid.join("")}</g>
-      <path d="${path(c.pins)}" fill="none" stroke="var(--link)" stroke-width="${r * 2.4}" stroke-linecap="round" stroke-linejoin="round"/>
-      ${c.pins.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="${r * 1.6}" fill="var(--panel)" stroke="var(--pin)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`).join("")}
-      <path d="${path(c.spline)}" fill="none" stroke="var(--curve)" stroke-width="2" vector-effect="non-scaling-stroke"/>
-      ${c.points.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="var(--point)"/>`).join("")}
-      ${bar}
+      <g stroke-width="1" vector-effect="non-scaling-stroke" style="vector-effect:non-scaling-stroke">${grid.join("").replaceAll("<line ", '<line vector-effect="non-scaling-stroke" ')}</g>
+      <path d="${path(c.pins)}" fill="none" stroke="var(--screen-ink)" stroke-opacity=".12" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      ${c.pins.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="${r * 1.6}" fill="none" stroke="var(--screen-ink)" stroke-opacity=".6" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join("")}
+      <path d="${path(c.spline)}" fill="none" stroke="var(--trace)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      ${c.points.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="${r * 1.1}" fill="var(--plot-pt)"/>`).join("")}
+      <line x1="${x1 - major - 3 * r}" y1="${y0 + 4 * r}" x2="${x1 - 3 * r}" y2="${y0 + 4 * r}" stroke="var(--screen-ink)" stroke-width="2" vector-effect="non-scaling-stroke"/>
     </g>
-    <text x="${x0 + 3 + step + 1.5}" y="${-(y0 + 3) + r}" font-size="${r * 3.2}" fill="var(--muted)">${step} mm</text>
+    <text x="${x1 - major / 2 - 3 * r}" y="${-(y0 + 6 * r)}" text-anchor="middle" font-size="${r * 3.4}" font-family="Plex Mono, Consolas, monospace" fill="var(--screen-ink)">${major} mm</text>
   </svg>`;
-}
-
-function rowHtml(k, v) { return `<div class="row"><span>${esc(k)}</span><span>${v}</span></div>`; }
-
-function detailsCard(d) {
-  const r = d.result, info = d.info || {};
-  const focalSrc = {exif: "from the photo", override: "override", default: "iPhone setting (photo had none)",
-    estimated: "estimated from the chain"}[r.focal_source];
-  const t = r.truth;
-  const truthBtn = (mode, label) => `<button class="btn small" data-truth="${mode}">${label}</button>`;
-  // Only photos of the test part are compared: "auto" skips a photo whose shape doesn't match.
-  const truth = t ? `<h3>Compared to test-part truth</h3>
-      ${rowHtml("Max pin error", `${t.max_error_mm.toFixed(3)} mm`)}
-      ${rowHtml("After scale fit", `${t.max_error_scaled_mm.toFixed(3)} mm`)}
-      ${rowHtml("Part size vs design", `${((t.scale - 1) * 100).toFixed(2)} %`)}
-      ${rowHtml("RMS pin error", `${t.rms_error_mm.toFixed(3)} mm`)}
-      ${rowHtml("Not a photo of the test part?", truthBtn("off", "Don't compare"))}`
-    : r.truth_status === "shape" ? `<h3>Test-part truth</h3>
-      ${rowHtml("Not compared: a different shape", truthBtn("on", "Compare anyway"))}`
-    : r.truth_status === "pins" ? `<h3>Test-part truth</h3>
-      ${rowHtml("Not compared", "a different number of pins")}`
-    : r.truth_status === "off" ? `<h3>Test-part truth</h3>
-      ${rowHtml("Not compared: not the test part", truthBtn("auto", "Compare"))}` : "";
-  const camera = [info.make, info.model].filter(Boolean).join(" ") || "not recorded";
-  const warn = r.warnings.length ? `<ul class="warnings">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
-  const notes = r.notes && r.notes.length ? `<ul class="notes">${r.notes.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
-  return `<section class="card details">
-    <h3>Measurement</h3>
-    ${rowHtml("Pins found", `${r.pins}${r.missing_pins ? ` (${r.missing_pins} missing)` : ""}`)}
-    ${rowHtml("Curve points", r.curve_points)}
-    ${rowHtml("Camera tilt", `${r.tilt_deg}°`)}
-    ${rowHtml("Focal length", `${r.focal_35mm} mm <span class="small">${esc(focalSrc)}</span>`)}
-    ${rowHtml("Link length error", `rms ${r.link_residual_rms_mm} · max ${r.link_residual_max_mm} mm`)}
-    ${rowHtml("Object side", `${r.object_side} of the bend${d.side === "picked" ? " (picked on the photo)" : ""}`)}
-    ${rowHtml("Stray look-alikes ignored", r.rejected)}
-    ${d.view && (d.view.edits.add.length || d.view.edits.remove.length)
-      ? rowHtml("Edited by hand", `${d.view.edits.add.length} added · ${d.view.edits.remove.length} removed`) : ""}
-    ${truth}
-    <h3>Photo file</h3>
-    ${rowHtml("Format", `${esc(info.format)} · ${info.width} × ${info.height}`)}
-    ${d.via ? rowHtml("Sent from the phone with", esc(d.via)) : ""}
-    ${rowHtml("Camera", esc(camera))}
-    ${rowHtml("Focal length in file", info.focal_35mm ? `${info.focal_35mm} mm (35 mm equiv.)` : '<span style="color:var(--warn)">missing</span>')}
-    ${warn}
-    ${notes}
-  </section>`;
 }
 
 async function copyPoints() {
   if (!selected) return;
+  const p = state.photos.find((x) => x.id === selected);
+  if (!p || p.status !== "done") return;
   try {
     const text = await (await api(`/api/photo/${selected}/points.tsv`)).text();
     await navigator.clipboard.writeText(text);
@@ -581,56 +835,74 @@ async function upload(files) {
   }
 }
 
+function setPins(n) {
+  const p = state.photos.find((x) => x.id === selected);
+  if (!Number.isInteger(n) || n < 3 || n > 999) { toast("Pins in chain: a whole number from 3 to 999"); if ($("#opt-pins")) $("#opt-pins").value = p ? p.n_pins : ""; return; }
+  if (p && n !== p.n_pins) { $("#opt-pins").value = n; setOptions(selected, {n_pins: n}); }
+}
+
 document.addEventListener("click", async (ev) => {
-  const item = ev.target.closest(".item");
-  if (item) { selected = item.dataset.id; render(); return; }
-  if (ev.target.id === "copy") return copyPoints();
-  if (ev.target.id === "opt-flip" && selected) {
-    const d = lastDetail[selected];
-    if (d && d.result) return setOptions(selected, {side: d.result.object_side === "inside" ? "outside" : "inside"});
+  const t = ev.target.closest("button, a, .item") || ev.target;
+  if (t.classList.contains("item")) { selected = t.dataset.id; render(); return; }
+  if (t.id === "copy") return copyPoints();
+  if (t.dataset.side && selected) {
+    const p = state.photos.find((x) => x.id === selected);
+    viewer.mode = "pins";
+    if (p && p.side !== t.dataset.side) return setOptions(selected, {side: t.dataset.side});
+    return render();
   }
-  const truthMode = ev.target.dataset && ev.target.dataset.truth;
-  if (truthMode && selected) return setOptions(selected, {truth: truthMode});
-  if (ev.target.id === "opt-pick") {
+  if (t.dataset.step && selected) {
+    const p = state.photos.find((x) => x.id === selected);
+    if (p) setPins(Number($("#opt-pins").value || p.n_pins) + Number(t.dataset.step));
+    return;
+  }
+  if (t.dataset.truth && selected) return setOptions(selected, {truth: t.dataset.truth});
+  if (t.id === "opt-pick") {
     viewer.mode = viewer.mode === "side" ? "pins" : "side";
     render(); return;
   }
-  if (ev.target.id === "ed-undo") return undoEdit();
-  if (ev.target.id === "ed-reset") return commitEdits({add: [], remove: []});
-  if (ev.target.id === "ed-fit") return zoomTo(chainBox());
-  if (ev.target.id === "ed-all") return zoomTo({x: 0, y: 0, w: viewer.view.width, h: viewer.view.height});
-  const fw = ev.target.dataset && ev.target.dataset.fw;
+  if (t.id === "ed-undo") return undoEdit();
+  if (t.id === "ed-reset") return commitEdits({add: [], remove: []});
+  if (t.id === "ed-fit") return zoomTo(chainBox());
+  if (t.id === "ed-all") return zoomTo({x: 0, y: 0, w: viewer.view.width, h: viewer.view.height});
+  if (t.id === "phone-chip" || t.id === "phone-mini") { netKey = null; renderNetwork(state && state.network, state && state.phone_urls); $("#phone").showModal(); return; }
+  if (t.hasAttribute && t.hasAttribute("data-close")) { t.closest("dialog").close(); return; }
+  const fw = t.dataset && t.dataset.fw;
   if (fw === "allow") return allowFirewall();
   if (fw === "check") { api("/api/firewall/check", {method: "POST"}); netKey = null; return; }
-  if (ev.target.id === "delete" && selected) { await api(`/api/photo/${selected}/delete`, {method: "POST"}); selected = null; }
-  const open = ev.target.dataset && ev.target.dataset.open;
+  if (t.id === "delete" && selected) {
+    const gone = selected;
+    await api(`/api/photo/${gone}/delete`, {method: "POST"});
+    selected = null;
+    toast("Removed from the list. The photo is still in the photos folder.");
+  }
+  const open = t.dataset && t.dataset.open;
   if (open) api("/api/open-folder", {method: "POST", body: JSON.stringify({which: open})});
 });
 document.addEventListener("keydown", (ev) => {
-  const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
   if ((ev.ctrlKey || ev.metaKey) && ev.key === "c" && !typing && !String(getSelection())) { ev.preventDefault(); copyPoints(); }
   if ((ev.ctrlKey || ev.metaKey) && ev.key === "z" && !typing && viewer.svg) { ev.preventDefault(); undoEdit(); }
   if (ev.key === "Escape" && viewer.mode === "side") { viewer.mode = "pins"; render(); }
 });
 document.addEventListener("change", (ev) => {
   if (ev.target.id !== "opt-pins" || !selected) return;
-  const n = Number(ev.target.value);
-  const p = state.photos.find((x) => x.id === selected);
-  if (!Number.isInteger(n) || n < 3 || n > 999) { toast("Pins in chain: a whole number from 3 to 999"); ev.target.value = p ? p.n_pins : ""; return; }
-  if (p && n !== p.n_pins) setOptions(selected, {n_pins: n});
+  setPins(Number(ev.target.value));
 });
 $("#add").onclick = () => $("#file").click();
 $("#file").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
 $("#install").onclick = async () => {
   try {
     const r = await (await api("/api/install-addin", {method: "POST"})).json();
-    alert(`Installed the Fusion add-in to:\n${r.path}\n\nRestart Fusion. "Paste points" then appears in the sketch Create panel and in the Insert menu.\n\nIf it doesn't: in Fusion open Utilities > Add-Ins, select Spline Wire, click Run, and tick Run on Startup.`);
-  } catch (e) { alert("Couldn't install the Fusion add-in:\n" + e.message); }
+    message("Fusion add-in installed", `Installed to:\n${r.path}\n\nRestart Fusion. Paste points then appears in the sketch Create panel and in the Insert menu.\n\nIf it doesn't: in Fusion open Utilities › Add-Ins, select Spline Wire, click Run, and tick Run on Startup.`);
+  } catch (e) { message("Couldn't install the Fusion add-in", e.message); }
 };
 $("#quit").onclick = async () => {
-  if (!confirm("Stop Spline Wire? The phone page stops working until you start it again.")) return;
+  const yes = await message("Stop Spline Wire?", "The phone page stops working until you start SplineWire.exe again.",
+    [["Cancel", false], ["Stop Spline Wire", true, "key"]]);
+  if (!yes) return;
   await api("/api/quit", {method: "POST"}).catch(() => {});
-  document.body.innerHTML = '<div class="empty"><h2>Spline Wire has stopped.</h2><p>You can close this tab.</p></div>';
+  document.body.innerHTML = '<div class="stopped"><h2>Spline Wire has stopped.</h2><p class="small">You can close this tab.</p></div>';
 };
 
 // Pin editor: the photo with the detected pins drawn over it. Click empty space to add a pin,
@@ -647,10 +919,10 @@ function mountEditor(p, d) {
     if (viewer.pid !== p.id) viewer.mode = "pins";
     viewer.pid = p.id; viewer.view = d.view; viewer.pending = [];
     viewer.svg = createEditorSvg(p.id, d.view);
-    slot.appendChild(viewer.svg);
+    slot.prepend(viewer.svg);
     zoomTo(chainBox());
   } else {
-    slot.appendChild(viewer.svg);       // the same element, so zoom and the loaded photo stay
+    slot.prepend(viewer.svg);       // the same element, so zoom and the loaded photo stay
   }
   viewer.view = d.view; viewer.drag = null;
   if (p.status === "done" || p.status === "error") viewer.pending = [];
@@ -711,9 +983,11 @@ function applyViewBox() {
   viewer.svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.w} ${b.h}`);
 }
 
-// The box that frames the chain (everything marked), padded, in the shape of the viewer.
+// The box that frames the chain, padded, in the shape of the viewer. Stray detections can be
+// anywhere on the table, so they only count when there is no chain to frame.
 function chainBox() {
-  const v = viewer.view, pts = [...v.pins, ...v.unused, ...v.removed];
+  const v = viewer.view;
+  const pts = v.pins.length >= 3 ? [...v.pins, ...v.removed] : [...v.pins, ...v.unused, ...v.removed];
   if (!pts.length) return {x: 0, y: 0, w: v.width, h: v.height};
   const xs = pts.map((m) => m.x), ys = pts.map((m) => m.y);
   const pad = Math.max(0.12 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)), 4 * v.r);
@@ -749,7 +1023,7 @@ function hit(at) {
 function hint(text) {
   const el = $("#ed-hint");
   if (el && viewer.mode === "side" && editable()) text = "Click on the side of the chain that touched the object. Esc to cancel.";
-  if (el) el.textContent = text ?? (editable() ? "Click a pin to remove it, empty space to add one at the middle of a dot. Scroll to zoom, drag to pan."
+  if (el) el.textContent = text ?? (editable() ? "Click a pin to remove it, or empty space to add one at the middle of a dot. Scroll to zoom, drag to pan."
                                                : "Measuring…");
 }
 
@@ -765,9 +1039,9 @@ function hover(ev) {
   const m = h.m;
   hint({
     pin: `Pin ${m.k + 1}. Click to remove it.`,
-    mine: m.k === undefined ? "Your pin doesn't fit the chain (it must be about one pitch from its neighbours). Click to delete it."
+    mine: m.k === undefined ? "Your pin doesn't fit the chain (it must be about one link from its neighbours). Click to delete it."
       : `Pin ${m.k + 1}, added by you${m.snapped ? "" : "; no dot to snap to, so it is where you clicked"}. Click to delete it.`,
-    unused: "A detection that isn't on the chain. Click to use it as a pin.",
+    unused: "A stray dot that isn't on the chain. Click to use it as a pin.",
     removed: "A pin you removed. Click to bring it back.",
   }[h.kind]);
 }
@@ -826,8 +1100,9 @@ async function sendEdits(next, mark, rollback) {
 function updateTools() {
   const v = viewer.view, ok = editable();
   const undo = $("#ed-undo"), reset = $("#ed-reset");
-  if (undo) undo.disabled = !ok || !(viewer.history[viewer.pid] || []).length;
-  if (reset) reset.disabled = !ok || !(v.edits.add.length || v.edits.remove.length);
+  const edited = v.edits.add.length || v.edits.remove.length;
+  if (undo) undo.disabled = !ok || !edited || !(viewer.history[viewer.pid] || []).length;
+  if (reset) reset.disabled = !ok || !edited;
 }
 
 function drawOverlay() {
@@ -867,6 +1142,11 @@ function drawOverlay() {
 
 // Settings dialog
 const form = $("#settings-form");
+function showRingFields() {
+  const ring = form.elements.fiducial.value === "ring";
+  form.querySelectorAll(".ring-only").forEach((el) => el.classList.toggle("hide", !ring));
+}
+form.elements.fiducial.addEventListener("change", showRingFields);
 $("#settings-btn").onclick = () => {
   const s = state.settings;
   for (const [k, v] of Object.entries(s.chain)) if (form.elements[k]) form.elements[k].value = v;
@@ -877,9 +1157,11 @@ $("#settings-btn").onclick = () => {
     `<option value="${esc(n)}" ${same(presets[n]) ? "selected" : ""}>${esc(names[n] || n)}</option>`).join("");
   $("#chain-preset").onchange = (ev) => {
     for (const [k, v] of Object.entries(presets[ev.target.value] || {})) if (form.elements[k]) form.elements[k].value = v;
+    showRingFields();
   };
   form.elements.phone_focal_35mm.value = s.phone_focal_35mm ?? "";
   form.elements.focal_override_35mm.value = s.focal_override_35mm ?? "";
+  showRingFields();
   $("#truth-status").textContent = s.truth_name ? truthStatus(s.truth_name) :
     "Load the truth file that came with a printed test plaque to see each photo's error.";
   $("#workspace").textContent = state.workspace;
@@ -895,12 +1177,12 @@ $("#settings-save").onclick = async (ev) => {
   try {
     await api("/api/settings", {method: "POST", body: JSON.stringify(body)});
     $("#settings").close();
-    toast("Saved. Re-measuring every photo.");
+    toast("Saved. Measuring every photo again.");
   } catch (err) { $("#settings-error").textContent = err.message; }
 };
 function truthStatus(name) {
   return `Comparing photos of the test part to ${name}. A photo whose shape doesn't match is left out; ` +
-    "its details have a button to compare it anyway.";
+    "its notes have a button to compare it anyway.";
 }
 $("#truth-pick").onclick = () => $("#truth-file").click();
 $("#truth-file").onchange = async (e) => {

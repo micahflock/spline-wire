@@ -665,6 +665,13 @@ class _Handler(BaseHTTPRequestHandler):
                                                "style-src 'self' 'unsafe-inline'; "
                                                "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'"})
 
+    def _font(self, name: str) -> None:
+        """The bundled IBM Plex faces (OFL), so the pages look the same offline."""
+        file = STATIC / "fonts" / name
+        if "/" in name or "\\" in name or not name.endswith(".woff2") or not file.is_file():
+            return self._error(HTTPStatus.NOT_FOUND, "no such font")
+        self._send(200, file.read_bytes(), "font/woff2", {"Cache-Control": "max-age=86400"})
+
     # -- routes ----------------------------------------------------------------
 
     def do_GET(self) -> None:
@@ -700,6 +707,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._page("phone.html")
             if method == "GET" and path == "/favicon.ico":
                 return self._send(204, b"", "image/x-icon")
+            if method == "GET" and path.startswith("/fonts/"):
+                return self._font(path[len("/fonts/"):])
             if method == "GET" and path == "/api/local-token" and self._local():
                 return self._json({"token": self.app.token})
             if not path.startswith("/api/") or not self._token_ok(query):
