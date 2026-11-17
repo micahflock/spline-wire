@@ -32,6 +32,18 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const APP = `Spline Wire ${import.meta.env.APP_VERSION}`;
 const BUILD = import.meta.env.BUILD_ID;
 // This page is the site's root (index.html); the phone page is phone/ under it.
+/** Paste points is the Spline Wire add-in's button: how to get it, for whoever
+ * does not have it yet. The zip is fusion/SplineWire, put on the site by
+ * `npm run assets`. Fusion runs an add-in from any folder it is pointed at,
+ * so nothing has to be copied into its own folders (decision O5). */
+const ADDIN_HELP = `<details class="addin"><summary>No Paste points button in Fusion?</summary>
+  <ol>
+    <li><a href="SplineWire-fusion-addin.zip" download>Download the add-in</a> and unzip it anywhere you will keep it.</li>
+    <li>In Fusion: <b>Utilities</b> → <b>Add-Ins</b> → <b>Scripts and Add-Ins</b>, the <b>Add-Ins</b> tab, then <b>+</b> and pick the unzipped <b>SplineWire</b> folder.</li>
+    <li>Select <b>SplineWire</b>, tick <b>Run on Startup</b> and click <b>Run</b>. <b>Paste points</b> appears in the sketch toolbar.</li>
+  </ol>
+</details>`;
+
 const SITE_ROOT = new URL("./", location.href).href;
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 /** Where "a phone has paired" is remembered, so the big QR code does not come back on every visit. */
@@ -348,6 +360,7 @@ function curveHtml(c: Curve): string {
     <div class="out">
       <button type="button" class="copy" data-act="copy"><span>Copy points</span><kbd>${IS_MAC ? "⌘ C" : "Ctrl C"}</kbd></button>
       <div class="then">then <b>Paste points</b> in a Fusion sketch</div>
+      ${ADDIN_HELP}
       <div class="exp" id="exp">Save as …</div>
     </div>
   </aside>`;

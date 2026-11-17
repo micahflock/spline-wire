@@ -92,6 +92,26 @@ def locked_wheel(name: str) -> tuple[str, str, str]:
     return pkg["version"], whl["url"], whl["hash"].removeprefix("sha256:")
 
 
+ADDIN_ZIP = "SplineWire-fusion-addin.zip"
+
+
+def addin_zip(dest: Path) -> None:
+    """fusion/SplineWire as a zip with a SplineWire/ folder inside, for the
+    desktop page's download (decision O5). Fixed timestamps and order, so the
+    same add-in gives the same bytes and a cached copy stays valid."""
+    import zipfile
+
+    src = ROOT / "fusion" / "SplineWire"
+    files = sorted(p for p in src.rglob("*")
+                   if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc")
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in files:
+            info = zipfile.ZipInfo(f"SplineWire/{p.relative_to(src).as_posix()}", date_time=(2026, 1, 1, 0, 0, 0))
+            info.external_attr = 0o644 << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, p.read_bytes())
+
+
 def chains() -> dict:
     sys.path.insert(0, str(ROOT))
     from splinewire.chain import chain_presets, load_chain_spec
@@ -158,6 +178,7 @@ def main() -> None:
                 shutil.rmtree(path) if path.is_dir() else path.unlink()
 
     (PUBLIC / "chains.json").write_text(json.dumps(chains(), indent=2) + "\n")
+    addin_zip(PUBLIC / ADDIN_ZIP)
     size = {n: (pyo / packages[n]["file_name"]).stat().st_size for n in boot + extras + heif}
     manifest = {
         "pyodide": {"version": version, "python": lock["info"]["python"], "index": "pyodide/"},

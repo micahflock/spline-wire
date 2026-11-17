@@ -19,7 +19,7 @@ Spline Wire is moving from a Windows program (`SplineWire.exe`, which serves pag
 | 1. Browser core | **Done.** `splinewire/session.py` and `bridge.py`, the Pyodide worker (`web/src/core/worker.ts`), `npm run assets`, a throwaway page that measures a dropped photo (`web/index.html`), and the Playwright test, which passes in CI (`.github/workflows/web.yml`, first run 2026-11-17). |
 | 2. Phone page | Built (`web/phone/`, `web/src/phone/`) and checked end to end in Chromium at phone size with touch. The exit criterion needs a real phone: the owner's checklist is in the Log (2026-11-17, phone page). |
 | 3. Pairing and relay | In progress. Done: the client side (`web/src/relay/`), the relay server (`web/relay/`), output files in the message (D14), all tested with real sockets and in a two-tab browser check. The desktop page (`web/desktop/`) is done and checked end to end against a test phone (`npm run check:desktop` in `web/relay/`, 12 steps). The phone page's half is in progress with step 2. The exit criterion needs hosting and a phone. |
-| 4. Hosting, add-in install path, retire the .exe | Deploy workflow written, not run: blocked on O1 and O2 (owner). Add-in install path (O5) not started. |
+| 4. Hosting, add-in install path, retire the .exe | Deploy workflow written, not run: blocked on O1 and O2 (owner). Add-in install path (O5) built, to be tried in Fusion by the owner. |
 | 5. Live camera overlay | Backbone written (`web/src/overlay/`, `splinewire/live.py`), tested on drawn frames. Thresholds uncalibrated, no camera code, no page. Depends on S3 and S5. |
 
 The code map is [web/README.md](../web/README.md). Nothing has run on a phone yet.
@@ -67,7 +67,7 @@ contact → pin editing, object side  →  keyed by a pairing →  downloads (DX
 |---|---|---|---|
 | O1 | Where the static site is hosted. | GitHub Pages, deployed by a workflow. Free, HTTPS, already where the code lives. | Owner |
 | O2 | Where the relay runs. | A Cloudflare Worker with a Durable Object per pairing (WebSocket). Needs an account. | Owner |
-| O5 | How the Fusion add-in gets installed once there is no .exe to do it. | A zip download and three lines of instructions on the site. | Owner, in step 4 |
+| O5 | How the Fusion add-in gets installed once there is no .exe to do it. | Built as leaned (2026-11-17): the desktop page's "No Paste points button in Fusion?" offers `SplineWire-fusion-addin.zip` (made by `npm run assets` from `fusion/SplineWire`) and three steps: unzip anywhere, add the folder in Fusion's Scripts and Add-Ins dialog, Run on Startup. The menu names in the steps are unchecked against a current Fusion. | Owner: confirm, and try the steps in Fusion |
 | O6 | Whether to port the pipeline to TypeScript at all. | Not yet. S1 on desktop: it works, but memory (580 MB of wasm heap for a 12 MP photo) and a 10 s load are close to what a phone allows. Try the cheap levers first (see O8), then measure on a phone. | After S1 on a phone |
 | O8 | How to cut the core's memory and load time. | In order: detect on a downscaled image and refine at full size in tiles (detection's temporaries are 293 MB of the 580); load SciPy and ezdxf lazily (3.5 s of the 10 s); pin the native OpenCV to Pyodide's 4.11 so golden files match exactly. Each needs the benchmark before and after. | Agent |
 | O7 | The Fusion add-in receiving points from the relay directly, in an HTML palette, with no desktop tab and no clipboard. | Worth a spike after step 4. Not checked. | Later |

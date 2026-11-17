@@ -239,6 +239,19 @@ test("Add to the list: marked as measured here, Python's table on the clipboard,
   log(`clipboard table ${rows.length - 1} rows, worst ${worst.toFixed(4)} mm from native Python`);
 });
 
+test("the Fusion add-in can be downloaded from beside Copy points", async () => {
+  await page.locator(".addin summary").click();
+  const download = page.waitForEvent("download");
+  await page.locator('.addin a[download]').click();
+  const zip = await download;
+  expect(zip.suggestedFilename()).toBe("SplineWire-fusion-addin.zip");
+  // The add-in folder as Fusion wants it: SplineWire/ holding SplineWire.py and its manifest.
+  const listing = execFileSync("python3", ["-c",
+    "import sys, zipfile; print('\\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))", (await zip.path())!]).toString();
+  expect(listing.split("\n").filter(Boolean).sort()).toEqual(
+    ["SplineWire/SplineWire.manifest", "SplineWire/SplineWire.py", "SplineWire/curvedata.py"]);
+});
+
 test("a reload keeps the curve and its mark", async () => {
   await page.reload();
   const item = page.locator(".item[data-id]").first();

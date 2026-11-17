@@ -160,6 +160,11 @@ details.about summary { cursor: pointer; color: var(--muted); font-size: 11px; l
 .copy kbd { color: var(--key-ink); border-color: color-mix(in srgb, var(--key-ink) 35%, transparent); }
 .then { font-size: 12px; color: var(--muted); }
 .then b { color: var(--ink); }
+.addin { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.addin summary { cursor: pointer; }
+.addin ol { margin: 6px 0 2px; padding-left: 18px; }
+.addin li { margin: 3px 0; }
+.addin b { color: var(--ink); font-weight: 600; }
 .exp { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
 .exp .btn { padding: 3px 7px; font: 500 11.5px var(--f-data); }
 
