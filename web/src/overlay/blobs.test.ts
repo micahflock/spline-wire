@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectBlobs, toGray, workSize } from "./blobs";
+import { detectBlobs, shapeOf, toGray, workSize } from "./blobs";
 import type { GrayFrame } from "./types";
 
 /** A small scene drawn with 3×3 supersampling: discs and rounded bars on a flat table. */
@@ -50,6 +50,29 @@ function chain(pins: [number, number][], dotR: number, linkR: number, dot = 230,
     return null;
   };
 }
+
+/** The snap-fit chain's look (data/chain-snap.yaml): a thin light rim around a dark
+ * hole, on round sleeves barely wider than the ring (half-width 1.3 ring radii). */
+function ringChain(pins: [number, number][], outerR: number, inner: number, linkR: number, rim = 225, link = 40) {
+  const x0 = Math.min(...pins.map((p) => p[0])) - linkR - 1, x1 = Math.max(...pins.map((p) => p[0])) + linkR + 1;
+  const y0 = Math.min(...pins.map((p) => p[1])) - linkR - 1, y1 = Math.max(...pins.map((p) => p[1])) + linkR + 1;
+  return (x: number, y: number): number | null => {
+    if (x < x0 || x > x1 || y < y0 || y > y1) return null;
+    for (const [px, py] of pins) {
+      const r = Math.hypot(x - px, y - py);
+      if (r <= inner * outerR) return 20;                 // the hole
+      if (r <= outerR) return rim;
+    }
+    for (let k = 0; k + 1 < pins.length; k++) {
+      const [ax, ay] = pins[k]!, [bx, by] = pins[k + 1]!;
+      const t = Math.min(1, Math.max(0, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2)));
+      if (Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay)) <= linkR) return link;
+    }
+    return null;
+  };
+}
+
+const SNAP = { fiducial: "ring", fiducial_mm: 7.2, ring_inner_mm: 5.48 };
 
 const PINS: [number, number][] = Array.from({ length: 9 }, (_, k) => [70.3 + 60 * k, 180.6 + 50 * Math.sin(k * 0.8)]);
 
@@ -117,6 +140,25 @@ describe("detectBlobs", { timeout: 60_000 }, () => {
     const ms = (performance.now() - start) / 20;
     console.log(`detectBlobs 640x360: ${ms.toFixed(1)} ms`);
     expect(ms).toBeLessThan(30);
+  });
+
+  it("finds the snap-fit chain's rims as rings, and does not take them for dots", () => {
+    const shape = shapeOf(SNAP);
+    expect(shape.inner).toBeCloseTo(0.761, 3);
+    const pins: [number, number][] = Array.from({ length: 13 }, (_, k) => [70.4 + 42 * k, 180.3 + 40 * Math.sin(k * 0.6)]);
+    const frame = scene(640, 360, 200, ringChain(pins, 8, shape.inner, 10.4));   // table lighter than the rims' margin
+    const rings = detectBlobs(frame, 1, shape);
+    expect(rings.length).toBe(13);
+    expect(matched(rings, pins)).toBeLessThan(0.4);
+    for (const r of rings) expect(r.d).toBeGreaterThan(14);
+    expect(detectBlobs(frame, 1)).toEqual([]);                            // as dots: none
+    expect(detectBlobs(scene(640, 360, 128, chain(PINS, 11, 18)), 1, shape)).toEqual([]);   // dots, as rings: none
+  });
+
+  it("gives rings a larger work frame, since their rims are thin", () => {
+    expect(workSize(4032, 3024).width).toBe(640);
+    expect(workSize(4032, 3024, shapeOf(SNAP)).width).toBe(800);
+    expect(shapeOf({ fiducial: "dot", fiducial_mm: 5 })).toEqual({ inner: 0 });
   });
 
   it("turns RGBA into gray", () => {
