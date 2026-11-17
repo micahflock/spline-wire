@@ -27,6 +27,14 @@ from splinewire.rectify import Rectification, min_links, rectify_chain
 # and the chain solved again.
 _MISFIT_ROUNDS = 4
 
+# More detections than this is a busy background (woven fabric, terrazzo,
+# print seen close up), where look-alikes can pass for the chain: none of
+# the 167 benchmark photos has more than 510; the video frame study's 12 MP
+# photos of fabric have 900 to 1,500 (detection refines no more than 1,500
+# candidates). Ordering starts fewer walks from about here on too
+# (order._MAX_STARTS).
+_BUSY = 600
+
 
 @dataclass(frozen=True)
 class Measurement:
@@ -139,6 +147,8 @@ def measure(
     keep = {mp.fiducial for mp in manual}
     by_click = {mp.fiducial for mp in manual if not mp.snapped}      # no fiducial under the click
 
+    busy = (f"the background has {len(fiducials)} dot-like spots (fabric, terrazzo, print?) that can pass "
+            "for pins: lay the chain on a plain surface" if len(fiducials) > _BUSY else "")
     h, w = image.shape[:2]
     centers = np.array([r.center_px for r in fiducials])
     excluded: set[int] = set()
@@ -152,7 +162,7 @@ def measure(
                 f"found {len(order.indices)} pins in a row, joined by {len(links)} links; taking the "
                 f"perspective out needs at least {need} links ({need + 1} pins)"
                 + ("" if focal_px is not None else " when the focal length is unknown")
-                + ". Is the whole chain in the photo?")
+                + ". Is the whole chain in the photo?" + (f" Also, {busy}." if busy else ""))
         rect = rectify_chain(centers[order.indices], links, spec.pitch_mm, (w, h), focal_px)
         if attempt == _MISFIT_ROUNDS:
             break                       # solved without the last misfits; stop looking for more
@@ -204,6 +214,8 @@ def measure(
             f"link lengths deviate from the pitch by up to {rect.residual_max_mm:.2f} mm; "
             "check the detections in the preview image"
         )
+    if busy and (n_on_chain != expected or order.gaps or rect.residual_max_mm > 0.05 * spec.pitch_mm):
+        warnings.append(busy)
 
     side_px = None
     if isinstance(side, str):

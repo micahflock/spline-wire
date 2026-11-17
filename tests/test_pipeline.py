@@ -211,3 +211,17 @@ def test_pins_named_as_misfits_are_never_in_the_result(spec, monkeypatch):
     assert len(named) == pipeline._MISFIT_ROUNDS
     assert not set(named) & set(m.order.indices)
     assert len(m.order.indices) == spec.n_pins - len(named)
+
+
+def test_a_busy_background_without_the_chain_says_so(spec):
+    """Hundreds of dot-like spots and no chain among them: the message says
+    what to change, not only that the chain was not found."""
+    from splinewire.detect import Fiducial
+    rng = np.random.default_rng(5)
+    spots = [Fiducial(center_px=(float(x), float(y)), outer_axes_px=(float(d), float(d)), inner_axes_px=(0.0, 0.0),
+                      angle_deg=0.0, contrast=float(c), polarity=1)
+             for x, y, d, c in zip(rng.uniform(0, 4000, 700), rng.uniform(0, 3000, 700),
+                                   np.exp(rng.uniform(np.log(10), np.log(40), 700)), rng.uniform(20, 80, 700))]
+    img = np.zeros((3000, 4000), np.uint8)
+    with pytest.raises(ValueError, match=r"pins in a row.*the background has 700 dot-like spots.*plain surface"):
+        measure(img, spec, FOCAL, detected=spots)

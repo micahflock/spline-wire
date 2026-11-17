@@ -75,6 +75,35 @@ Each fix came from a failure the benchmark found.
 9. **A washer one pitch past the chain end** joins the chain by geometry. After deskewing, a pin whose ring is >12% off its neighbours' size in mm, or an end pin whose link is far from one pitch, is dropped and the chain re-solved. A washer of exactly a ring's size (an M2 washer is 5.0/2.2 mm) passes both; then the chain has one pin too many, and the end that looks least like its neighbours (what surrounds it: a link, or the table; and size) is dropped.
 10. **Speed.** Ring-scale thresholds turn woven fabric into ~300,000 specks; tracing them took 20 s per photo. Connected components are filtered by size and fill first, and only plausible ones traced: 0.5 s.
 
+### 3.1 Busy backgrounds seen close up
+
+At 15–25 px/mm (a 12 MP still or a 4K frame filled by the chain) woven fabric, terrazzo and print resolve into tens of thousands of dot-like spots, and most pass the dot test: they are light, round and have a darker margin. The video frame study (web-build S5) found the whole pipeline ran out of memory on them. Measured on its renders, on a shared 4-core machine with a 4 GB cap per process:
+
+| photo | before: detections, detect time | before: result | now: detections, detect time | now: result |
+|---|---|---|---|---|
+| 12 MP random-063 | 27,328, 1,286 s | ordering needs an 11.1 GiB array | 1,481, 8.7 s | 3 pins not detected (as before): `ValueError` "…the background has 1491 dot-like spots…: lay the chain on a plain surface" |
+| 12 MP random-031 | 11,188, 324 s | out of memory (1.9 GiB array) | 544, 5.9 s | chain, 0.055 mm |
+| 12 MP fabric-0 | 11,230, 141 s | chain, 0.016 mm | 1,426, 4.2 s | chain, 0.016 mm |
+| 12 MP fabric-2 | – | process killed | 933, 7.3 s | chain, 0.101 mm |
+| 4K fabric-0 / fabric-2 | 12,661 / 15,014, 155 / 301 s | out of memory | 1,134 / 948, 3.7 / 5.3 s | chain, 0.016 / 0.020 mm |
+| 4K random-031 / random-063 | 11,760 / 11,672, 268 / 426 s | out of memory | 394 / 1,373, 4.3 / 5.7 s | chain, 0.050 / 0.030 mm |
+| 3 MP fabric at 18 px/mm (the regression test) | 5,725, 40 s | chain, but `measure` took 883 s and 1.7 GB | 1,194, 2.6 s | chain, 0.025 mm; `measure` 1.8 s, process peak 409 MiB |
+
+Three changes, the first two with no effect on any result:
+
+1. **Detection's deduplication** compared every candidate with every one kept, in Python: 221 of 244 s on the 4K fabric-0 frame, 548 of 574 s on the 12 MP random-031 still (profiled). A grid now lists, for each cell, the kept detections whose reach covers it, so each candidate is compared only with those. Same detections, bit for bit, on all 334 photos checked (the benchmark and the S5 1080p frames).
+2. **Ordering's all-pairs distance tables** (n × n, several of them) are replaced by a k-d tree (`scipy.spatial.cKDTree`, in Pyodide's SciPy too): each step looks only at detections within the 2.4 pitches a step can reach. Distances are computed exactly as the tables computed them, so every comparison, sum and tie comes out the same: the same order, links and gaps on all 334 photos × both polarities × four argument sets, and on 16 random cluttered chains in `tests/test_order.py` against the old code kept in `tests/dense_order.py`. The walk's size, length and turn tests are also done for all neighbours at once: 130 µs a step instead of 460 (profiled, 2,000 fabric spots).
+3. **Bounds for what is left.** Refinement costs about 1 ms a candidate, and on a woven texture almost every walk is long (ordering 1,336 fabric spots, all starts, took 5.6 s at an 80° turn limit and 23 s at 125°). So:
+   - detection refines only the **1,500 largest candidates** (`detect._MAX_CANDIDATES`). Over the benchmark and the S5 stills and sharp frames (668 photos), no pin ranked below 115th by size among its photo's candidates; 19 photos have more than 1,500;
+   - ordering starts walks from **at most 600 detections** (`order._MAX_STARTS`; the benchmark's most is 510, so its orders are unchanged), the most end-like: fewest look-alike neighbours a pitch away, then highest contrast. Beyond 600, walks also stop at twice the chain's pin count. With limits of 600 the order was identical on all 815 photos tried (benchmark, S5 stills and sharp frames, both turn limits); with 300 the chain was found wherever it was before; with 150 it was lost on printed text. Ordering 11,000–13,000 detections now takes 1.3–1.5 s and 5 MiB at the peak (traced), the capped 900–1,500 of a 12 MP fabric photo 0.6–1.5 s and 1 MiB;
+   - with more than 600 detections, `measure` adds "the background has N dot-like spots (fabric, terrazzo, print?) that can pass for pins: lay the chain on a plain surface" to its error when the chain is not found, and as a warning when the chain found looks wrong (pin count, gaps or link lengths off).
+
+**Benchmark** (`cv_benchmark.py --baseline HEAD`, chain.yaml as is, 125°): 166 of 167 photos identical in every recorded field; random-049 has 45 look-alike detections instead of 220 (its candidates were capped), with the same chain and pin errors. Totals unchanged: 143/167, worst pin median 0.025, p95 0.056, max 0.151 mm. Detection time median 0.56 s (0.55 before), slowest photo 3.2 s (12.3 s before, random-049).
+
+**S5 subset** (fabric and the 80 random environments, the still-doc, 12 MP still and sharp 4K, 1080p and 720p conditions, 415 photos, 80°): 403 identical; 6 that ran out of memory now recover the chain (12 MP 68 → 70 of 83, 4K 69 → 73); random-063's 12 MP still fails as before, in 8.7 s with the message above; 5 have fewer look-alikes and the same result. Detection over the 83 stills took 105 s instead of 1,872 s, over the 83 4K frames 70 s instead of 1,229 s.
+
+Not measured in the browser. At the 2–2.5× slowdown S1 found, the worst 12 MP fabric photo should take 10–25 s there, mostly in finding candidates (connected components, contours and ellipse fits for up to 63,000 specks, unchanged); ordering's memory is now a few MB against the hundreds of MB the image and its masks take.
+
 ## 4. Where the remaining error comes from
 
 - **Print defects dominate.** On the worst benchmark photo (0.16 mm), rendering without print defects gives 0.06 mm; without lens distortion, relief, defocus or noise, it hardly changes. Seams and wobble genuinely move a printed ring off its pin, and a small circle most: hence the area weighting (fix 7) and the case for larger rings (§5).
@@ -179,6 +208,7 @@ For the real chain, print the ring in one piece with the link so its centre is t
 
 ```bash
 uv run python experiments/cv_benchmark.py --baseline 752b3a9   # ~15 min first time (renders cached in out/)
+uv run python experiments/video_frame_accuracy.py --only fabric random --random 80 --blur 0   # §3.1 (results are cached per photo: move out/video-frame-accuracy/dot/records aside first)
 uv run python experiments/fiducial_study.py                     # ~40 min: environments, resolution, blur
 uv run python experiments/fiducial_study.py --figure docs/img/fiducials-printed.png
 uv run python experiments/contact_sheet.py docs/img/environments.jpg

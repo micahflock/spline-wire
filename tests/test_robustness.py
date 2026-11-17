@@ -78,3 +78,24 @@ def test_bad_print_is_still_accurate(spec):
     pins = circle_wrap_pins(spec, 45.0, concave=True)
     scene, m = _measure(spec, env, pins, seed=4)
     _assert_whole_chain(m, scene, pins, max_mm=0.15)
+
+
+def test_woven_fabric_close_up_is_measured_in_seconds(dot_spec):
+    """Fabric at 18 px/mm resolves into thousands of dot-like spots (here
+    over 7,000 candidates; a 12 MP photo has up to 46,000). Detection used
+    to compare each with every other, and ordering built tables of every
+    pair: minutes and gigabytes. Only the largest candidates are refined
+    now, and ordering starts from the most end-like detections."""
+    import time
+
+    from splinewire.detect import _MAX_CANDIDATES, detect_dots
+    env = replace(PRESETS["fabric"], **SIZE, px_per_mm=18.0)
+    pins = circle_wrap_pins(dot_spec, 30.0)
+    scene = render_scene(pins, dot_spec, env, seed=1)
+    t = time.perf_counter()
+    found = detect_dots(scene.image)
+    m = measure(scene.image, dot_spec, scene.focal_px, detected=found)
+    seconds = time.perf_counter() - t
+    assert 600 < len(found) <= _MAX_CANDIDATES          # busy enough to bound both stages
+    _assert_whole_chain(m, scene, pins, max_mm=0.05)
+    assert seconds < 30.0, f"{seconds:.1f} s"
