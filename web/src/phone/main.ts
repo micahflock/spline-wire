@@ -1,18 +1,18 @@
 // The phone page (web-build.md, step 2): take or pick a photo, measure it in
 // the core worker, fix the pins by touch, then copy, share, download or send
 // the curve. The decisions live in the modules beside this one (photos,
-// measurer, settings, send, wording, draw) and in src/editor/; this file
-// wires them to the page.
+// measurer, settings, send, wording), in src/editor/ and src/photo/ (the
+// photo editor, shared with the desktop page); this file wires them to the page.
 
 import "./phone.css";
+import "../photo/photo.css";
 import { CoreClient, type PhotoSource } from "../core/client";
 import { CoreError, type Commands, type Progress } from "../core/protocol";
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind, Side } from "../core/types";
-import { EditHistory, MIN_TARGET_PX, editsAfterTap } from "../editor/edits";
-import { Gestures, wheelFactor, type PointerInput, type PointerKind } from "../editor/gestures";
-import {
-  chainBox, fit, keepPhotoInView, scale, toPhoto, zoomAt, zoomLimits, type Pt, type Size, type ViewBox,
-} from "../editor/viewport";
+import { EditHistory, editsAfterTap } from "../editor/edits";
+import type { Pt } from "../editor/viewport";
+import { previews } from "../photo/preview";
+import { PhotoEditor } from "../photo/view";
 import { pageRelaySetting, relayAddress } from "../relay/config";
 import { deriveKeys } from "../relay/crypto";
 import { deviceName } from "../relay/device";
@@ -23,7 +23,6 @@ import { Outbox } from "../relay/outbox";
 import { forgetPairing, phoneSecret } from "../relay/pairing";
 import { LocalStore } from "../relay/store";
 import { curveFrom } from "./curve";
-import { overlaySvg } from "./draw";
 import { Measurer, type Update } from "./measurer";
 import { PhotoStore, newPhotoId, type BlobKind, type PhotoRecord } from "./photos";
 import { curveKey, delivery, deliveryText, sendOffer } from "./send";
@@ -31,7 +30,7 @@ import {
   chainLabel, chainSpec, defaultPins, focalOffer, loadSettings, parseFocal, parsePins, presetKey, rememberExif, saveSettings,
   type Settings,
 } from "./settings";
-import { SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "./wording";
+import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "./wording";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) => {
@@ -40,9 +39,6 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
   return e;
 };
 
-/** The editor's preview: long side in px. The core measures the original; this is only what is drawn. */
-const PREVIEW_PX = 2560;
-const THUMB_PX = 128;
 const NO_EDITS: Edits = { add: [], remove: [] };
 
 const store = new LocalStore("splinewire-phone:");
@@ -114,7 +110,6 @@ function onUpdate(r: PhotoRecord, u: Update): void {
   const finished = u.status === "done" || u.status === "error";
   if (finished) {
     if (u.ms !== undefined) timings.push({ id: r.id, status: u.status, ms: Math.round(u.ms) });
-    const hadView = !!r.doc?.view;
     if (u.doc) {
       r.doc = u.doc;
       r.failure = null;
@@ -135,10 +130,7 @@ function onUpdate(r: PhotoRecord, u: Update): void {
       if (u.failure.type === "WorkerError") engineLost();
     }
     editing.delete(r.id);
-    if (r.id === selected) {
-      pending = null;
-      if (!hadView && r.doc?.view) frame();
-    }
+    if (r.id === selected) pending = null;
     persist(r);
   }
   renderList();
@@ -148,7 +140,7 @@ function onUpdate(r: PhotoRecord, u: Update): void {
 async function addFiles(files: File[], via: PhotoRecord["via"]): Promise<void> {
   for (const [i, file] of files.entries()) {
     const id = newPhotoId(Date.now() + i);
-    const made = await previews(file);
+    const made = await previews(file, { thumb: true });
     const r: PhotoRecord = {
       id, name: file.name || "photo.jpg", type: file.type, size: file.size, added: Date.now() + i, via,
       chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), side: settings.side, edits: NO_EDITS,
@@ -177,45 +169,6 @@ async function addFiles(files: File[], via: PhotoRecord["via"]): Promise<void> {
   }
 }
 
-/** A downscaled copy for the editor and a thumbnail, so the page never holds
- * the decoded original (S1: memory). null if this browser cannot decode the
- * file (HEIC outside Safari): the core may still read it. */
-async function previews(file: Blob): Promise<{ pixels: Size; previewSize: Size; preview: Blob; thumb: Blob } | null> {
-  let bmp: ImageBitmap;
-  try {
-    bmp = await createImageBitmap(file);       // upright per EXIF, as the core reads it
-  } catch {
-    return null;
-  }
-  try {
-    const pixels = { width: bmp.width, height: bmp.height };
-    const k = Math.min(1, PREVIEW_PX / Math.max(bmp.width, bmp.height));
-    const previewSize = { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) };
-    const preview = await jpeg(bmp, previewSize, 0.85);
-    const t = THUMB_PX / Math.min(bmp.width, bmp.height);
-    const thumb = await jpeg(bmp, { width: Math.round(bmp.width * t), height: Math.round(bmp.height * t) }, 0.8);
-    return { pixels, previewSize, preview, thumb };
-  } catch {
-    return null;
-  } finally {
-    bmp.close();
-  }
-}
-
-function jpeg(src: CanvasImageSource, size: Size, quality: number): Promise<Blob> {
-  const c = document.createElement("canvas");
-  c.width = size.width;
-  c.height = size.height;
-  const g = c.getContext("2d")!;
-  g.imageSmoothingQuality = "high";
-  g.drawImage(src, 0, 0, size.width, size.height);
-  return new Promise<Blob>((resolve, reject) => c.toBlob((b) => {
-    c.width = c.height = 0;                      // give the canvas memory back now (iOS counts it)
-    if (b) resolve(b);
-    else reject(new Error("could not encode the preview"));
-  }, "image/jpeg", quality));
-}
-
 async function deletePhoto(id: string): Promise<void> {
   const r = records.get(id);
   if (!r || !confirm(`Delete ${r.name} from this phone?`)) return;
@@ -242,10 +195,7 @@ function drop(id: string): void {
 let chainsLoaded: Promise<void>;
 
 function engineProgress(p: Progress): void {
-  const words: Record<Progress["stage"], string> = {
-    runtime: "Starting Python…", packages: "Loading NumPy, SciPy and OpenCV…", starting: "Starting Spline Wire…", ready: "Ready",
-  };
-  $("engine-stage").textContent = words[p.stage];
+  $("engine-stage").textContent = ENGINE_STAGE[p.stage];
   $("engine-pct").textContent = `${Math.round(p.fraction * 100)}%`;
   $("engine-bar").style.width = `${p.fraction * 100}%`;
 }
@@ -309,19 +259,17 @@ async function startServiceWorker(): Promise<void> {
 // ---- the selected photo: editor ----
 
 let selected: string | null = null;
-let box: ViewBox | null = null;
 let pending: Pt | null = null;
 let picking = false;                          // "tap its side" mode
 let previewUrl: string | null = null;
 const svg = $("photo") as unknown as SVGSVGElement;
-const img = document.getElementById("photo-img") as unknown as SVGImageElement;
+const editor = new PhotoEditor(svg, tap);
 
 async function select(id: string | null): Promise<void> {
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
-  img.removeAttribute("href");
+  editor.clear();
   selected = id;
-  box = null;
   pending = null;
   picking = false;
   renderList();
@@ -333,87 +281,14 @@ async function select(id: string | null): Promise<void> {
   }
   const blob = await getBlob(r.id, "preview");
   if (selected !== r.id) return;
-  if (blob && r.pixels) {
-    previewUrl = URL.createObjectURL(blob);
-    img.setAttribute("href", previewUrl);
-    img.setAttribute("width", String(r.pixels.width));
-    img.setAttribute("height", String(r.pixels.height));
-  }
-  frame();
+  if (blob && r.pixels) previewUrl = URL.createObjectURL(blob);
+  editor.setImage(previewUrl, r.pixels);
+  editor.frame();
 }
 
-function svgSize(): Size {
-  const b = svg.getBoundingClientRect();
-  return { width: Math.max(1, b.width), height: Math.max(1, b.height) };
-}
-
-function photoSize(r: PhotoRecord): Size | null {
-  const v = r.doc?.view;
-  return v ? { width: v.width, height: v.height } : r.pixels;
-}
-
-/** Frame the chain (or the whole photo before there is one). */
-function frame(): void {
+function tap(p: Pt, slack: number): void {
   const r = selected ? records.get(selected) : undefined;
-  const size = r && photoSize(r);
-  if (!r || !size) return;
-  const v = r.doc?.view;
-  box = fit(v && (v.pins.length || v.unused.length) ? chainBox(v) : { x: 0, y: 0, w: size.width, h: size.height }, svgSize());
-  applyBox();
-}
-
-function applyBox(): void {
-  if (box) svg.setAttribute("viewBox", `${box.x} ${box.y} ${box.w} ${box.h}`);
-}
-
-function limits() {
-  const r = selected ? records.get(selected) : undefined;
-  const size = (r && photoSize(r)) ?? { width: 1000, height: 1000 };
-  return zoomLimits(size, r?.doc?.view?.r ?? Math.max(size.width, size.height) / 200);
-}
-
-const gestures = new Gestures(() => box ?? { x: 0, y: 0, w: 1, h: 1 }, svgSize, limits);
-
-function pointer(e: PointerEvent): PointerInput {
-  const b = svg.getBoundingClientRect();
-  const kind: PointerKind = e.pointerType === "touch" || e.pointerType === "pen" ? e.pointerType : "mouse";
-  return { id: e.pointerId, kind, x: e.clientX - b.left, y: e.clientY - b.top, t: e.timeStamp };
-}
-
-function intent(i: ReturnType<Gestures["pointerUp"]>): void {
-  const r = selected ? records.get(selected) : undefined;
-  if (i.type === "view" && r) {
-    const size = photoSize(r);
-    box = size ? keepPhotoInView(i.box, size) : i.box;
-    applyBox();
-  } else if (i.type === "tap") {
-    tap(i.at, i.kind);
-  }
-}
-
-svg.addEventListener("pointerdown", (e) => {
-  if (!box) return;
-  svg.setPointerCapture(e.pointerId);
-  intent(gestures.pointerDown(pointer(e)));
-});
-svg.addEventListener("pointermove", (e) => intent(gestures.pointerMove(pointer(e))));
-svg.addEventListener("pointerup", (e) => intent(gestures.pointerUp(pointer(e))));
-svg.addEventListener("pointercancel", () => gestures.cancel());
-svg.addEventListener("wheel", (e) => {
-  const r = selected ? records.get(selected) : undefined;
-  const size = r && photoSize(r);
-  if (!box || !size) return;
-  e.preventDefault();
-  const b = svg.getBoundingClientRect();
-  box = keepPhotoInView(zoomAt(box, svgSize(), { x: e.clientX - b.left, y: e.clientY - b.top },
-    wheelFactor(e.deltaY, e.deltaMode, e.ctrlKey), limits()), size);
-  applyBox();
-}, { passive: false });
-
-function tap(at: Pt, kind: PointerKind): void {
-  const r = selected ? records.get(selected) : undefined;
-  if (!r || !box || measurer.busy(r.id)) return;
-  const p = toPhoto(box, svgSize(), at);
+  if (!r || measurer.busy(r.id)) return;
   if (picking) {
     picking = false;
     r.side = [p.x, p.y];
@@ -424,7 +299,7 @@ function tap(at: Pt, kind: PointerKind): void {
   }
   const v = r.doc?.view;
   if (!v) return;
-  const { edits, mark } = editsAfterTap(v, p, MIN_TARGET_PX[kind] / scale(box, svgSize()));
+  const { edits, mark } = editsAfterTap(v, p, slack);
   history(r.id).commit(v.edits);
   editing.add(r.id);
   r.edits = edits;
@@ -457,13 +332,8 @@ $("reset").onclick = () => {
   measurer.request(r.id, true);
   renderResult();
 };
-$("fit").onclick = () => frame();
-addEventListener("resize", () => {
-  if (box) {
-    box = fit(box, svgSize());
-    applyBox();
-  }
-});
+$("fit").onclick = () => editor.frame();
+addEventListener("resize", () => editor.refit());
 
 const hasEdits = (e: Edits) => e.add.length > 0 || e.remove.length > 0;
 
@@ -576,7 +446,7 @@ function renderResult(): void {
   $("editor").hidden = !r.pixels && !v;
   svg.classList.toggle("wait", busy);
   svg.classList.toggle("picking", picking);
-  $("overlay").innerHTML = v ? overlaySvg(v, { pending }) : "";
+  editor.show(v ?? null, { pending });
   const edited = !!v && hasEdits(v.edits);
   $<HTMLButtonElement>("undo").disabled = busy || !history(r.id).canUndo;
   $<HTMLButtonElement>("reset").disabled = busy || !edited;
@@ -595,8 +465,8 @@ function renderResult(): void {
   $("numbers").replaceChildren(...(res ? numbers(res, r.pins) : []).map(([k, val, s, warn]) =>
     el("div", { className: warn ? "chk" : "" }, el("dt", { textContent: k }), el("dd", {}, val, el("span", { className: "s", textContent: s })))));
   const item = (x: { title: string; text: string }) => el("li", {}, el("b", { textContent: x.title }), x.text);
-  $("warnings").replaceChildren(...(res?.warnings ?? []).map(readWarning).map(item));
-  $("notes").replaceChildren(...(res?.notes ?? []).map(readNote).map(item));
+  $("warnings").replaceChildren(...(res?.warnings ?? []).map((w) => readWarning(w)).map(item));
+  $("notes").replaceChildren(...(res?.notes ?? []).map((n) => readNote(n)).map(item));
 
   $<HTMLButtonElement>("copy").disabled = !ok || busy;
   $("share").hidden = !canShareFiles();

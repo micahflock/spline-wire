@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MeasurementResult, PhotoView } from "../core/types";
-import { overlaySvg } from "./draw";
+import type { MeasurementResult } from "../core/types";
 import { errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "./wording";
 
 describe("wording", () => {
@@ -11,6 +10,17 @@ describe("wording", () => {
     expect(readWarning("link lengths deviate from the pitch by up to 0.62 mm; check").title).toBe("A link is 0.62 mm off its length");
     expect(readWarning("something new")).toEqual({ title: "Check this measurement", text: "something new" });
     expect(readNote("ignored 3 look-alike detection(s) not on the chain").title).toBe("3 stray dots ignored");
+  });
+
+  it("speaks of clicks where the photo is edited with a mouse", () => {
+    expect(readWarning("1 pin(s) not detected; the curve bridges those gaps").text).toMatch(/^The curve bridges the gap. Tap /);
+    expect(readWarning("1 pin(s) not detected; the curve bridges those gaps", "mouse").text).toMatch(/ Click the missing dot/);
+    expect(readWarning("2 pin(s) you added have no fiducial under them", "mouse").text).not.toMatch(/tap/i);
+    expect(readWarning("2 pin(s) you added have no fiducial under them", "mouse").title).toBe("2 pins placed where you clicked");
+    expect(readWarning("2 pin(s) you added have no fiducial under them").title).toBe("2 pins placed where you tapped");
+    expect(readNote("ignored 3 look-alike detection(s) not on the chain", "mouse").text).toMatch(/Click one/);
+    expect(errorAdvice("found 4 pins in a row, joined by 3 links", true, "mouse")).toMatch(/click each pin/);
+    expect(errorAdvice("x.txt is not a photo this program can read", false, "mouse")).not.toMatch(/camera button/);
   });
 
   it("heads a person's error and keeps the message itself", () => {
@@ -34,24 +44,5 @@ describe("wording", () => {
     expect(rows["Focal length"]).toEqual({ v: "27.1 mm", s: "estimated from the chain", w: true });
     expect(rows.Tilt!.v).toBe("12.3°");
     expect(numbers({ ...r, pins: 13, missing_pins: 0, focal_source: "exif" }, 13).filter(([, , , w]) => w)).toEqual([]);
-  });
-});
-
-describe("overlay", () => {
-  it("draws pins with their position along the chain, gaps, strays and ghosts", () => {
-    const v: PhotoView = {
-      width: 100, height: 80, r: 2,
-      pins: [{ x: 10, y: 10, r: 2, k: 0 }, { x: 20, y: 10, r: 2, k: 1 }, { x: 40, y: 10, r: 2, k: 2, edit: 0, snapped: false }],
-      gaps: [1], unused: [{ x: 50, y: 50, r: 2 }], curve: [[10, 14], [40, 14]], side_px: null,
-      removed: [{ x: 30, y: 10, edit: 0 }], edits: { add: [[40, 10]], remove: [[30, 10]] },
-    };
-    const svg = overlaySvg(v, { pending: { x: 5, y: 5 } });
-    expect(svg.match(/class="ov-pin"/g)).toHaveLength(2);
-    expect(svg).toContain('class="ov-hand" cx="40" cy="10" r="2.6" data-k="2" data-edit="0"');
-    expect(svg.match(/class="ov-gap"/g)).toHaveLength(1);
-    expect(svg).toContain('class="ov-unused"');
-    expect(svg).toContain('class="ov-removed"');
-    expect(svg).toContain('class="ov-pending"');
-    expect(svg).toContain('class="ov-edge" points="10,14 40,14"');
   });
 });

@@ -1,10 +1,11 @@
-// Plain words for what the measurement reports, on the phone, where the
-// photo can be fixed by touch. The wording follows the current app's
-// readWarning and readError (splinewire/webapp/static/desktop.html and
+// Plain words for what the measurement reports, where the photo can be fixed
+// by hand: on the phone by touch, and on the desktop page with the mouse (a
+// photo dropped there, D9), hence `input`. The wording follows the current
+// app's readWarning and readError (splinewire/webapp/static/desktop.html and
 // phone.html). Warnings are shown in orange, notes in grey; a person's error
 // (a Python ValueError) is shown as is, under a plain heading.
 
-import type { Failure } from "../core/protocol";
+import type { Failure, Progress } from "../core/protocol";
 import type { FocalSource, MeasurementResult } from "../core/types";
 
 export interface Reading {
@@ -14,28 +15,33 @@ export interface Reading {
 
 export const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 
-export function readNote(n: string): Reading {
+/** How the photo is edited: a tap on the phone, a click on the desktop page. */
+export type Input = "touch" | "mouse";
+const tap = (input: Input) => (input === "mouse" ? "click" : "tap");
+const Tap = (input: Input) => (input === "mouse" ? "Click" : "Tap");
+
+export function readNote(n: string, input: Input = "touch"): Reading {
   const m = n.match(/^ignored (\d+) look-alike/);
   if (m) {
     return { title: `${plural(+m[1]!, "stray dot")} ignored`,
-      text: "Dots that aren't on the chain, such as washers or a patterned table. Tap one to use it as a pin." };
+      text: `Dots that aren't on the chain, such as washers or a patterned table. ${Tap(input)} one to use it as a pin.` };
   }
   return { title: "Note", text: n };
 }
 
-export function readWarning(w: string): Reading {
+export function readWarning(w: string, input: Input = "touch"): Reading {
   let m: RegExpMatchArray | null;
   if ((m = w.match(/^(\d+) pin\(s\) you added were left out/))) {
     const k = +m[1]!;
     return { title: `${plural(k, "pin")} you added ${k === 1 ? "doesn't" : "don't"} fit the chain`,
-      text: "Each pin must be about one link from its neighbours, in line with the chain. Tap it to delete it." };
+      text: `Each pin must be about one link from its neighbours, in line with the chain. ${Tap(input)} it to delete it.` };
   }
   if ((m = w.match(/^(\d+) pin\(s\) you added have no fiducial/))) {
-    return { title: `${plural(+m[1]!, "pin")} placed where you tapped`,
-      text: "There was no dot under the tap, so the pin was fitted to the links around it. Zoom in and tap the middle of the dot if you can see it." };
+    return { title: `${plural(+m[1]!, "pin")} placed where you ${input === "mouse" ? "clicked" : "tapped"}`,
+      text: `There was no dot under the ${tap(input)}, so the pin was fitted to the links around it. Zoom in and ${tap(input)} the middle of the dot if you can see it.` };
   }
   if ((m = w.match(/^(\d+) pin\(s\) not detected/))) {
-    return { title: `${plural(+m[1]!, "pin")} not found`, text: "The curve bridges the gap. Tap the missing dot on the photo to add it." };
+    return { title: `${plural(+m[1]!, "pin")} not found`, text: `The curve bridges the gap. ${Tap(input)} the missing dot on the photo to add it.` };
   }
   if ((m = w.match(/^the chain seems to go on past its end \((\d+) more/))) {
     return { title: "The chain seems to go on past its end", text: `${plural(+m[1]!, "more dot")} about one link on. Is the pin count right?` };
@@ -68,19 +74,20 @@ export function errorTitle(message: string): string {
 }
 
 /** What to do about it, for the commonest person's errors. */
-export function errorAdvice(message: string, fixable: boolean): string {
+export function errorAdvice(message: string, fixable: boolean, input: Input = "touch"): string {
   if (/is not a photo|could not read the photo/.test(message)) {
-    return "Take it again with the camera button, or pick a JPEG from the library.";
+    return input === "mouse" ? "Use the chain's photo as the phone saved it, a JPEG or HEIC file."
+      : "Take it again with the camera button, or pick a JPEG from the library.";
   }
-  const byHand = fixable ? " Or tap each pin on the photo below." : "";
+  const byHand = fixable ? ` Or ${tap(input)} each pin on the photo.` : "";
   if (/fiducials|detections to find a chain/.test(message)) {
     return "Get the whole chain in the frame with the dots facing up, in focus and without glare, and take the photo again." + byHand;
   }
   if (/pins in a row|links to rectify/.test(message)) {
     return "Glare or a shadow may be hiding some dots: move the lamp or turn the chain and take it again." + byHand;
   }
-  if (/could not fit a plane/.test(message)) return "Check the pins on the photo, and the focal length in Settings.";
-  return fixable ? "Check the pins on the photo below." : "";
+  if (/could not fit a plane/.test(message)) return `Check the pins on the photo, and the focal length${input === "mouse" ? "" : " in Settings"}.`;
+  return fixable ? "Check the pins on the photo." : "";
 }
 
 /** A failure with no document: a person's error as is, a bug with its type. */
@@ -118,3 +125,8 @@ export function numbers(r: MeasurementResult, expectedPins: number): [string, st
     ["Curve", `${r.curve_points} points`, `object on the ${r.object_side}`, false],
   ];
 }
+
+/** What the engine is doing while it loads (8-11 s on a desktop, S1). */
+export const ENGINE_STAGE: Record<Progress["stage"], string> = {
+  runtime: "Starting Python…", packages: "Loading NumPy, SciPy and OpenCV…", starting: "Starting Spline Wire…", ready: "Ready",
+};

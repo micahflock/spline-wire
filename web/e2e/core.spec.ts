@@ -1,5 +1,8 @@
 // The core worker end to end: the real worker, Pyodide and the splinewire
 // wheel in Chromium, measuring synthetic photos, compared with native Python.
+// The worker is reached through the desktop page (the site's root), whose
+// desktop.engine() loads the measuring code on demand; the page itself, with
+// a photo dropped on it, is tested in desktop.spec.ts.
 //
 //   npm run e2e         (after npm run assets)
 //
@@ -36,7 +39,19 @@ const PX_TOLERANCE = 0.05;
 const MM_TOLERANCE = 0.005;
 
 declare global {
-  interface Window { core: CoreClient; chains: Promise<Record<string, ChainSpec>>; progressLog: Progress[] }
+  interface Window {
+    core: CoreClient; chains: Promise<Record<string, ChainSpec>>; progressLog: Progress[];
+    desktop: { engine(): Promise<{ core: CoreClient; chains: Promise<Record<string, ChainSpec>>; progress: Progress[] }> };
+  }
+}
+
+/** The desktop page's engine, as window.core, window.chains and window.progressLog. */
+async function openCore(p: Page): Promise<void> {
+  await p.goto("./");
+  await p.evaluate(async () => {
+    const e = await window.desktop.engine();
+    Object.assign(window, { core: e.core, chains: e.chains, progressLog: e.progress });
+  });
 }
 
 let native: Native;
@@ -58,7 +73,7 @@ test.beforeAll(async ({ browser }) => {
   });
   page = await context.newPage();
   page.on("console", (m) => { if (m.type() === "error") console.log("[page]", m.text()); });
-  await page.goto("./");
+  await openCore(page);
 });
 
 /** core.measure in the page, with the photo fetched from /__e2e/. Returns the document and the time. */
@@ -76,7 +91,7 @@ const stats = () => page.evaluate(() => window.core.call("stats", {}));
 const maxDistance = (a: Point[], b: Point[]) => Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i]![0], p[1] - b[i]![1])));
 
 test("loads, reporting progress", async () => {
-  // The page starts loading as it opens; this waits for that load.
+  // Nothing has started the load yet: the desktop page loads the engine only for a photo.
   const { progress, result } = await page.evaluate(async () => {
     const result = await window.core.preload();
     return { progress: window.progressLog, result };
@@ -242,16 +257,9 @@ test("analyse puts a measurement's pins back in chain order", async () => {
       `${known.toFixed(0)} ms with it known; tilt ${a.tilt_deg}°`);
 });
 
-test("the test page measures a picked photo and offers the files", async () => {
-  await page.setInputFiles("#file", native.photos.pipe.photo);
-  await expect(page.locator("#downloads a")).toHaveCount(5, { timeout: 60_000 });
-  await expect(page.locator("#numbers")).toContainText("13 (0 missing");
-  expect(await page.locator("#error").textContent()).toBe("");
-});
-
 test("loads warm in a new tab", async () => {
   const tab = await page.context().newPage();
-  await tab.goto("./");
+  await openCore(tab);
   const result = await tab.evaluate(() => window.core.preload());
   log(`warm load ${(result.ms / 1000).toFixed(1)} s (HTTP cache warm)`);
   await tab.close();

@@ -169,6 +169,17 @@ describe("plain words", () => {
     expect(readNote("ignored 1 look-alike detection(s) not on the chain")).toMatchObject({ level: "info", title: "1 stray dot ignored" });
     expect(esc(`<a href="x">'&'</a>`)).toBe("&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;");
   });
+
+  it("points a curve measured here back to its photo, not to a phone", () => {
+    const warnings = ["2 pin(s) you added were left out", "3 pin(s) not detected; the curve bridges those gaps",
+      "found 11 pins on the chain, which is set to have 13", "no focal length (none in the photo's EXIF, and none set)",
+      "link lengths deviate from the pitch by up to 0.62 mm; check"];
+    for (const w of warnings) {
+      expect(readWarning(w).text).toMatch(/phone/);
+      expect(readWarning(w, true).text).not.toMatch(/phone/);
+      expect(readWarning(w, true).title).toBe(readWarning(w).title);
+    }
+  });
 });
 
 describe("the status line", () => {

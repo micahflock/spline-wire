@@ -85,6 +85,10 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .item .sub { font: 11.5px/1.35 var(--f-data); color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; }
 .item .warns { margin-left: auto; flex: none; font: 600 10.5px/1 var(--f-data); color: var(--warn); border: 1px solid currentColor;
   border-radius: 2px; padding: 2px 4px; }
+.item .tag-here { margin-left: auto; flex: none; font: 600 10.5px/1 var(--f-data); color: var(--brand); border: 1px solid currentColor;
+  border-radius: 2px; padding: 2px 4px; white-space: nowrap; }
+.item .tag-here + .warns { margin-left: 0; }
+.item.draft { border-left-style: dashed; }
 .item.flash { animation: flash 1.8s ease-out; }
 @keyframes flash { from { background: color-mix(in srgb, var(--key) 55%, transparent); } }
 .none { padding: 4px 14px 10px; margin: 0; color: var(--muted); font-size: 13px; }
@@ -107,6 +111,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .welcome .url { margin: 12px 0 8px; }
 .welcome.waiting { grid-template-columns: 1fr; max-width: 520px; text-align: center; color: var(--muted); }
 .welcome.waiting h2 { color: var(--ink); }
+.welcome .here-offer { margin-top: 16px; }
 
 /* the curve */
 .view { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -167,6 +172,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .dbody h2 { font: 600 18px/1.2 var(--f-ui); }
 .dbody p { margin: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* a photo dragged over the page */
+#drop-hint { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; pointer-events: none;
+  background: color-mix(in srgb, var(--paper) 70%, transparent); }
+#drop-hint span { padding: 22px 30px; border: 2px dashed var(--brand); border-radius: 4px; background: var(--panel); font: 600 18px/1.2 var(--f-ui); }
 
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--panel);
   padding: 10px 16px; border-radius: 3px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; }

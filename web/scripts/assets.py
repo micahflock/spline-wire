@@ -16,6 +16,9 @@
 - data/chain*.yaml as one JSON file -> public/chains.json
 - public/core-manifest.json: what the worker reads to find all of the above.
 
+First it checks that web/package.json's version (what the pages show) is
+splinewire's __version__ (what the core reports): one product, one number.
+
 Files already in place with the right sha256 are not downloaded again. Files
 in public/pyodide/ and public/wheels/ that are no longer wanted are deleted:
 the script owns those folders.
@@ -28,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -94,7 +98,19 @@ def chains() -> dict:
     return {name: asdict(load_chain_spec(path)) for name, path in chain_presets().items()}
 
 
+def check_version() -> None:
+    """The pages and the core must say the same version: bump both together."""
+    site = json.loads((WEB / "package.json").read_text())["version"]
+    init = (ROOT / "splinewire" / "__init__.py").read_text()
+    core = re.search(r'^__version__ = "([^"]+)"$', init, re.M)
+    if not core or core.group(1) != site:
+        raise SystemExit(f"web/package.json has version {site}, splinewire/__init__.py "
+                         f"{core.group(1) if core else '(none found)'}: make them the same")
+    print(f"version {site}, the same in web/package.json and splinewire")
+
+
 def main() -> None:
+    check_version()
     if not PYODIDE_NPM.exists():
         raise SystemExit("node_modules/pyodide is missing: run npm ci in web/ first")
     version = json.loads((PYODIDE_NPM / "package.json").read_text())["version"]

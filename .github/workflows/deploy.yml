@@ -1,0 +1,137 @@
+name: Deploy
+
+# Puts the site (web/) on GitHub Pages and the relay (web/relay/) on
+# Cloudflare Workers. Run by hand only (Actions, Deploy, Run workflow), once
+# the owner has set up what web/README.md, "Deploying", lists. The Web
+# workflow tests the same commit; run this after it is green.
+#
+# The site is built with the relay's address from the repository variable
+# RELAY_URL (wss://…; not a secret, every page carries it). The relay job runs
+# only when the CLOUDFLARE_API_TOKEN secret exists, and is shown as skipped
+# otherwise.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a run already deploying is allowed to finish.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: write          # deploy-pages
+      id-token: write       # deploy-pages proves where the artifact came from
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build id and relay address
+        env:
+          RELAY_URL: ${{ vars.RELAY_URL }}
+        run: |
+          echo "BUILD_ID=${{ github.run_number }}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "VITE_RELAY_URL=$RELAY_URL" >> "$GITHUB_ENV"
+          if [ -z "$RELAY_URL" ]; then
+            echo "::warning::The repository variable RELAY_URL is not set: the pages will say they have no relay, and phones cannot send curves to a computer."
+          fi
+
+      - name: Install
+        run: |
+          npm ci
+          uv sync
+
+      - name: Unit tests
+        run: npm test
+
+      # Also checks that web/package.json's version is splinewire's.
+      - name: Site assets
+        run: npm run assets
+
+      # vite.config.ts has base "./": every address in the site is relative, so
+      # it works under the project site's path (https://<user>.github.io/spline-wire/).
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  # Job-level `if` cannot read secrets, so this job says whether there is one.
+  relay-ready:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare: ${{ steps.check.outputs.cloudflare }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "cloudflare=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cloudflare=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CLOUDFLARE_API_TOKEN secret: the relay is not deployed."
+          fi
+
+  relay:
+    needs: relay-ready
+    if: needs.relay-ready.outputs.cloudflare == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web/relay
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/relay/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: |
+          npm run typecheck
+          npm test
+
+      # wrangler.toml's ALLOWED_ORIGINS goes with it: set it there before deploying.
+      - name: Deploy the Worker
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"

@@ -1,8 +1,13 @@
 name: Web
 
-# The hosted build (web/): typecheck, unit tests, the site's assets (Pyodide,
-# its packages and the splinewire wheel), the build, and the end-to-end test of
-# the core worker in Chromium against native Python on synthetic photos.
+# The hosted build (web/) and its relay (web/relay/): typechecks, unit tests,
+# the relay's tests over real sockets (the Node dev relay and the Worker under
+# `wrangler dev`), the site's assets (Pyodide, its packages and the splinewire
+# wheel), the build, and every end-to-end check in Chromium: the core worker,
+# the desktop page measuring a dropped photo and the phone page, all against
+# native Python on synthetic photos (npm run e2e); the two-tab relay check; the
+# desktop page paired with a test phone; the phone-capabilities spike page.
+# Nothing is deployed here: deploy.yml does that, by hand.
 
 on:
   push:
@@ -27,7 +32,7 @@ on:
 jobs:
   web:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: web
@@ -38,7 +43,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            web/relay/package-lock.json
 
       - uses: actions/setup-python@v5
         with:
@@ -46,17 +53,30 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      # The pages show it in their footers (vite.config.ts), as the .exe shows
+      # its build (packaging/stamp_build.py): this run's number and commit.
+      - name: Build id
+        run: echo "BUILD_ID=${{ github.run_number }}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
       - name: Install
         run: |
           npm ci
-          npm ci --prefix relay    # the dev relay and its demo desktop page, for e2e/phone.spec.ts
+          npm ci --prefix relay
           uv sync
 
       - name: Typecheck
-        run: npm run typecheck
+        run: |
+          npm run typecheck
+          npm run typecheck --prefix relay
 
       - name: Unit tests
         run: npm test
+
+      - name: Relay tests (dev relay)
+        run: npm test --prefix relay
+
+      - name: Relay tests (the Worker under wrangler dev)
+        run: npm run test:worker --prefix relay
 
       # Pyodide's packages (~30 MB from jsdelivr) change only with the lock files.
       - uses: actions/cache@v4
@@ -64,6 +84,7 @@ jobs:
           path: web/public/pyodide
           key: pyodide-${{ hashFiles('web/package-lock.json', 'web/scripts/assets.py') }}
 
+      # Also checks that web/package.json's version is splinewire's.
       - name: Site assets
         run: npm run assets
 
@@ -73,8 +94,19 @@ jobs:
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
 
-      - name: End-to-end test
+      - name: End-to-end tests (core worker, desktop page, phone page)
         run: npm run e2e
+
+      - name: Relay check in two browser pages
+        run: npm run check:browser --prefix relay
+
+      - name: Desktop page paired with a test phone
+        run: npm run check:desktop --prefix relay
+        env:
+          SCREENSHOTS: ${{ github.workspace }}/web/test-results/desktop-check
+
+      - name: Phone-capabilities spike page
+        run: node spikes/phone-capabilities/check.mjs
 
       - uses: actions/upload-artifact@v4
         if: failure()

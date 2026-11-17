@@ -1,4 +1,4 @@
-// The desktop page (web/desktop/) in Chromium, end to end: a dev relay and a
+// The desktop page (web/index.html, the site's root) in Chromium, end to end: a dev relay and a
 // vite dev server, the page paired with a test phone (desktop-check-phone.html,
 // the real backbone with no page around it) by the link the page shows, and a
 // Python measurement sent through them. Checks that the curve arrives and is
@@ -132,7 +132,7 @@ try {
   };
 
   // ---- pairing -----------------------------------------------------------
-  await desktop.goto(`${site}/desktop/?relay=${encodeURIComponent(relay.url)}`);
+  await desktop.goto(`${site}/?relay=${encodeURIComponent(relay.url)}`);
   await until(desktop, `/#pair=[A-Za-z0-9_-]{22}$/.test(${textOf("[data-pair-link]")})`);
   await until(desktop, `${textOf("#link-text")} === "Connected · no phone open"`);
   const pairing = (await desktop.textContent("[data-pair-link]"))!;
@@ -263,7 +263,7 @@ try {
   bare.on("pageerror", (e) => errors.push(`no-storage page: ${e.message}`));
   await bare.addInitScript(
     `Object.defineProperty(window, "localStorage", { get() { throw new DOMException("denied", "SecurityError"); } });`);
-  await bare.goto(`${site}/desktop/?relay=${encodeURIComponent("ws://127.0.0.1:" + (await freePort()))}`);
+  await bare.goto(`${site}/?relay=${encodeURIComponent("ws://127.0.0.1:" + (await freePort()))}`);
   await until(bare, `!${q("#storage-note")}.hidden && ${q("#main svg.qr")}`);
   await until(bare, `${textOf("#link-text")} === "Can't reach the relay" && !${q("#retry")}.hidden`);
   await until(bare, `/^Trying again in \\d+ s$/.test(${textOf("#link-wait")})`);

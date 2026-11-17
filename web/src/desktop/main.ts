@@ -1,5 +1,7 @@
 // The desktop page: pair a phone by its QR code, receive its curves, show
-// them, copy their points for Fusion and save their files.
+// them, copy their points for Fusion and save their files. A photo dropped on
+// the page (or picked with its button) is measured here instead (D9), by
+// here.ts, which is loaded only then: it brings the measuring engine.
 //
 // The logic lives in the modules beside this one and in src/relay/; this file
 // wires them to the page and draws. Everything drawn from a curve passes
@@ -21,15 +23,16 @@ import { Selection } from "./selection";
 import { splineSamples } from "./spline";
 import { statusLine, type PhoneSeen } from "./status";
 import { UnseenTitle } from "./title";
+import type { Draft, DraftHost } from "./here";
 import { exactTime, relativeTime } from "./when";
-import { FOCAL_SOURCE, esc, plural, readNote, readWarning } from "./wording";
+import { FOCAL_SOURCE, FOCAL_SOURCE_HERE, esc, plural, readNote, readWarning } from "./wording";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const APP = `Spline Wire ${import.meta.env.APP_VERSION}`;
 const BUILD = import.meta.env.BUILD_ID;
-// This page lives at desktop/ under the site's root for now; at the root it becomes "./".
-const SITE_ROOT = new URL("../", location.href).href;
+// This page is the site's root (index.html); the phone page is phone/ under it.
+const SITE_ROOT = new URL("./", location.href).href;
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 /** Where "a phone has paired" is remembered, so the big QR code does not come back on every visit. */
 const PHONE_KEY = "phone";
@@ -52,6 +55,22 @@ let phoneHere: PhoneSeen | null = null;
 let flashId: string | null = null;
 /** Downloads of the curve on show; their blob: addresses are freed when it changes. */
 let blobUrls: string[] = [];
+/** A photo being measured on this computer, not yet added to the list; one at a time. */
+let draft: Draft | null = null;
+/** Whether the draft, rather than a curve, is on show. */
+let showingDraft = false;
+
+/** here.ts and what it imports (the core client, the editor): loaded on the first photo. */
+const here = () => import("./here");
+// For the end-to-end tests and a look from the console: desktop.engine() loads
+// the measuring code (here.ts, and Pyodide only when asked to load or measure)
+// and returns its engine; desktop.timings() each measurement's time.
+Object.assign(window, {
+  desktop: {
+    engine: async () => (await here()).engine(SITE_ROOT),
+    timings: async () => (await here()).timings,
+  },
+});
 
 $("storage-note").hidden = persistent;
 $("relay-note").hidden = relayUrl !== null;
@@ -111,7 +130,8 @@ function onMessage(m: Message): void {
 function arrived(curve: Curve): void {
   if (!phoneHere) phoneHere = { device: "" };
   rememberPhone(phoneHere.device);
-  const shown = selection.arrived(curve.id, Date.now());
+  // A photo being measured here is the person's own pick: a curve arriving does not take its place.
+  const shown = !showingDraft && selection.arrived(curve.id, Date.now());
   unseen.arrived(document.hidden);
   document.title = unseen.title;
   flashId = curve.id;
@@ -141,7 +161,9 @@ function ids(): string[] {
   return inbox.curves.map((c) => c.id);
 }
 
+/** The curve on show; null when there is none, or the draft is on show. */
 function current(): Curve | null {
+  if (showingDraft) return null;
   return inbox.curves.find((c) => c.id === selection.id) ?? null;
 }
 
@@ -174,12 +196,16 @@ function renderList(): void {
   const list = $("list");
   const focused = (document.activeElement as HTMLElement | null)?.dataset?.id;
   const now = Date.now();
-  list.innerHTML = inbox.curves.map((c) => {
+  const draftItem = draft ? `<li><button type="button" class="item draft" data-draft aria-current="${showingDraft}">
+      <span class="row1"><span class="name">${esc(draft.name)}</span><span class="tag-here">not added</span></span>
+      <span class="sub">${esc(draft.state)}</span></button></li>` : "";
+  list.innerHTML = draftItem + inbox.curves.map((c) => {
     const t = Date.parse(c.measured_at);
     const w = c.warnings.length;
+    const mine = inbox.isLocal(c.id);
     return `<li><button type="button" class="item${c.id === flashId ? " flash" : ""}" data-id="${esc(c.id)}"
-      aria-current="${c.id === selection.id}">
-      <span class="row1"><span class="name">${esc(c.photo)}</span>${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
+      aria-current="${!showingDraft && c.id === selection.id}">
+      <span class="row1"><span class="name">${esc(c.photo)}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
       <span class="sub"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, now))}</time>
         <span>· ${esc(c.chain.name)}</span><span>· ${c.chain.n_pins} pins</span></span>
     </button></li>`;
@@ -190,7 +216,7 @@ function renderList(): void {
     setTimeout(() => list.querySelector(`[data-id="${CSS.escape(id)}"]`)?.classList.remove("flash"), 1800);
   }
   $("count").textContent = inbox.curves.length ? String(inbox.curves.length) : "";
-  $("none").hidden = inbox.curves.length > 0;
+  $("none").hidden = inbox.curves.length > 0 || !!draft;
   if (focused) list.querySelector<HTMLElement>(`[data-id="${CSS.escape(focused)}"]`)?.focus();
 }
 
@@ -198,7 +224,7 @@ function renderPairing(): void {
   const side = $("pair-side");
   const url = pairingUrl(phonePageUrl(SITE_ROOT, location.search), secret);
   const phone = lastPhone();
-  if (!paired() && inbox.curves.length === 0) {
+  if (!paired() && inbox.curves.length === 0 && !showingDraft) {
     side.innerHTML = "";            // the welcome in the middle shows the code
     return;
   }
@@ -223,6 +249,12 @@ function renderMain(): void {
   const main = $("main");
   for (const u of blobUrls) URL.revokeObjectURL(u);
   blobUrls = [];
+  if (showingDraft && draft) {
+    main.classList.remove("empty");
+    main.replaceChildren(draft.root);
+    draft.shown();
+    return;
+  }
   const c = current();
   main.classList.toggle("empty", !c);
   if (!c) {
@@ -244,6 +276,7 @@ function welcomeHtml(): string {
       <p class="then">Done once per phone: both remember the pairing. The phone and this computer can be on different networks.</p>
       <div class="url" data-pair-link>${esc(link)}</div>
       <button type="button" class="btn small" data-act="copy-link">Copy link</button>
+      ${measureHereHtml()}
     </div>
   </section>`;
 }
@@ -252,12 +285,19 @@ function waitingHtml(): string {
   return `<section class="welcome waiting" aria-labelledby="welcome-title">
     <div><h2 id="welcome-title">Waiting for a curve</h2>
       <p>Measure the chain on the paired phone. Each curve shows up here within seconds, and stays on this computer until you delete it.</p>
-      <p class="then">If the phone measures while this page is closed, it keeps the curve and sends it when the page is open again.</p></div>
+      <p class="then">If the phone measures while this page is closed, it keeps the curve and sends it when the page is open again.</p>
+      ${measureHereHtml()}</div>
   </section>`;
+}
+
+function measureHereHtml(): string {
+  return `<p class="then here-offer">Have the photo on this computer? Drop it on this page, or
+    <button type="button" class="btn small" data-act="pick">Choose a photo…</button>, to measure it here.</p>`;
 }
 
 function curveHtml(c: Curve): string {
   const t = Date.parse(c.measured_at);
+  const mine = inbox.isLocal(c.id);
   const d = c.diagnostics;
   const spline = splineSamples(c.points_mm);
   const xs = [...spline, ...c.pins_mm].map((p) => p[0]);
@@ -272,16 +312,16 @@ function curveHtml(c: Curve): string {
     ["Link error", d.link_residual_rms_mm.toFixed(3), `rms · max ${d.link_residual_max_mm.toFixed(3)} mm`,
       // Python warns above 5% of the pitch (pipeline.py).
       d.link_residual_max_mm > 0.05 * c.chain.pitch_mm],
-    ["Focal length", `${+d.focal_35mm.toFixed(1)}<small>mm</small>`, `35 mm equiv. · ${FOCAL_SOURCE[d.focal_source] ?? d.focal_source}`,
+    ["Focal length", `${+d.focal_35mm.toFixed(1)}<small>mm</small>`, `35 mm equiv. · ${(mine ? FOCAL_SOURCE_HERE : FOCAL_SOURCE)[d.focal_source] ?? d.focal_source}`,
       d.focal_source === "estimated"],
     ["Object", c.object_side === "inside" ? "Inside" : "Outside",
       c.object_side === "inside" ? "chain wrapped around it" : "chain pressed into it", false],
   ];
-  const notes = [...c.warnings.map(readWarning), ...c.notes.map(readNote)]
+  const notes = [...c.warnings.map((w) => readWarning(w, mine)), ...c.notes.map(readNote)]
     .map((r) => `<div class="note ${r.level}"><b>${esc(r.title)}</b>${esc(r.text)}</div>`).join("");
   return `<section class="view" aria-labelledby="curve-title">
     <div class="head"><h2 id="curve-title">${esc(c.photo)}</h2>
-      <span class="meta"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">measured ${esc(relativeTime(t, Date.now()))}</time> · ${esc(c.chain.name)}</span>
+      <span class="meta">${mine ? "measured here" : "measured"} <time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, Date.now()))}</time> · ${esc(c.chain.name)}</span>
       <span class="spacer"></span>
       <button type="button" class="btn plain small" data-act="delete">Delete…</button></div>
     <div class="plot">${plot}</div>
@@ -298,7 +338,7 @@ function curveHtml(c: Curve): string {
         `<div class="cell${warn ? " warn" : ""}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${esc(s)}</div></div>`).join("")}</div>
       ${notes ? `<div class="notes">${notes}</div>` : ""}
       <details class="about"><summary>About this curve</summary>
-        <div class="kv"><span>Measured</span><span>${esc(exactTime(t))}</span></div>
+        <div class="kv"><span>Measured</span><span>${esc(exactTime(t))}${mine ? ", on this computer" : ""}</span></div>
         <div class="kv"><span>Chain</span><span>${esc(c.chain.name)}</span></div>
         <div class="kv"><span>Link length</span><span>${c.chain.pitch_mm} mm</span></div>
         <div class="kv"><span>Pin to edge</span><span>${c.chain.half_width_mm} mm</span></div>
@@ -331,7 +371,8 @@ async function fillDownloads(c: Curve): Promise<void> {
 // ---- actions --------------------------------------------------------------
 
 function pick(id: string, focus = false): void {
-  const changed = selection.id !== id;
+  const changed = selection.id !== id || showingDraft;
+  showingDraft = false;
   selection.pick(id, Date.now());          // a click on the curve on show holds it too
   if (!changed) return;
   renderList();
@@ -371,6 +412,64 @@ async function copyLink(): Promise<void> {
   } catch {
     toast("Couldn't copy the link. Select it and copy it by hand.");
   }
+}
+
+// ---- measuring here (D9) ---------------------------------------------------
+
+/** Measure a photo on this computer. One at a time: a new photo replaces one not yet added. */
+async function measureHere(files: File[]): Promise<void> {
+  const file = files[0];
+  if (!file) return;
+  let mod: typeof import("./here");
+  try {
+    mod = await here();
+  } catch (e) {
+    toast(`Couldn't load the measuring code: ${(e as Error).message}`);
+    return;
+  }
+  if (files.length > 1) toast(`One photo at a time: measuring ${file.name}.`);
+  else if (draft) toast(`${draft.name} was not added; measuring ${file.name} instead.`);
+  draft?.close();
+  draft = mod.openDraft(file, draftHost);
+  showingDraft = true;
+  renderList();
+  renderPairing();
+  renderMain();
+}
+
+const draftHost: DraftHost = {
+  siteRoot: SITE_ROOT,
+  store,
+  toast: (m) => toast(m),
+  add(curve) {
+    draft = null;
+    showingDraft = false;
+    inbox.addLocal(curve);
+    selection.pick(curve.id, Date.now());
+    flashId = curve.id;
+    renderList();
+    renderPairing();
+    renderMain();
+    toast(`Added ${curve.photo}. Copy points, then Paste points in a Fusion sketch.`);
+  },
+  discard() {
+    draft = null;
+    showingDraft = false;
+    selection.keepIn(ids());
+    renderList();
+    renderPairing();
+    renderMain();
+  },
+  changed() {
+    renderList();
+  },
+};
+
+function showDraft(): void {
+  if (!draft || showingDraft) return;
+  showingDraft = true;
+  renderList();
+  renderMain();
 }
 
 async function remove(): Promise<void> {
@@ -436,15 +535,55 @@ function storageWorks(): boolean {
 // ---- events ---------------------------------------------------------------
 
 document.addEventListener("click", (ev) => {
-  const t = (ev.target as Element).closest<HTMLElement>("[data-id], [data-act]");
+  const t = (ev.target as Element).closest<HTMLElement>("[data-id], [data-act], [data-draft]");
   if (!t) return;
   if (t.dataset.id) return pick(t.dataset.id);
+  if (t.hasAttribute("data-draft")) return showDraft();
   const act = t.dataset.act;
   if (act === "copy") void copyPoints();
   else if (act === "copy-link") void copyLink();
   else if (act === "delete") void remove();
   else if (act === "unpair") void unpair();
+  else if (act === "pick") $("pick").click();
 });
+
+$<HTMLInputElement>("pick").addEventListener("change", (ev) => {
+  const input = ev.target as HTMLInputElement;
+  const files = [...(input.files ?? [])];
+  input.value = "";                         // the same photo can be picked again
+  void measureHere(files);
+});
+
+// A photo dragged anywhere onto the page is measured here. Only drags that
+// carry files count, and the browser must not open the photo in the tab.
+let dragDepth = 0;
+const carriesFiles = (ev: DragEvent) => !!ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
+document.addEventListener("dragenter", (ev) => {
+  if (!carriesFiles(ev)) return;
+  ev.preventDefault();
+  dragDepth++;
+  $("drop-hint").hidden = false;
+});
+document.addEventListener("dragover", (ev) => {
+  if (!carriesFiles(ev)) return;
+  ev.preventDefault();
+  ev.dataTransfer!.dropEffect = "copy";
+});
+document.addEventListener("dragleave", (ev) => {
+  if (!carriesFiles(ev)) return;
+  if (--dragDepth <= 0) {
+    dragDepth = 0;
+    $("drop-hint").hidden = true;
+  }
+});
+document.addEventListener("drop", (ev) => {
+  if (!carriesFiles(ev)) return;
+  ev.preventDefault();
+  dragDepth = 0;
+  $("drop-hint").hidden = true;
+  void measureHere([...ev.dataTransfer!.files]);
+});
+window.addEventListener("resize", () => draft?.refit());
 
 $("retry").addEventListener("click", () => link?.retryNow());
 
@@ -501,7 +640,7 @@ setInterval(() => {
   const now = Date.now();
   for (const el of document.querySelectorAll<HTMLTimeElement>("time[datetime]")) {
     const t = Date.parse(el.dateTime);
-    el.textContent = (el.closest(".meta") ? "measured " : "") + relativeTime(t, now);
+    el.textContent = relativeTime(t, now);
   }
 }, 30_000);
 
@@ -518,7 +657,7 @@ window.addEventListener("storage", (ev) => {
     void connect().then(renderAll);
     return;
   }
-  if (key !== "inbox" && key !== "inbox-seen" && key !== PHONE_KEY) return;
+  if (key !== "inbox" && key !== "inbox-seen" && key !== "inbox-here" && key !== PHONE_KEY) return;
   const shown = selection.id;
   loadInbox();
   selection.keepIn(ids());

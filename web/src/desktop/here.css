@@ -1,0 +1,50 @@
+/* Measuring a photo on this computer (here.ts): loaded with it, so the page's first load does not
+   carry it. The layout is the curve view's (style.css: .view beside .read); these are the editor's
+   own parts, in the same Test bench look as the phone page's controls, sized for a mouse. */
+.here { display: contents; }
+.here .engine { margin: 12px 14px 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
+.here .engine.bad { border-left: 4px solid var(--bad); }
+.here .engine-text { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.here .engine p { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+.here .engine .btn { margin-top: 8px; }
+.here .bar { height: 5px; background: var(--panel-2); overflow: hidden; margin-top: 8px; border-radius: 1px; }
+.here .bar div { height: 100%; width: 0; background: var(--key-edge); transition: width .2s; }
+.here .problem { margin: 12px 14px 0; padding: 8px 12px; border-left: 4px solid var(--bad); background: var(--panel); font-size: 13.5px; overflow-wrap: anywhere; }
+.here .problem b { display: block; font-size: 14.5px; }
+.here .problem .raw { font: 12px/1.4 var(--f-data); margin-top: 4px; white-space: pre-wrap; }
+.here .problem .advice { margin-top: 4px; color: var(--muted); }
+.here .stage { position: relative; flex: 1; min-height: 320px; margin: 12px 14px 0; }
+.here .stage .photo-svg { position: absolute; inset: 0; height: 100%; cursor: crosshair; }
+.here .tools { display: flex; align-items: center; gap: 8px; padding: 8px 14px 12px; }
+.here .hint { font-size: 12.5px; color: var(--muted); }
+
+.here .read .scroll { padding-top: 4px; }
+.here .field-block { margin: 6px 14px 10px; }
+.here .label { font-size: 13px; margin-bottom: 6px; }
+.here .label .muted { color: var(--muted); font-size: 12px; }
+.here .label .muted:not(:empty)::before { content: ": "; }
+.here .seg { display: grid; grid-template-columns: 1fr 1fr 1.3fr; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.here .seg button { border: none; background: var(--panel); padding: 6px 4px; font-size: 13px; }
+.here .seg button:hover { background: var(--panel-2); }
+.here .seg button + button { border-left: 1px solid var(--line); }
+.here .seg button[aria-pressed="true"] { background: var(--sel); box-shadow: inset 0 -3px 0 var(--brand); font-weight: 600; }
+.here .field { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 14px; font-size: 13px; }
+.here .field > span:first-child { min-width: 0; }
+.here select, .here input.num { border: 1px solid var(--line); border-radius: 3px; background: var(--panel); padding: 4px 8px; font: inherit; color: inherit; }
+.here select { max-width: 60%; }
+.here input.num { width: 72px; text-align: right; font-family: var(--f-data); flex: none; }
+.here .stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); flex: none; }
+.here .stepper button { width: 28px; height: 28px; border: none; background: none; font-size: 16px; }
+.here .stepper button:hover { background: var(--panel-2); }
+.here .stepper input { width: 46px; height: 28px; border: none; border-inline: 1px solid var(--line); background: var(--panel); text-align: center;
+  font: 500 14px var(--f-data); -moz-appearance: textfield; appearance: textfield; }
+.here .stepper input::-webkit-inner-spin-button, .here .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.here .bad-text { color: var(--bad); font-size: 12.5px; margin: 0 14px 6px; }
+.here .bad-text:empty { display: none; }
+.here .nums { margin-top: 10px; }
+.here .copy:disabled { opacity: .45; cursor: default; }
+
+@media (max-width: 1100px) {
+  .here .stage { flex: none; height: 460px; }
+}
+@media (prefers-reduced-motion: reduce) { .here .bar div { transition: none; } }

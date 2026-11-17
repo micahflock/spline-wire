@@ -1,39 +1,57 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Spline Wire core test</title>
-  <style>
-    :root { color-scheme: light dark; font: 14px/1.4 system-ui, sans-serif; }
-    body { margin: 0 auto; padding: 16px; max-width: 1100px; }
-    #drop { border: 2px dashed #888; border-radius: 8px; padding: 16px; text-align: center; }
-    #drop.over { border-color: #2a7; }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
-    progress { width: 240px; }
-    canvas { max-width: 100%; border: 1px solid #8884; }
-    table { border-collapse: collapse; }
-    td { padding: 1px 12px 1px 0; }
-    .warn { color: #d70; }
-    .err { color: #c22; white-space: pre-wrap; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Spline Wire</title>
+<!-- The desktop page of the hosted site, at its root (web-build.md, step 3):
+     curves arrive here from a paired phone, and a photo dropped here is
+     measured on this computer (D9). -->
+<link rel="stylesheet" href="./src/desktop/style.css">
+<script type="module" src="./src/desktop/main.ts"></script>
 </head>
 <body>
-  <!-- Throwaway page (web-build step 1): measures a dropped photo with the core worker.
-       The desktop and phone pages of steps 2 and 3 replace it. -->
-  <h1>Spline Wire core test</h1>
-  <div id="drop">Drop a photo here, or <input type="file" id="file" accept="image/*"></div>
-  <div class="row">
-    <label>Chain <select id="chain"></select></label>
-    <label>Object side <select id="side"><option>inside</option><option>outside</option></select></label>
-    <progress id="progress" max="1" value="0"></progress> <span id="stage">not loaded</span>
+<header class="top">
+  <div class="mark">
+    <svg width="44" height="16" viewBox="0 0 33 12" aria-hidden="true">
+      <rect x="1" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/><rect x="10" y="2.2" width="13" height="7.6" rx="3.8" fill="var(--brand)" opacity=".75"/>
+      <rect x="19" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/>
+      <circle cx="5.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="14.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="23.8" cy="6" r="2" fill="var(--brand-dot)"/>
+    </svg>
+    <h1>Spline Wire</h1>
   </div>
-  <div id="error" class="err"></div>
-  <table id="numbers"></table>
-  <ul id="warnings" class="warn"></ul>
-  <ul id="notes"></ul>
-  <div class="row" id="downloads"></div>
-  <canvas id="photo" width="0" height="0"></canvas>
-  <script type="module" src="./src/dev/main.ts"></script>
+  <span class="spacer"></span>
+  <div class="link-state" id="link-state"><span class="lamp" id="lamp"></span><span id="link-text" role="status">Starting…</span><span id="link-wait" class="mono"></span></div>
+  <button class="btn small" id="retry" type="button" hidden>Retry now</button>
+  <label class="btn small" title="Or drop a photo anywhere on this page">Measure a photo…<input type="file" id="pick" accept="image/*,.heic,.heif" hidden></label>
+</header>
+<p class="banner chk" id="storage-note" hidden>This browser isn't keeping anything for this site (a private window?), so the pairing
+  and the curves will be forgotten when this tab closes. Open the page in a normal window to keep them.</p>
+<p class="banner bad" id="relay-note" hidden>This build of the site has no relay address, so phones can't send curves to it.</p>
+
+<div class="layout">
+  <aside class="log" aria-labelledby="list-title">
+    <div class="sec"><h2 id="list-title">Curves</h2><span class="mono" id="count"></span></div>
+    <ul class="list" id="list" aria-labelledby="list-title"></ul>
+    <p class="none" id="none">Curves measured on the phone appear here.</p>
+    <div id="pair-side"></div>
+  </aside>
+  <main id="main" tabindex="-1"></main>
+</div>
+<footer class="foot"><span id="build"></span><span class="spacer"></span><span id="relay-name"></span></footer>
+
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <form method="dialog" class="dbody">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-body"></p>
+    <div class="dialog-actions">
+      <button class="btn" value="no" autofocus>Cancel</button>
+      <button class="btn danger" value="yes" id="confirm-yes"></button>
+    </div>
+  </form>
+</dialog>
+<div id="drop-hint" hidden><span>Drop the photo to measure it on this computer</span></div>
+<div id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

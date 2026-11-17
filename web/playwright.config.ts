@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-// The end-to-end test of the core worker (e2e/core.spec.ts): builds the site,
-// serves it with `vite preview` and drives the throwaway page in Chromium.
+// The end-to-end tests (e2e/): build the site, serve it with `vite preview`
+// and drive the core worker, the desktop page and the phone page in Chromium.
 // `npm run assets` must have filled public/ first.
 const PORT = 4173;
 

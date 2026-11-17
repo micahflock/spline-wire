@@ -10,8 +10,6 @@
   --paper: #e9e7e0; --panel: #f3f1eb; --panel-2: #dedbd2; --ink: #1d2023; --muted: #64625b; --line: #b4b0a5; --sel: #d3e4df;
   --screen: #f8f7f3; --key: #f2b705; --key-ink: #1d2023; --key-edge: #a87e00; --brand: #0f6e6a; --brand-dot: #f3f1eb;
   --ok: #2c7a4b; --warn: #b26a00; --bad: #c0392b; --lamp-off: #9a978e;
-  /* on the photo, both themes */
-  --ov-pin: #3ddc84; --ov-mine: #58a6ff; --ov-unused: #ff6b6b; --ov-link: #f2cc60; --ov-edge: #ff5fd2; --ov-removed: #e6e6e1;
   --f-ui: "Plex Cond", "IBM Plex Sans Condensed", -apple-system, system-ui, sans-serif;
   --f-data: "Plex Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
   --gutter-l: max(16px, env(safe-area-inset-left)); --gutter-r: max(16px, env(safe-area-inset-right));
@@ -85,26 +83,10 @@ img.th { width: 52px; height: 52px; object-fit: cover; border-radius: 2px; backg
 .problem .advice { margin-top: 6px; color: var(--muted); }
 
 .editor { margin-top: 10px; }
-#photo { display: block; width: 100%; height: min(62svh, 115vw); background: var(--screen); border: 1px solid var(--line);
-  border-radius: 3px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-#photo.wait { opacity: .85; }
-#photo.picking { outline: 3px solid var(--ov-edge); outline-offset: -3px; }
+#photo { height: min(62svh, 115vw); }
 .tools { display: flex; gap: 8px; margin-top: 8px; }
 .hint { font-size: 13.5px; color: var(--muted); margin: 6px 0 4px; }
-.ov-link, .ov-gap, .ov-pin, .ov-mine, .ov-hand, .ov-unused, .ov-removed, .ov-pending { fill: none; stroke-width: 2px; vector-effect: non-scaling-stroke; }
-.ov-removed circle, .ov-removed path { fill: none; stroke: var(--ov-removed); stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-dasharray: 4 4; }
-.ov-link { stroke: var(--ov-link); } .ov-gap { stroke: var(--ov-unused); stroke-dasharray: 6 5; }
-.ov-pin { stroke: var(--ov-pin); } .ov-mine { stroke: var(--ov-mine); } .ov-hand { stroke: var(--ov-mine); stroke-dasharray: 5 4; }
-.ov-unused { stroke: var(--ov-unused); stroke-dasharray: 5 3; }
-.ov-pending { stroke: #fff; stroke-dasharray: 3 3; animation: ov-pulse .8s ease-in-out infinite alternate; }
-@keyframes ov-pulse { from { opacity: 1; } to { opacity: .25; } }
-.ov-label { fill: var(--ov-pin); stroke: #0b0e11; paint-order: stroke; stroke-width: 3px; vector-effect: non-scaling-stroke;
-  font-family: var(--f-data); font-weight: 500; }
-.ov-label.mine { fill: var(--ov-mine); }
-.ov-edge { fill: none; stroke: var(--ov-edge); stroke-width: 3.5px; vector-effect: non-scaling-stroke; }
-.ov-side { fill: var(--ov-edge); stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
-#overlay * { pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .ov-pending { animation: none; } .bar div { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .bar div { transition: none; } }
 
 .sidebox { margin-top: 12px; }
 .label { font-size: 15px; margin-bottom: 6px; }
