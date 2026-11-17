@@ -79,7 +79,7 @@ def order_chain(
     # On a busy background walks also stop at a few times the chain's length:
     # one that long is following a texture, and on fabric most walks do.
     max_len = _BUSY_WALK * n_pins if n_pins and len(starts) < n else None
-    best_path, best_key = None, None
+    best_path, best_key, best_turn = None, None, 0.0
     for start in starts:
         path, turn_total = _walk(start, pts, near, nn_pitch, max_turn, sizes, max_len)
         length = min(len(path), n_pins) if n_pins else len(path)
@@ -91,9 +91,15 @@ def order_chain(
         # differs in its last bit with the order, which then decided between
         # them instead of the terms after it.
         stands_out = math.fsum(strength[path]) * length / len(path) if strength is not None else 0.0
-        key = (length, stands_out, -off, -gaps, -turn_total)
-        if best_key is None or key > best_key:
-            best_path, best_key = path, key
+        # Least turning last, and only by more than rounding: the two
+        # directions along one chain turn alike, and which of them adds up a
+        # hair less depends on the platform's atan2 in its last bit (glibc,
+        # musl under Pyodide, MSVC and V8 differ there). On a near tie the
+        # earlier start keeps it, so every platform picks the same direction.
+        key = (length, stands_out, -off, -gaps)
+        if (best_key is None or key > best_key
+                or (key == best_key and turn_total < best_turn - _TURN_TIE)):
+            best_path, best_key, best_turn = path, key, turn_total
 
     steps = list(_steps(best_path, pts))
     links, gaps = [], []
@@ -121,6 +127,7 @@ def order_chain(
 # frames and stills (815 photos); with 150 it was lost among printed text,
 # whose letters' counters look like chain ends.
 _MAX_STARTS = 600
+_TURN_TIE = 1e-9         # radians of total turning that count as equal (see order_chain)
 _BUSY_WALK = 2          # walks then stop at this many times the chain's pins
 
 

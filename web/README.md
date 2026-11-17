@@ -10,6 +10,9 @@ npm run typecheck
 npm run assets      # Pyodide, its packages, the splinewire wheel and chains.json -> public/ (needs uv)
 npm run dev         # the desktop page at /, the phone page at /phone/ (relay: cd relay && npm run relay)
 npm run build       # dist/
+npm run golden      # Python's detections and measurements on the 167 benchmark scenes ->
+                    # src/pipeline/golden/scenes.json.gz, for the TypeScript port's tests (~1 min
+                    # once cv_benchmark has rendered the scenes into out/cv-benchmark/)
 npm run e2e         # Playwright: builds, serves dist/, measures synthetic photos in Chromium
                     # against native Python through the core worker, the desktop page and the
                     # phone page; prints timings as [core], [desktop], [phone] and [camera] lines
@@ -45,6 +48,7 @@ camera ─▶ overlay ─▶ still      relay/outbox ══ relay ══▶ rela
 | `e2e/`, `scripts/` | The Playwright tests (`core.spec.ts` the worker through the desktop page's `desktop.engine()`, `desktop.spec.ts`, `phone.spec.ts`; `native.py` makes the photos and the native reference) and the assets script. | |
 | `src/relay/` | Pairing and delivery between the phone and desktop pages: `crypto.ts` (one secret → room id + AES-GCM key), `messages.ts` (the versioned curve message, checked on arrival, and the clipboard table), `link.ts` (the reconnecting socket), `outbox.ts` / `inbox.ts` (at-least-once sending, exactly-once storing), `pairing.ts` (the QR link), `store.ts`. | Written; tested against `relay/memory-relay.ts`, and over real sockets against both relays and in two Chromium pages (`relay/README.md`). |
 | `relay/` | The relay server, its own package (`relay/README.md`). `rules.ts` is its whole behaviour as pure functions; `memory-relay.ts` runs them in memory for tests; `worker.ts` is the Cloudflare Worker (a Durable Object per room, hibernating), `dev-relay.ts` the same in Node. | Written and tested locally, the Worker under `wrangler dev`. **Not deployed: needs the owner's Cloudflare account.** |
+| `src/pipeline/` | The TypeScript port of the pipeline (O6, work queue item 9), with no Python and no OpenCV. Ported so far, everything after detection: `order.ts`, `rectify.ts` (with `lm.ts`, MINPACK's Levenberg–Marquardt as SciPy runs it), `contact.ts`, `chain.ts` and `measure.ts` (`pipeline.measure` from the detections on: polarities, misfits, warnings, notes, errors). Not yet: detection, hand edits (`edits.py`), `to_photo_px`, the session document. Not wired into any page. | `golden.test.ts` against Python on the 167 benchmark scenes, 3 variants each (`npm run golden` writes them): chains, warnings and errors identical, geometry within 1e-4 mm. |
 | `src/overlay/`, `src/camera/` | The live camera overlay: `blobs.ts` (fast dot detector for video frames), `reading.ts`, `coach.ts` (what to tell the person, when to take the still; limits calibrated on S5's renders), `session.ts` (the loop), `words.ts` (what the camera view says), `trace.ts` (the chain drawn over the video). `camera/choose.ts` picks the camera (O10), `camera/focal.ts` carries focal lengths between stills and frames. The chain's order and tilt come from `splinewire/live.py` through the core worker's `analyse` command. | Tested in Node, and in Chromium with a fake camera (`e2e/camera.spec.ts`). Not tried on a phone. |
 | `spikes/phone-capabilities/` | The S2/S3 test page for a real phone. | Done; waiting to be hosted and tried. |
 

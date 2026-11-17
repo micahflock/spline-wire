@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "assets": "uv run python scripts/assets.py",
-    "e2e": "playwright test --trace off"
+    "e2e": "playwright test --trace off",
+    "golden": "uv run python scripts/golden.py"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
