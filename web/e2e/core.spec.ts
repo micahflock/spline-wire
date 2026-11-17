@@ -12,7 +12,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import type { CoreClient } from "../src/core/client";
-import type { ChainSpec, MeasureOptions, MeasurementDocument, Point } from "../src/core/types";
+import type { Progress } from "../src/core/protocol";
+import type { ChainSpec, MeasureOptions, Point } from "../src/core/types";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -21,6 +22,7 @@ interface NativePhoto {
   truth: { pin_points: Point[] };
   cli_truth: { max_error_mm: number };
   pins_px: Point[];
+  focal_px: number;
   pins_mm: Point[];
   tsv: string;
 }
@@ -34,7 +36,7 @@ const PX_TOLERANCE = 0.05;
 const MM_TOLERANCE = 0.005;
 
 declare global {
-  interface Window { core: CoreClient; chains: Promise<Record<string, ChainSpec>> }
+  interface Window { core: CoreClient; chains: Promise<Record<string, ChainSpec>>; progressLog: Progress[] }
 }
 
 let native: Native;
@@ -74,22 +76,23 @@ const stats = () => page.evaluate(() => window.core.call("stats", {}));
 const maxDistance = (a: Point[], b: Point[]) => Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i]![0], p[1] - b[i]![1])));
 
 test("loads, reporting progress", async () => {
-  const { progress, result, wall } = await page.evaluate(async () => {
-    const progress: { stage: string; fraction: number }[] = [];
-    window.core.onProgress = (p) => progress.push(p);
-    const t0 = performance.now();
+  // The page starts loading as it opens; this waits for that load.
+  const { progress, result } = await page.evaluate(async () => {
     const result = await window.core.preload();
-    return { progress, result, wall: performance.now() - t0 };
+    return { progress: window.progressLog, result };
   });
-  // The page started loading when it opened, so some events may have gone to its own handler.
-  expect(progress.at(-1)).toEqual({ stage: "ready", fraction: 1 });
+  const at = (stage: string) => (progress.find((p) => p.stage === stage) as unknown as { t: number }).t;
+  const stages = `runtime ${at("packages") - at("runtime")} ms, packages ${at("starting") - at("packages")} ms, ` +
+    `imports ${at("ready") - at("starting")} ms`;
+  expect(progress.map((p) => p.stage)).toEqual(["runtime", "packages", "starting", "ready"]);
   const fractions = progress.map((p) => p.fraction);
   expect(fractions).toEqual([...fractions].sort((a, b) => a - b));
+  expect(fractions.at(-1)).toBe(1);
   expect(result.versions).toMatchObject({ pyodide: expect.any(String), opencv: expect.any(String) });
   const again = await page.evaluate(() => window.core.preload());
   expect(again.ms).toBe(result.ms);            // idempotent: the same load
-  log(`cold load ${(result.ms / 1000).toFixed(1)} s in the worker (${(wall / 1000).toFixed(1)} s waited here),`,
-      `versions ${JSON.stringify(result.versions)}, heap ${mib((await stats()).heap_bytes)}`);
+  log(`cold load ${(result.ms / 1000).toFixed(1)} s (${stages}), versions ${JSON.stringify(result.versions)},`,
+      `heap ${mib((await stats()).heap_bytes)}`);
 });
 
 for (const name of ["pipe", "shadow"] as const) {
@@ -140,17 +143,19 @@ test("an edit measures again without detecting again", async () => {
 });
 
 test("outputs: every kind, named after the photo, the tsv as Python writes it", async () => {
-  const { files, names, ms } = await page.evaluate(async () => {
+  const { files, names, ms, again } = await page.evaluate(async () => {
     const t0 = performance.now();
     const out = await window.core.call("outputs", { photo: "pipe" });
-    return { ...out, ms: performance.now() - t0 };
+    const t1 = performance.now();
+    await window.core.call("outputs", { photo: "pipe" });
+    return { ...out, ms: t1 - t0, again: performance.now() - t1 };
   });
   expect(Object.keys(files).sort()).toEqual(["csv", "dxf", "fusion_csv", "json", "svg", "tsv"]);
   expect(names).toEqual({ json: "pipe.json", csv: "pipe-curve.csv", svg: "pipe-curve.svg",
                           dxf: "pipe-curve.dxf", fusion_csv: "pipe-fusion-cm.csv" });
   expect(files.dxf).toContain("SPLINE");
-  // The same table, to the last digit (OpenCV versions differ by < 0.05 px,
-  // well under the table's 0.1 µm resolution here... or not: see the count).
+  // The same table as native Python's, row for row. The browser's OpenCV
+  // (4.11) is not the native one, so digits may differ by the pins' < 0.05 px.
   const browser = files.tsv.trimEnd().split("\n");
   const python = native.photos.pipe.tsv.trimEnd().split("\n");
   expect(browser[0]).toBe("x_mm\ty_mm");
@@ -161,7 +166,7 @@ test("outputs: every kind, named after the photo, the tsv as Python writes it", 
   }));
   const same = browser.filter((row, i) => row === python[i]).length - 1;
   expect(worst).toBeLessThan(MM_TOLERANCE);
-  log(`outputs in ${ms.toFixed(0)} ms (first call: ezdxf loaded in the background before it);`,
+  log(`outputs: first call ${ms.toFixed(0)} ms (imports ezdxf), then ${again.toFixed(0)} ms;`,
       `tsv rows identical to native Python: ${same}/${browser.length - 1}, worst ${worst.toFixed(4)} mm`);
 });
 
@@ -210,17 +215,20 @@ test("analyse puts a measurement's pins back in chain order", async () => {
     points: shuffled.map((p): Point => [p.x, p.y]), diameters: shuffled.map((p) => 2 * p.r),
     width: doc.view!.width, height: doc.view!.height, chain: native.chain, focal_px: null,
   };
-  const { a, ms } = await page.evaluate(async (frame) => {
+  const { a, ms, known } = await page.evaluate(async ([frame, focal]) => {
     await window.core.call("analyse", frame);            // the first call may pay for imports
     const t0 = performance.now();
     const a = await window.core.call("analyse", frame);
-    return { a, ms: performance.now() - t0 };
-  }, frame);
+    const t1 = performance.now();
+    await window.core.call("analyse", { ...frame, focal_px: focal });
+    return { a, ms: t1 - t0, known: performance.now() - t1 };
+  }, [frame, native.photos.pipe.focal_px] as const);
   const ks = a.order.map((i) => shuffled[i]!.k);
   const forward = pins.map((p) => p.k);
   expect([forward, [...forward].reverse()]).toContainEqual(ks);
   expect(a.tilt_deg).not.toBeNull();
-  log(`analyse round trip ${ms.toFixed(1)} ms for ${pins.length} points, tilt ${a.tilt_deg}°`);
+  log(`analyse round trip for ${pins.length} points: ${ms.toFixed(0)} ms with the focal length estimated,`,
+      `${known.toFixed(0)} ms with it known; tilt ${a.tilt_deg}°`);
 });
 
 test("the test page measures a picked photo and offers the files", async () => {
@@ -237,5 +245,3 @@ test("loads warm in a new tab", async () => {
   log(`warm load ${(result.ms / 1000).toFixed(1)} s (HTTP cache warm)`);
   await tab.close();
 });
-
-export type { MeasurementDocument };

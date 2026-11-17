@@ -10,8 +10,8 @@
 // pipeline imports and the splinewire wheel (installed without its
 // dependencies: the wheel asks for opencv-python-headless, which Pyodide ships
 // as opencv-python), then `import splinewire.bridge`. ezdxf and its
-// dependencies (DXF output only; 1.4 s to import) are loaded after the first
-// measurement, while the person looks at it, or on the first `outputs`.
+// dependencies (DXF output only; 1.4 s to import) are downloaded once that
+// is done and imported by the first `outputs`.
 
 import type { PyodideAPI } from "pyodide";
 import type { Command, Commands, Failure, Progress, Request, Response } from "./protocol";
@@ -56,7 +56,9 @@ function load(): Promise<Commands["load"]["result"]> {
 
 async function loadOnce(): Promise<Commands["load"]["result"]> {
   const t0 = performance.now();
-  // Fractions follow S1's warm timings: runtime ~2 s, packages ~3.5 s, imports ~3 s.
+  // Fractions follow the e2e test's timings in desktop Chromium: runtime 2.3-3.1 s,
+  // packages 2.8-3.4 s, imports 2.3-3.1 s. Passing the packages to loadPyodide
+  // (downloaded while it boots) was no faster there: 8.2-10.3 s against 7.7-9.1 s.
   progress("runtime", 0);
   const res = await fetch(new URL("core-manifest.json", ROOT), { cache: "no-cache" });
   if (!res.ok) throw new Error(`core-manifest.json: HTTP ${res.status} (run npm run assets)`);
@@ -65,16 +67,19 @@ async function loadOnce(): Promise<Commands["load"]["result"]> {
   const { loadPyodide } = (await import(/* @vite-ignore */ index + "pyodide.mjs")) as typeof import("pyodide");
   py = await loadPyodide({ indexURL: index });
 
-  progress("packages", 0.2);
+  progress("packages", 0.3);
   const wanted = [...manifest.boot.packages, new URL(manifest.wheels.splinewire, ROOT).href];
   await py.loadPackage(wanted, { messageCallback: () => {} });
 
-  progress("starting", 0.6);
-  const mod = py.pyimport("splinewire.bridge");
-  bridgeCall = mod.call as PyCall;
-  mod.destroy();
+  progress("starting", 0.65);
+  // Kept for the worker's life: `call` is borrowed from the module's proxy.
+  bridgeCall = py.pyimport("splinewire.bridge").call as PyCall;
   const versions = bridge("versions", {}) as Record<string, string>;
   progress("ready", 1);
+  // Download ezdxf and its dependencies now, while the person picks a photo.
+  // Only the download: importing ezdxf (1.4 s) waits for the first "outputs",
+  // so it cannot hold up a measurement.
+  setTimeout(() => void loadExtras().catch(() => {}), 0);
   return { versions: { ...versions, pyodide: manifest.pyodide.version }, ms: Math.round(performance.now() - t0) };
 }
 
@@ -117,8 +122,6 @@ const handlers: Handlers = {
   async measure({ photo, options }) {
     await load();
     const doc = bridge("measure", { photo, options }) as Commands["measure"]["result"];
-    // The files are likely wanted next: get ezdxf in while the person looks at the result.
-    if (doc.ok) setTimeout(() => void loadExtras().catch(() => {}), 0);
     return doc;
   },
   async outputs({ photo }) {

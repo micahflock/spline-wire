@@ -1,17 +1,21 @@
 // The throwaway test page (web-build step 1's exit criterion): drop a photo,
 // see it measured by the core worker. Exposes `core` and `chains` on window
-// for the Playwright test (e2e/core.spec.ts).
+// and the load's progress events (`progressLog`) on window for the
+// Playwright test (e2e/core.spec.ts).
 
 import { CoreClient, type PhotoSource } from "../core/client";
+import type { Progress } from "../core/protocol";
 import type { ChainSpec, MeasurementDocument, OutputKind, Side } from "../core/types";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const core = new CoreClient(() => new Worker(new URL("../core/worker.ts", import.meta.url), { type: "module" }));
 const chains: Promise<Record<string, ChainSpec>> = fetch("chains.json").then((r) => r.json());
-Object.assign(window, { core, chains });
+const progressLog: Progress[] = [];
+Object.assign(window, { core, chains, progressLog });
 
 core.onProgress = (p) => {
+  progressLog.push({ ...p, t: Math.round(performance.now()) } as Progress);
   $<HTMLProgressElement>("progress").value = p.fraction;
   $("stage").textContent = p.stage;
 };

@@ -3,3 +3,7 @@ dist/
 public/pyodide/
 public/wheels/
 .wrangler/
+public/chains.json
+public/core-manifest.json
+test-results/
+playwright-report/

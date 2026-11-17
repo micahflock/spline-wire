@@ -1,0 +1,83 @@
+name: Web
+
+# The hosted build (web/): typecheck, unit tests, the site's assets (Pyodide,
+# its packages and the splinewire wheel), the build, and the end-to-end test of
+# the core worker in Chromium against native Python on synthetic photos.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "web/**"
+      - "splinewire/**"
+      - "data/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/web.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "splinewire/**"
+      - "data/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/web.yml"
+  workflow_dispatch:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: |
+          npm ci
+          uv sync
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # Pyodide's packages (~30 MB from jsdelivr) change only with the lock files.
+      - uses: actions/cache@v4
+        with:
+          path: web/public/pyodide
+          key: pyodide-${{ hashFiles('web/package-lock.json', 'web/scripts/assets.py') }}
+
+      - name: Site assets
+        run: npm run assets
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end test
+        run: npm run e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: web/test-results/
+          if-no-files-found: ignore

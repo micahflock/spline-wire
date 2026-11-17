@@ -42,6 +42,7 @@ def main() -> None:
             "photo": str(photo), "truth": json.loads(truth.read_text()),
             "cli_truth": cli_doc["truth_comparison"],
             "pins_px": [[p["x"], p["y"]] for p in doc["view"]["pins"]],
+            "focal_px": s.exif_focal_px,
             "pins_mm": doc["curve"]["pins"],
             "tsv": s.outputs()["tsv"],
         }
