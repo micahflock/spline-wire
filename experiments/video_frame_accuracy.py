@@ -225,22 +225,25 @@ def evaluate(scenes, conds, workers: int, max_bend: float) -> list[dict]:
     done = len(jobs) - len(todo)
     while todo:
         n = workers if not kills else 1
-        with ProcessPoolExecutor(n, max_tasks_per_child=10) as ex:
-            futs = {ex.submit(evaluate_one, j): j for j in todo}
-            broken = False
-            for fut in as_completed(futs):
-                j = futs[fut]
-                try:
-                    rec = fut.result()
-                except BrokenProcessPool:
-                    broken = True
-                    continue
-                path = _rec_path(*j[:2], max_bend)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps(rec), encoding="utf-8")
-                done += 1
-                if done % 100 == 0:
-                    print(f"  {done}/{len(jobs)}  ({time.time() - t:.0f} s)", flush=True)
+        broken = False
+        for k in range(0, len(todo), 40):      # a fresh pool every 40 photos: workers' memory grows
+            if broken:
+                break
+            with ProcessPoolExecutor(n) as ex:
+                futs = {ex.submit(evaluate_one, j): j for j in todo[k:k + 40]}
+                for fut in as_completed(futs):
+                    j = futs[fut]
+                    try:
+                        rec = fut.result()
+                    except BrokenProcessPool:
+                        broken = True
+                        continue
+                    path = _rec_path(*j[:2], max_bend)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(json.dumps(rec), encoding="utf-8")
+                    done += 1
+                    if done % 100 == 0:
+                        print(f"  {done}/{len(jobs)}  ({time.time() - t:.0f} s)", flush=True)
         todo = [j for j in todo if not _rec_path(*j[:2], max_bend).exists()]
         if not broken:
             break
