@@ -66,8 +66,7 @@ import os
 import sys
 import time
 import zlib
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from concurrent.futures.process import BrokenProcessPool
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -225,54 +224,28 @@ def _rec_path(cond: str, sid: str, max_bend: float) -> Path:
     return OUT / SPEC.fiducial / "records" / f"bend{max_bend:g}" / cond.replace(" ", "-") / f"{sid}.json"
 
 
+def _evaluate_job(job) -> tuple:
+    return job, evaluate_one(job)
+
+
 def evaluate(scenes, conds, workers: int, max_bend: float) -> list[dict]:
     """Records are cached per photo, so an interrupted run resumes. Workers are
-    recycled, and a pool that loses a worker (out of memory on a shared
-    machine) is rebuilt; a photo that kills a worker twice is recorded as failed."""
+    recycled (their memory grows) and capped at MEM_CAP_GB each."""
+    import multiprocessing
     jobs = [(c[0], sid, max_bend) for c in conds for sid, *_ in scenes]
     todo = [j for j in jobs if not _rec_path(*j[:2], max_bend).exists()]
-    kills: dict[tuple, int] = {}
     t = time.time()
     if todo:
         print(f"evaluating {len(todo)} photos ...", flush=True)
-    done = len(jobs) - len(todo)
-    while todo:
-        n = workers if not kills else 1
-        broken = False
-        for k in range(0, len(todo), 40):      # a fresh pool every 40 photos: workers' memory grows
-            if broken:
-                break
-            with ProcessPoolExecutor(n) as ex:
-                futs = {ex.submit(evaluate_one, j): j for j in todo[k:k + 40]}
-                for fut in as_completed(futs):
-                    j = futs[fut]
-                    try:
-                        rec = fut.result()
-                    except BrokenProcessPool:
-                        broken = True
-                        continue
-                    path = _rec_path(*j[:2], max_bend)
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_text(json.dumps(rec), encoding="utf-8")
-                    done += 1
-                    if done % 100 == 0:
-                        print(f"  {done}/{len(jobs)}  ({time.time() - t:.0f} s)", flush=True)
-        todo = [j for j in todo if not _rec_path(*j[:2], max_bend).exists()]
-        if not broken:
-            break
-        print(f"  a worker was killed; {len(todo)} left, retrying", flush=True)
-        if n == 1 and todo:                 # the first job left kills even a lone worker
-            j = todo[0]
-            kills[j] = kills.get(j, 0) + 1
-            if kills[j] >= 2:
-                fail = {"chain_ok": False, "err_mm": None, "rms_mm": None, "error": "worker killed"}
-                rec = {"condition": j[0], "id": j[1], "environment": "?", "killed": True, "found": 0,
-                       "false": 0, "px_per_mm": float("nan"), "motion_blur_px": float("nan"),
-                       "fill": float("nan"), "in_frame": True, "true": fail, "est": dict(fail)}
-                _rec_path(*j[:2], max_bend).parent.mkdir(parents=True, exist_ok=True)
-                _rec_path(*j[:2], max_bend).write_text(json.dumps(rec), encoding="utf-8")
-        else:
-            kills[("pool",)] = 1            # from now on one worker at a time
+        done = len(jobs) - len(todo)
+        with multiprocessing.get_context("fork").Pool(workers, maxtasksperchild=8) as pool:
+            for j, rec in pool.imap_unordered(_evaluate_job, todo):
+                path = _rec_path(*j[:2], max_bend)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(rec), encoding="utf-8")
+                done += 1
+                if done % 100 == 0:
+                    print(f"  {done}/{len(jobs)}  ({time.time() - t:.0f} s)", flush=True)
     return [json.loads(_rec_path(*j[:2], max_bend).read_text(encoding="utf-8")) for j in jobs]
 
 
