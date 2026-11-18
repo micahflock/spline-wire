@@ -66,6 +66,34 @@ def image_record(img: np.ndarray) -> dict:
     return rec
 
 
+def small_records() -> list[dict]:
+    """Images at the edges of cv.ts's fast paths: narrower or shorter than the
+    blur's 7 taps and the masks' 25-pixel box, odd and even, from one pixel
+    wide up; noise, and dots on a plain ground. Components on random masks of
+    5 to 95% density."""
+    rng = np.random.default_rng(11)
+    out = []
+    for w, h in [(1, 1), (1, 9), (9, 1), (2, 3), (3, 2), (6, 7), (13, 9), (24, 26), (27, 25), (40, 33)]:
+        for kind in ("noise", "dots"):
+            if kind == "noise":
+                img = rng.integers(0, 256, (h, w)).astype(np.uint8)
+            else:
+                img = np.full((h, w), 40, np.uint8)
+                n = max(1, w * h // 40)
+                img[rng.integers(0, h, n), rng.integers(0, w, n)] = 230
+            masks = _masks(img)
+            rec = {"width": w, "height": h, "image": b64(img),
+                   "blur08": b64(cv2.GaussianBlur(img, (0, 0), 0.8)), "blur10": b64(cv2.GaussianBlur(img, (0, 0), 1.0)),
+                   "adaptive": b64(masks[0][0]), "bright": b64(masks[2][0]), "masks": []}
+            for density in (0.05, 0.5, 0.95):
+                m = ((rng.random((h, w)) < density) * 255).astype(np.uint8)
+                _, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+                rec["masks"].append({"mask": b64(m), "labels": b64(labels.astype(np.int32)),
+                                     "stats": stats.astype(int).tolist()})
+            out.append(rec)
+    return out
+
+
 def main() -> None:
     rng = np.random.default_rng(5)
     full = cv2.imread(str(RENDER), cv2.IMREAD_GRAYSCALE)
@@ -97,7 +125,7 @@ def main() -> None:
     remap = cv2.remap(g, mx[None], my[None], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)[0]
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    data = {"opencv": cv2.__version__, "images": images, "direct": direct,
+    data = {"opencv": cv2.__version__, "images": images, "direct": direct, "small": small_records(),
             "remap": {"x": b64(mx), "y": b64(my), "value": b64(remap.astype(np.float32))}}
     with gzip.GzipFile(OUT, "wb", mtime=0) as f:
         f.write(json.dumps(data, separators=(",", ":")).encode("utf-8"))

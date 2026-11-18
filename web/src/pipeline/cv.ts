@@ -50,26 +50,58 @@ export function gaussianKernel8(sigma: number): number[] {
 /** cv2.GaussianBlur(img, (0, 0), sigma) on an 8-bit image: rows then columns
  * in integers, rounded once, borders reflected about the edge pixel. */
 export function gaussianBlur8(img: Gray, sigma: number): Gray {
-  const k = gaussianKernel8(sigma);
-  const r = k.length >> 1;
+  const k = Int32Array.from(gaussianKernel8(sigma));
+  const n = k.length, r = n >> 1;
   const { width: w, height: h, data } = img;
-  const rows = new Uint32Array(w * h);
+  // The taps are whole, at least 0 and sum to 256, so a row sum fits 16 bits
+  // and a column sum of them 31: every sum is exact, in any order. The
+  // symmetric taps are paired, and the usual 7-tap kernel is written out.
+  const rows = new Uint16Array(w * h);
   const xs = reflectIndex(w, r);
+  const seven = n === 7;
+  const k0 = k[0]!, k1 = k[1]!, k2 = k[2]!, kc = k[r]!;
+  const lo = Math.min(r, w), hi = Math.max(lo, w - r);
   for (let y = 0; y < h; y++) {
     const row = y * w;
-    for (let x = 0; x < w; x++) {
+    const edge = (x: number) => {
       let s = 0;
-      for (let i = 0; i < k.length; i++) s += k[i]! * data[row + xs[x + i]!]!;
+      for (let i = 0; i < n; i++) s += k[i]! * data[row + xs[x + i]!]!;
       rows[row + x] = s;
+    };
+    for (let x = 0; x < lo; x++) edge(x);
+    if (seven) {
+      for (let x = lo, i = row + lo; x < hi; x++, i++) {
+        rows[i] = kc * data[i]! + k2 * (data[i - 1]! + data[i + 1]!) + k1 * (data[i - 2]! + data[i + 2]!)
+          + k0 * (data[i - 3]! + data[i + 3]!);
+      }
+    } else {
+      for (let x = lo, i = row + lo; x < hi; x++, i++) {
+        let s = kc * data[i]!;
+        for (let j = 1; j <= r; j++) s += k[r - j]! * (data[i - j]! + data[i + j]!);
+        rows[i] = s;
+      }
     }
+    for (let x = hi; x < w; x++) edge(x);
   }
   const ys = reflectIndex(h, r);
   const out = new Uint8Array(w * h);
+  const at = new Int32Array(n);
   for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let s = 0;
-      for (let i = 0; i < k.length; i++) s += k[i]! * rows[ys[y + i]! * w + x]!;
-      out[y * w + x] = (s + 32768) >>> 16;
+    for (let i = 0; i < n; i++) at[i] = ys[y + i]! * w;
+    const o = y * w;
+    if (seven) {
+      const a0 = at[0]!, a1 = at[1]!, a2 = at[2]!, a3 = at[3]!, a4 = at[4]!, a5 = at[5]!, a6 = at[6]!;
+      for (let x = 0; x < w; x++) {
+        const s = kc * rows[a3 + x]! + k2 * (rows[a2 + x]! + rows[a4 + x]!) + k1 * (rows[a1 + x]! + rows[a5 + x]!)
+          + k0 * (rows[a0 + x]! + rows[a6 + x]!);
+        out[o + x] = (s + 32768) >>> 16;
+      }
+    } else {
+      for (let x = 0; x < w; x++) {
+        let s = 0;
+        for (let i = 0; i < n; i++) s += k[i]! * rows[at[i]! + x]!;
+        out[o + x] = (s + 32768) >>> 16;
+      }
     }
   }
   return { width: w, height: h, data: out };
@@ -156,40 +188,72 @@ function areaTab(ssize: number, dsize: number, scale: number): { di: number; si:
 // ---------------------------------------------------------------------------
 // Thresholds (detect._masks)
 
-/** The sum over the (2r+1)^2 box about every pixel, the image padded with
- * the given border rule. Integer images only (8-bit values or their squares),
- * so every sum is exact and the order of adding does not matter: rows first,
- * then a running sum down each column. */
-function boxSums(values: ArrayLike<number>, w: number, h: number, r: number, border: "replicate" | "reflect101"): Int32Array {
+/** The sums over the (2r+1)^2 box about every pixel of an 8-bit image (and,
+ * with `squares`, of its squares), the image padded with the given border
+ * rule, handed to `row(y, sums, sumsSq)` one image row at a time. Every sum
+ * is an exact integer, so the order of adding does not matter: a running sum
+ * along each row, then a running sum of those down each column. Only the
+ * last 2r+2 rows' sums are kept, not the image's. */
+function boxSumRows(data: Uint8Array, w: number, h: number, r: number, border: "replicate" | "reflect101",
+  squares: boolean, row: (y: number, sums: Int32Array, sumsSq: Int32Array) => void): void {
   const xs = border === "replicate" ? clampIndex(w, r) : reflectIndex(w, r);
   const ys = border === "replicate" ? clampIndex(h, r) : reflectIndex(h, r);
   const k = 2 * r + 1;
-  const rows = new Int32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const src = y * w;
-    let s = 0;
-    for (let i = 0; i < k; i++) s += values[src + xs[i]!]!;
-    rows[src] = s;
-    for (let x = 1; x < w; x++) {
-      s += values[src + xs[x + k - 1]!]! - values[src + xs[x - 1]!]!;
-      rows[src + x] = s;
+  const slots = k + 1;                    // padded row p is in slot p % slots until p + k is added
+  const ring = new Int32Array(slots * w), ringSq = new Int32Array(squares ? slots * w : 0);
+  const lo = Math.min(r + 1, w), hi = Math.max(lo, w - r);
+  const rowSums = (src: number, slot: number) => {
+    const s0 = src * w, o = slot * w;
+    let s = 0, q = 0;
+    for (let i = 0; i < k; i++) {
+      const v = data[s0 + xs[i]!]!;
+      s += v;
+      q += v * v;
     }
+    ring[o] = s;
+    if (squares) ringSq[o] = q;
+    // Interior: x - r - 1 >= 0 and x + r <= w - 1, so no index table.
+    const step = (x: number, a: number, b: number) => {
+      s += a - b;
+      ring[o + x] = s;
+      if (squares) {
+        q += a * a - b * b;
+        ringSq[o + x] = q;
+      }
+    };
+    for (let x = 1; x < lo; x++) step(x, data[s0 + xs[x + k - 1]!]!, data[s0 + xs[x - 1]!]!);
+    if (squares) {
+      for (let x = lo, i = s0 + lo; x < hi; x++, i++) {
+        const a = data[i + r]!, b = data[i - r - 1]!;
+        s += a - b;
+        q += a * a - b * b;
+        ring[o + x] = s;
+        ringSq[o + x] = q;
+      }
+    } else {
+      for (let x = lo, i = s0 + lo; x < hi; x++, i++) {
+        s += data[i + r]! - data[i - r - 1]!;
+        ring[o + x] = s;
+      }
+    }
+    for (let x = Math.max(hi, 1); x < w; x++) step(x, data[s0 + xs[x + k - 1]!]!, data[s0 + xs[x - 1]!]!);
+  };
+  const acc = new Int32Array(w), accSq = new Int32Array(squares ? w : 0);
+  for (let p = 0; p < k; p++) {
+    rowSums(ys[p]!, p);
+    const o = p * w;
+    for (let x = 0; x < w; x++) acc[x] = acc[x]! + ring[o + x]!;
+    if (squares) for (let x = 0; x < w; x++) accSq[x] = accSq[x]! + ringSq[o + x]!;
   }
-  const out = new Int32Array(w * h);
-  const acc = new Int32Array(w);
-  for (let i = 0; i < k; i++) {
-    const row = ys[i]! * w;
-    for (let x = 0; x < w; x++) acc[x] = acc[x]! + rows[row + x]!;
-  }
-  out.set(acc, 0);
+  row(0, acc, accSq);
   for (let y = 1; y < h; y++) {
-    const add = ys[y + k - 1]! * w, sub = ys[y - 1]! * w;
-    for (let x = 0; x < w; x++) {
-      acc[x] = acc[x]! + rows[add + x]! - rows[sub + x]!;
-      out[y * w + x] = acc[x]!;
-    }
+    const p = y + k - 1;                  // padded row coming in; p - k = y - 1 going out
+    const add = (p % slots) * w, sub = ((y - 1) % slots) * w;
+    rowSums(ys[p]!, p % slots);
+    for (let x = 0; x < w; x++) acc[x] = acc[x]! + ring[add + x]! - ring[sub + x]!;
+    if (squares) for (let x = 0; x < w; x++) accSq[x] = accSq[x]! + ringSq[add + x]! - ringSq[sub + x]!;
+    row(y, acc, accSq);
   }
-  return out;
 }
 
 function clampIndex(n: number, r: number): Int32Array {
@@ -202,14 +266,16 @@ function clampIndex(n: number, r: number): Int32Array {
  * where the pixel exceeds its block's mean (8-bit, rounded) by more than -c. */
 export function adaptiveMeanThreshold(img: Gray, block: number, c: number): Uint8Array {
   const { width: w, height: h, data } = img;
-  const sums = boxSums(data, w, h, block >> 1, "replicate");
   const inv = 1 / (block * block);
   const idelta = Math.ceil(c);
+  // The rounded mean of every possible box sum, looked up rather than computed.
+  const mean = new Uint8Array(block * block * 255 + 1);
+  for (let s = 0; s < mean.length; s++) mean[s] = roundEven(s * inv);
   const out = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const mean = roundEven(sums[i]! * inv);
-    out[i] = data[i]! - mean > -idelta ? 255 : 0;
-  }
+  boxSumRows(data, w, h, block >> 1, "replicate", false, (y, sums) => {
+    const o = y * w;
+    for (let x = 0; x < w; x++) out[o + x] = data[o + x]! - mean[sums[x]!]! > -idelta ? 255 : 0;
+  });
   return out;
 }
 
@@ -218,21 +284,25 @@ export function adaptiveMeanThreshold(img: Gray, block: number, c: number): Uint
  * contrast at all (std over 6). */
 export function brightMask(img: Gray, block: number): Uint8Array {
   const { width: w, height: h, data } = img;
-  const sq = new Int32Array(w * h);
-  for (let i = 0; i < w * h; i++) sq[i] = data[i]! * data[i]!;
-  const r = block >> 1;
-  const s1 = boxSums(data, w, h, r, "reflect101");
-  const s2 = boxSums(sq, w, h, r, "reflect101");
   const inv = 1 / (block * block);
   const f = Math.fround;
   const k = f(0.8);
   const out = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const mean = f(s1[i]! * inv);
-    const var_ = f(f(s2[i]! * inv) - f(mean * mean));
-    const std = f(Math.sqrt(Math.max(var_, 0)));
-    out[i] = data[i]! > f(mean + f(k * std)) && std > 6 ? 255 : 0;
-  }
+  // Two exact shortcuts before the float32 arithmetic: the threshold is never
+  // below the mean (std >= 0, and float32 rounding keeps order), and std > 6
+  // needs a variance above 36.
+  boxSumRows(data, w, h, block >> 1, "reflect101", true, (y, s1, s2) => {
+    const o = y * w;
+    for (let x = 0; x < w; x++) {
+      const v = data[o + x]!;
+      const mean = f(s1[x]! * inv);
+      if (v <= mean) continue;
+      const var_ = f(f(s2[x]! * inv) - f(mean * mean));
+      if (!(var_ > 36)) continue;
+      const std = f(Math.sqrt(var_));
+      if (v > f(mean + f(k * std)) && std > 6) out[o + x] = 255;
+    }
+  });
   return out;
 }
 
@@ -247,89 +317,149 @@ export interface Components {
 
 /** cv2.connectedComponentsWithStats(mask, connectivity=8). Labels are numbered
  * as OpenCV's block-based labelling numbers them: by the first 2x2 block (in
- * raster order of blocks) that holds a pixel of the component. */
+ * raster order of blocks) that holds a pixel of the component.
+ *
+ * Labelled by runs: each row's runs of set pixels, merged (union-find) with
+ * the runs of the row above they touch, diagonals included. Any labelling
+ * gives the same components, and the numbering and stats depend only on
+ * those, so the result is OpenCV's whatever the method. */
 export function connectedComponents(mask: Uint8Array, w: number, h: number): Components {
-  const labels = new Int32Array(w * h);
-  const parent: number[] = [0];
+  // Runs: start x, end x (exclusive), row, provisional label.
+  let cap = 4096;
+  let rs = new Int32Array(cap), re = new Int32Array(cap), ry = new Int32Array(cap), rl = new Int32Array(cap);
+  let nRuns = 0;
+  let parent = new Int32Array(1024);
+  let next = 1;
   const find = (a: number): number => {
     while (parent[a] !== a) {
-      parent[a] = parent[parent[a]!]!;
-      a = parent[a]!;
+      const g = parent[parent[a]!]!;
+      parent[a] = g;
+      a = g;
     }
     return a;
   };
-  const union = (a: number, b: number): number => {
-    a = find(a);
-    b = find(b);
-    if (a === b) return a;
-    if (a < b) {
-      parent[b] = a;
-      return a;
-    }
-    parent[a] = b;
-    return b;
-  };
-  // Provisional labels in raster order; merged with neighbours above and to the left.
+  let prevFrom = 0, prevTo = 0;            // the row above's runs
   for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      if (!mask[i]) continue;
+    const row = y * w;
+    const from = nRuns;
+    let j = prevFrom;
+    let x = 0;
+    while (x < w) {
+      while (x < w && !mask[row + x]) x++;
+      if (x === w) break;
+      const s = x;
+      while (x < w && mask[row + x]) x++;
+      const e = x;
+      if (nRuns === cap) {
+        cap *= 2;
+        const grow = (a: Int32Array) => {
+          const b = new Int32Array(cap);
+          b.set(a);
+          return b;
+        };
+        rs = grow(rs); re = grow(re); ry = grow(ry); rl = grow(rl);
+      }
+      // Runs above that touch [s, e): end >= s and start <= e (8-connected).
+      while (j < prevTo && re[j]! < s) j++;
       let l = 0;
-      const look = (j: number) => {
-        const m = labels[j]!;
-        if (m) l = l ? union(l, m) : find(m);
-      };
-      if (x > 0) look(i - 1);
-      if (y > 0) {
-        if (x > 0) look(i - w - 1);
-        look(i - w);
-        if (x + 1 < w) look(i - w + 1);
+      for (let k = j; k < prevTo && rs[k]! <= e; k++) {
+        const m = find(rl[k]!);
+        if (!l) l = m;
+        else if (m !== l) {
+          if (m < l) {
+            parent[l] = m;
+            l = m;
+          } else {
+            parent[m] = l;
+          }
+        }
       }
       if (!l) {
-        l = parent.length;
-        parent.push(l);
+        if (next === parent.length) {
+          const grown = new Int32Array(2 * parent.length);
+          grown.set(parent);
+          parent = grown;
+        }
+        l = next++;
+        parent[l] = l;
       }
-      labels[i] = l;
+      rs[nRuns] = s;
+      re[nRuns] = e;
+      ry[nRuns] = y;
+      rl[nRuns] = l;
+      nRuns++;
     }
+    prevFrom = from;
+    prevTo = nRuns;
   }
-  // Number the components by their first 2x2 block.
-  const first = new Map<number, number>();         // root -> block order key
-  for (let by = 0; by < h; by += 2) {
-    for (let bx = 0; bx < w; bx += 2) {
-      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
-        const x = bx + dx, y = by + dy;
-        if (x >= w || y >= h) continue;
-        const l = labels[y * w + x]!;
-        if (!l) continue;
-        const root = find(l);
-        if (!first.has(root)) first.set(root, first.size + 1);
-      }
-    }
+  // OpenCV numbers the components by their first 2x2 block, in raster order
+  // of blocks and, within a block, of its four pixels: the smallest key
+  // ((y >> 1) * blocks across + (x >> 1)) * 4 + (y & 1) * 2 + (x & 1) of any
+  // of a component's pixels, which in a run is its first pixel's.
+  const root = new Int32Array(next);
+  for (let l = 1; l < next; l++) root[l] = find(l);
+  const bw = (w + 1) >> 1;
+  const key = new Float64Array(next).fill(Infinity);
+  const bx0 = new Int32Array(next).fill(w), by0 = new Int32Array(next).fill(h);
+  const bx1 = new Int32Array(next).fill(-1), by1 = new Int32Array(next).fill(-1);
+  const barea = new Int32Array(next);
+  for (let i = 0; i < nRuns; i++) {
+    const r = root[rl[i]!]!;
+    const s = rs[i]!, e = re[i]!, y = ry[i]!;
+    const k = (y >> 1) * bw * 4 + (y & 1) * 2 + (s >> 1) * 4 + (s & 1);
+    if (k < key[r]!) key[r] = k;
+    if (s < bx0[r]!) bx0[r] = s;
+    if (e - 1 > bx1[r]!) bx1[r] = e - 1;
+    if (y < by0[r]!) by0[r] = y;
+    if (y > by1[r]!) by1[r] = y;
+    barea[r] = barea[r]! + e - s;
   }
-  const count = first.size + 1;
-  const x0 = new Int32Array(count).fill(w), y0 = new Int32Array(count).fill(h);
-  const x1 = new Int32Array(count).fill(-1), y1 = new Int32Array(count).fill(-1);
-  const area = new Int32Array(count);
-  const rootLabel = new Int32Array(parent.length);
-  for (const [root, n] of first) rootLabel[root] = n;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      let n = 0;
-      if (labels[i]) n = rootLabel[find(labels[i]!)]!;
-      labels[i] = n;
-      if (x < x0[n]!) x0[n] = x;
-      if (x > x1[n]!) x1[n] = x;
-      if (y < y0[n]!) y0[n] = y;
-      if (y > y1[n]!) y1[n] = y;
-      area[n]!++;
-    }
-  }
+  const roots: number[] = [];
+  for (let l = 1; l < next; l++) if (root[l] === l) roots.push(l);
+  roots.sort((a, b) => key[a]! - key[b]!);
+  const count = roots.length + 1;
+  const final = new Int32Array(next);
+  const x0 = new Int32Array(count), y0 = new Int32Array(count), area = new Int32Array(count);
   const ww = new Int32Array(count), hh = new Int32Array(count);
-  for (let n = 0; n < count; n++) {
-    ww[n] = x1[n]! - x0[n]! + 1;
-    hh[n] = y1[n]! - y0[n]! + 1;
+  let fgArea = 0;
+  roots.forEach((r, j) => {
+    const n = j + 1;
+    final[r] = n;
+    x0[n] = bx0[r]!;
+    y0[n] = by0[r]!;
+    ww[n] = bx1[r]! - bx0[r]! + 1;
+    hh[n] = by1[r]! - by0[r]! + 1;
+    area[n] = barea[r]!;
+    fgArea += barea[r]!;
+  });
+  const labels = new Int32Array(w * h);
+  // The background's box, from each row's first and last unset pixel.
+  let bgX0 = w, bgX1 = -1, bgY0 = h, bgY1 = -1;
+  let i = 0;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let covered = 0, first = 0, last = w - 1;
+    const from = i;
+    for (; i < nRuns && ry[i] === y; i++) {
+      labels.fill(final[root[rl[i]!]!]!, row + rs[i]!, row + re[i]!);
+      covered += re[i]! - rs[i]!;
+    }
+    if (covered === w) continue;
+    if (i > from) {
+      if (rs[from] === 0) first = re[from]!;
+      if (re[i - 1] === w) last = rs[i - 1]! - 1;
+    }
+    if (first < bgX0) bgX0 = first;
+    if (last > bgX1) bgX1 = last;
+    if (y < bgY0) bgY0 = y;
+    bgY1 = y;
   }
+  // The background's own stats, as OpenCV gives them for label 0.
+  x0[0] = bgX0;
+  y0[0] = bgY0;
+  ww[0] = bgX1 - bgX0 + 1;
+  hh[0] = bgY1 - bgY0 + 1;
+  area[0] = w * h - fgArea;
   return { count, labels, x: x0, y: y0, w: ww, h: hh, area };
 }
 
@@ -341,55 +471,61 @@ const DY = [0, -1, -1, -1, 0, 1, 1, 1];
 
 /** The outer border of component `label` inside its box, as OpenCV's
  * findContours traces it (Suzuki's border following, every pixel kept): from
- * the component's first pixel in raster order, points [x0, y0, x1, y1, ...]. */
+ * the component's first pixel in raster order, points [x0, y0, x1, y1, ...].
+ * Traced on the label image itself: a pixel counts if it lies in the box and
+ * carries the label, as if the component were alone in its box. */
 export function outerContour(c: Components, width: number, height: number, label: number): Int32Array {
   const bx = c.x[label]!, by = c.y[label]!, bw = c.w[label]!, bh = c.h[label]!;
-  // The component alone in its box, with a 1-pixel border of zeros.
-  const W = bw + 2, H = bh + 2;
-  const img = new Uint8Array(W * H);
-  let start = -1;
-  for (let y = 0; y < bh; y++) {
-    for (let x = 0; x < bw; x++) {
-      if (c.labels[(by + y) * width + bx + x] === label) {
-        img[(y + 1) * W + x + 1] = 1;
-        if (start < 0) start = (y + 1) * W + x + 1;
-      }
+  const labels = c.labels;
+  void height;
+  const set = (x: number, y: number) =>
+    x >= bx && x < bx + bw && y >= by && y < by + bh && labels[y * width + x] === label;
+  // The first pixel in raster order is on the box's top row.
+  let sx = -1;
+  for (let x = bx; x < bx + bw; x++) {
+    if (labels[by * width + x] === label) {
+      sx = x;
+      break;
     }
   }
-  void height;
-  if (start < 0) return new Int32Array(0);
-  const pts: number[] = [];
-  const delta = (s: number) => DX[s & 7]! + DY[s & 7]! * W;
-  const i0 = start;
-  let px = (start % W) - 1 + bx, py = Math.floor(start / W) - 1 + by;
+  if (sx < 0) return new Int32Array(0);
+  const x0 = sx, y0 = by;
   // First neighbour, looking from direction 3 down to 4 (s_end = 4 for an outer border).
   let s = 4;
-  let i1 = 0;
+  let x1 = 0, y1 = 0;
   do {
     s = (s - 1) & 7;
-    i1 = i0 + delta(s);
-  } while (!img[i1] && s !== 4);
-  if (s === 4) return Int32Array.of(px, py);       // a single pixel
-  let i3 = i0;
+    x1 = x0 + DX[s]!;
+    y1 = y0 + DY[s]!;
+  } while (!set(x1, y1) && s !== 4);
+  if (s === 4) return Int32Array.of(x0, y0);       // a single pixel
+  let out = new Int32Array(256);
+  let n = 0;
+  let px = x0, py = y0;                            // the current pixel (i3)
   for (;;) {
-    const sEnd = s;
     s = Math.min(s, 15);
-    let i4 = 0;
+    let qx = 0, qy = 0;
     while (s < 15) {
       s++;
-      i4 = i3 + delta(s);
-      if (img[i4]) break;
+      qx = px + DX[s & 7]!;
+      qy = py + DY[s & 7]!;
+      if (set(qx, qy)) break;
     }
     s &= 7;
-    void sEnd;
-    pts.push(px, py);
-    px += DX[s]!;
-    py += DY[s]!;
-    if (i4 === i0 && i3 === i1) break;
-    i3 = i4;
+    if (n + 2 > out.length) {
+      const grown = new Int32Array(2 * out.length);
+      grown.set(out);
+      out = grown;
+    }
+    out[n++] = px;
+    out[n++] = py;
+    const done = qx === x0 && qy === y0 && px === x1 && py === y1;
+    px = qx;
+    py = qy;
+    if (done) break;
     s = (s + 4) & 7;
   }
-  return Int32Array.from(pts);
+  return out.slice(0, n);
 }
 
 // ---------------------------------------------------------------------------
@@ -465,20 +601,30 @@ export function fitEllipse(pts: ArrayLike<number>): Ellipse {
   let s = 0;
   for (let i = 0; i < n; i++) s += f(Math.abs(f(pts[2 * i]! - cx)) + Math.abs(f(pts[2 * i + 1]! - cy)));
   const scale = 100 / (s > FLT_EPSILON ? s : FLT_EPSILON);
-  const A: number[][] = [];
-  const b: number[] = [];
-  const P: [number, number][] = [];
+  // Columns of A one after another (column-major), as leastSquares takes them.
+  const A = new Float64Array(5 * n), b = new Float64Array(n).fill(10000);
+  const P = new Float64Array(2 * n);
   for (let i = 0; i < n; i++) {
     const px = f(pts[2 * i]! - cx) * scale, py = f(pts[2 * i + 1]! - cy) * scale;
-    P.push([px, py]);
-    A.push([-px * px, -py * py, -px * py, px, py]);
-    b.push(10000);
+    P[2 * i] = px;
+    P[2 * i + 1] = py;
+    A[i] = -px * px;
+    A[n + i] = -py * py;
+    A[2 * n + i] = -px * py;
+    A[3 * n + i] = px;
+    A[4 * n + i] = py;
   }
-  const gfp = leastSquares(A, b);
+  const gfp = leastSquares(A, n, 5, b);
   // The centre, where the conic's gradient vanishes.
   const rp = solve2([[2 * gfp[0]!, gfp[2]!], [gfp[2]!, 2 * gfp[1]!]], [gfp[3]!, gfp[4]!]);
-  const A3 = P.map(([px, py]) => [(px - rp[0]) * (px - rp[0]), (py - rp[1]) * (py - rp[1]), (px - rp[0]) * (py - rp[1])]);
-  const g = leastSquares(A3, P.map(() => 1));
+  const A3 = new Float64Array(3 * n);
+  for (let i = 0; i < n; i++) {
+    const px = P[2 * i]!, py = P[2 * i + 1]!;
+    A3[i] = (px - rp[0]) * (px - rp[0]);
+    A3[n + i] = (py - rp[1]) * (py - rp[1]);
+    A3[2 * n + i] = (px - rp[0]) * (py - rp[1]);
+  }
+  const g = leastSquares(A3, n, 3, new Float64Array(n).fill(1));
   const minEps = 1e-8;
   const rot = -0.5 * Math.atan2(g[2]!, g[1]! - g[0]!);
   const t = Math.abs(g[2]!) > minEps ? g[2]! / Math.sin(-2.0 * rot) : g[1]! - g[0]!;
@@ -585,28 +731,28 @@ export function fitEllipseDirect(pts: ArrayLike<number>): Ellipse {
 // ---------------------------------------------------------------------------
 // Small linear algebra
 
-/** Least-squares solution of A x = b (Householder QR, columns well scaled). */
-function leastSquares(A: number[][], b: number[]): number[] {
-  const m = A.length, n = A[0]!.length;
-  const R = A.map((r) => r.slice());
-  const y = b.slice();
+/** Least-squares solution of A x = b (Householder QR, columns well scaled),
+ * A an m x n matrix stored column by column. A and b are overwritten. */
+function leastSquares(R: Float64Array, m: number, n: number, y: Float64Array): number[] {
+  const v = new Float64Array(m);
   for (let k = 0; k < n; k++) {
+    const ck = k * m;
     let norm = 0;
-    for (let i = k; i < m; i++) norm += R[i]![k]! ** 2;
+    for (let i = k; i < m; i++) norm += R[ck + i]! ** 2;
     norm = Math.sqrt(norm);
     if (norm === 0) continue;
-    const alpha = R[k]![k]! > 0 ? -norm : norm;
-    const v = new Array<number>(m).fill(0);
-    v[k] = R[k]![k]! - alpha;
-    for (let i = k + 1; i < m; i++) v[i] = R[i]![k]!;
+    const alpha = R[ck + k]! > 0 ? -norm : norm;
+    v[k] = R[ck + k]! - alpha;
+    for (let i = k + 1; i < m; i++) v[i] = R[ck + i]!;
     let vv = 0;
     for (let i = k; i < m; i++) vv += v[i]! ** 2;
     if (vv === 0) continue;
     for (let j = k; j < n; j++) {
+      const cj = j * m;
       let d = 0;
-      for (let i = k; i < m; i++) d += v[i]! * R[i]![j]!;
+      for (let i = k; i < m; i++) d += v[i]! * R[cj + i]!;
       const t = (2 * d) / vv;
-      for (let i = k; i < m; i++) R[i]![j] = R[i]![j]! - t * v[i]!;
+      for (let i = k; i < m; i++) R[cj + i] = R[cj + i]! - t * v[i]!;
     }
     let d = 0;
     for (let i = k; i < m; i++) d += v[i]! * y[i]!;
@@ -616,8 +762,8 @@ function leastSquares(A: number[][], b: number[]): number[] {
   const x = new Array<number>(n).fill(0);
   for (let k = n - 1; k >= 0; k--) {
     let s = y[k]!;
-    for (let j = k + 1; j < n; j++) s -= R[k]![j]! * x[j]!;
-    x[k] = R[k]![k]! === 0 ? 0 : s / R[k]![k]!;
+    for (let j = k + 1; j < n; j++) s -= R[j * m + k]! * x[j]!;
+    x[k] = R[k * m + k]! === 0 ? 0 : s / R[k * m + k]!;
   }
   return x;
 }

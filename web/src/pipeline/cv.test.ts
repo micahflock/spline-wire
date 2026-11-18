@@ -16,10 +16,15 @@ interface ImageRec {
   contours: { label: number; points: number[]; ellipse?: number[] }[];
 }
 
+interface SmallRec {
+  width: number; height: number; image: string; blur08: string; blur10: string; adaptive: string; bright: string;
+  masks: { mask: string; labels: string; stats: number[][] }[];
+}
+
 const golden = JSON.parse(
   gunzipSync(readFileSync(new URL("./golden/cv.json.gz", import.meta.url))).toString("utf-8"),
 ) as {
-  opencv: string; images: ImageRec[]; direct: { points: string; ellipse: number[] }[];
+  opencv: string; images: ImageRec[]; direct: { points: string; ellipse: number[] }[]; small: SmallRec[];
   remap: { x: string; y: string; value: string };
 };
 
@@ -97,6 +102,28 @@ describe(`cv.ts against cv2 ${golden.opencv}`, () => {
         expect(degenerate).toBeLessThan(rec.contours.length / 4);
       });
     });
+  });
+
+  describe("small and odd sizes (narrower than the kernel and the box)", () => {
+    for (const rec of golden.small) {
+      it(`${rec.width}x${rec.height}`, () => {
+        const img: Gray = { width: rec.width, height: rec.height, data: u8(rec.image) };
+        expect(differing(gaussianBlur8(img, 0.8).data, u8(rec.blur08))).toBe(0);
+        expect(differing(gaussianBlur8(img, 1.0).data, u8(rec.blur10))).toBe(0);
+        expect(differing(adaptiveMeanThreshold(img, 25, -4), u8(rec.adaptive))).toBe(0);
+        expect(differing(brightMask(img, 25), u8(rec.bright))).toBe(0);
+        for (const m of rec.masks) {
+          const c = connectedComponents(u8(m.mask), rec.width, rec.height);
+          expect(c.count).toBe(m.stats.length);
+          expect(differing(c.labels, i32(m.labels))).toBe(0);
+          // Label 0's stats when no pixel is background are OpenCV's placeholders; detection never reads them.
+          const first = c.area[0] === 0 ? 1 : 0;
+          for (let k = first; k < c.count; k++) {
+            expect([c.x[k], c.y[k], c.w[k], c.h[k], c.area[k]]).toEqual(m.stats[k]);
+          }
+        }
+      });
+    }
   });
 
   it("fitEllipseDirect on noisy ellipses", () => {
