@@ -293,13 +293,13 @@ export class PhotoSession {
   }
 
   /** The latest measurement's files, as text (session.outputs). */
-  outputs(now: Date = new Date()): Record<OutputKind, string> {
+  outputs(): Record<OutputKind, string> {
     const m = this.need().measurement;
     return {
       json: jsonText(m, this.jsonExtra()),
       csv: csvText(m.contacts_mm),
       svg: svgText(m),
-      dxf: dxfText(m.contacts_mm, { now }),
+      dxf: dxfText(m.contacts_mm),
       fusion_csv: fusionCsvText(m.contacts_mm),
       tsv: pointsTsv(m.contacts_mm),
     };

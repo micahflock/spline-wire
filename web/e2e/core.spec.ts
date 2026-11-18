@@ -196,7 +196,7 @@ test.describe(kind, () => {
     }));
     const same = browser.filter((row, i) => row === python[i]).length - 1;
     expect(worst).toBeLessThan(MM_TOLERANCE);
-    log(`outputs: first call ${ms.toFixed(0)} ms (imports ezdxf), then ${again.toFixed(0)} ms;`,
+    log(`outputs: first call ${ms.toFixed(0)} ms, then ${again.toFixed(0)} ms;`,
         `tsv rows identical to native Python: ${same}/${browser.length - 1}, worst ${worst.toFixed(4)} mm`);
   });
 

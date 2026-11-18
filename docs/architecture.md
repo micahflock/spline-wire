@@ -97,7 +97,7 @@ The curve is a cubic spline through the contact points (chord-length parameter, 
 - `PHOTO-curve.svg` — 1:1 drawing in mm (fitted curve, pins, curve points) for SVG import.
 - `PHOTO-preview.jpg` — the photo with detections and chain order drawn on, for checking.
 
-- `PHOTO-curve.dxf` — the curve as a spline plus its points, in mm (`$INSUNITS`), for Insert > Insert DXF.
+- `PHOTO-curve.dxf` — the curve as a spline plus its points, in mm (`$INSUNITS`), for Insert > Insert DXF: a small R2000 file of our own (`splinewire/dxf.py`), the same every time for the same curve.
 - `PHOTO-fusion-cm.csv` — headerless `x,y,z` in cm for Fusion's built-in ImportSplineCSV script.
 
 Into Fusion, the main path is the `fusion/SplineWire` add-in: Copy points in the app, then Paste points in a sketch. See `docs/fusion-import.md` for the options compared and the test protocol.

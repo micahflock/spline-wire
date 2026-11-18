@@ -321,15 +321,9 @@ test.describe("paired with a computer", () => {
     expect(curve!.photo).toBe(path.basename(pipe.photo));
     const files = await unpack(curve!.files!);
     const core = await page.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), photoId);
-    // The DXF carries GUIDs and time stamps that ezdxf makes anew for every
-    // file written: a version line "x.y.z @ time", and the header's creation
-    // and update dates (Julian days, group code 40 after $TDCREATE etc.).
-    // Two files written a moment apart differ in them; CI caught it.
-    const guidless = (t: string | undefined) =>
-      t?.replace(/^\{[0-9A-F-]{36}\}$/gm, "{guid}").replace(/^(\d+\.\d+\.\d+) @ \S+$/gm, "$1 @ {time}")
-        .replace(/(\$TDU?(?:CREATE|UPDATE)\r?\n\s*40\r?\n)[^\r\n]+/g, "$1{date}");
+    // The same files the engine writes for this photo, the DXF included (nothing in it changes with time).
     for (const kind of ["json", "csv", "svg", "dxf", "fusion_csv"] as const) {
-      expect(guidless(files[kind]), kind).toBe(guidless(core.files[kind]));
+      expect(files[kind], kind).toBe(core.files[kind]);
     }
     log("link states:", JSON.stringify(await page.evaluate(() => (window as unknown as { phone: { link: unknown } }).phone.link)));
   });
@@ -383,7 +377,6 @@ const visitPhone = async (ctx: BrowserContext, address = "phone/") => {
     await p.goto(address);
     await p.waitForFunction(() => (window as unknown as PhoneWindow).phone.engine !== null, null, { timeout: 120_000 });
     const engine = await p.evaluate(() => (window as unknown as PhoneWindow).phone.engine!);
-    await p.waitForTimeout(500);                       // ezdxf's download follows Pyodide's load
     await Promise.all(sizes);
     await p.close();
     return { readyAt: engine.readyAt, load: engine.ms, wall: Date.now() - t0, network, fromSw, mb: (bytes / 1e6).toFixed(1) };

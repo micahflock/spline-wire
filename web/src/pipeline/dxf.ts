@@ -1,99 +1,148 @@
-// output.dxf_text: the curve as DXF in mm (layer CURVE: one spline through
-// the points; layer CURVE_POINTS: the points), the file ezdxf writes. The
-// file around the entities is ezdxf's own (dxf-template.ts, made from its
-// output by web/scripts/golden_dxf.py), so Fusion gets exactly what it has
-// been importing; the spline is computed as ezdxf's
-// add_cad_spline_control_frame computes it: a cubic B-spline interpolating
-// the points, knots at their chord-length parameters, zero second derivative
-// at both ends (ezdxf.math.cad_fit_point_interpolation).
+// splinewire/dxf.py: the curve as a small DXF of our own, byte for byte as
+// Python writes it (dxf.test.ts, session.test.ts): one cubic spline through
+// the curve points on layer CURVE, the points on CURVE_POINTS, in mm. DXF
+// R2000 with what CAD programs expect of one and nothing more, every handle
+// fixed and nothing depending on the time (decision D19). The spline passes
+// through every point: global cubic interpolation, chord-length knots, zero
+// second derivative at both ends, as CAD programs build one from fit points.
 
-import { DXF_TEMPLATE, EZDXF_VERSION } from "./dxf-template";
-import type { Vec2 } from "./numeric";
-import { floatRepr } from "./pyjson";
+import { fixed, type Vec2 } from "./numeric";
 
-const FIRST_HANDLE = 0x31;      // the SPLINE's; the POINTs follow it
+const ENTITY_HANDLE = 0x100;
+const H = {
+  vport_table: "8", ltype_table: "5", layer_table: "2", style_table: "3", view_table: "6", ucs_table: "7",
+  appid_table: "9", dimstyle_table: "A", block_record_table: "1",
+  ltype_byblock: "14", ltype_bylayer: "15", ltype_continuous: "16",
+  layer_0: "10", layer_curve: "11", layer_points: "12",
+  style_standard: "13", appid_acad: "17", dimstyle_standard: "18",
+  model_record: "1F", paper_record: "1B",
+  model_block: "20", model_endblk: "21", paper_block: "1C", paper_endblk: "1D",
+  root_dict: "C", group_dict: "D",
+};
 
-export interface DxfStamp {
-  /** When the file is written: the dates and time stamps in it. */
-  now: Date;
-  /** Two GUIDs, as {XXXXXXXX-...}; random if not given. */
-  guids?: [string, string];
-}
+type Tag = [number, string];
 
-export function dxfText(points: readonly Vec2[], stamp: DxfStamp = { now: new Date() }): string {
-  const n = points.length;
-  const { knots, control } = cadSpline(points);
-  const g = (code: number) => String(code).padStart(3, " ");
-  const lines: string[] = [];
-  const add = (code: number, value: string) => lines.push(g(code), value);
-  add(0, "SPLINE");
-  add(5, hex(FIRST_HANDLE));
-  add(330, "17");
-  add(100, "AcDbEntity");
-  add(8, "CURVE");
-  add(100, "AcDbSpline");
-  add(70, "0");
-  add(71, "3");
-  add(72, String(knots.length));
-  add(73, String(control.length));
-  add(74, "0");
-  for (const k of knots) add(40, floatRepr(k));
-  for (const [x, y] of control) {
-    add(10, floatRepr(x));
-    add(20, floatRepr(y));
-    add(30, "0.0");
-  }
-  points.forEach(([x, y], k) => {
-    add(0, "POINT");
-    add(5, hex(FIRST_HANDLE + 1 + k));
-    add(330, "17");
-    add(100, "AcDbEntity");
-    add(8, "CURVE_POINTS");
-    add(100, "AcDbPoint");
-    add(10, floatRepr(x));
-    add(20, floatRepr(y));
-    add(30, "0.0");
-  });
-  const jd = floatRepr(julianDate(stamp.now));
-  const [fp, ver] = stamp.guids ?? [guid(), guid()];
-  const values: Record<string, string> = {
-    ENTITIES: lines.join("\n"),
-    TDCREATE: jd, TDUPDATE: jd, FINGERPRINTGUID: fp, VERSIONGUID: ver,
-    H0: hex(FIRST_HANDLE + n + 1), H1: hex(FIRST_HANDLE + n + 2), H2: hex(FIRST_HANDLE + n + 3),
-    HANDSEED: hex(FIRST_HANDLE + n + 4),
-    MARKER: `${EZDXF_VERSION} @ ${isoUtc(stamp.now)}`,
+/** The DXF file's text for a curve through the points (mm). */
+export function dxfText(points: readonly Vec2[]): string {
+  const tags: Tag[] = [];
+  const add = (code: number, value: string) => tags.push([code, value]);
+  const section = (name: string) => {
+    add(0, "SECTION");
+    add(2, name);
   };
-  return DXF_TEMPLATE.replace(/\{\{([A-Z0-9]+)\}\}/g, (_, key: string) => {
-    if (!(key in values)) throw new Error(`the DXF template has an unknown field ${key}`);
-    return values[key]!;
-  });
+  const table = (name: string, handle: string, count: number) => {
+    add(0, "TABLE");
+    add(2, name);
+    add(5, handle);
+    add(330, "0");
+    add(100, "AcDbSymbolTable");
+    add(70, String(count));
+  };
+  const record = (kind: string, handle: string, owner: string, subclass: string) => {
+    add(0, kind);
+    add(5, handle);
+    add(330, owner);
+    add(100, "AcDbSymbolTableRecord");
+    add(100, subclass);
+  };
+  const many = (list: Tag[]) => list.forEach(([c, v]) => add(c, v));
+
+  const entityCount = points.length >= 2 ? 1 + points.length : points.length;
+  section("HEADER");
+  for (const [name, code, value] of [["$ACADVER", 1, "AC1015"], ["$HANDSEED", 5, hex(ENTITY_HANDLE + entityCount)],
+    ["$INSUNITS", 70, "4"], ["$MEASUREMENT", 70, "1"]] as const) {
+    add(9, name);
+    add(code, value);
+  }
+  add(0, "ENDSEC");
+  section("CLASSES");
+  add(0, "ENDSEC");
+
+  section("TABLES");
+  table("VPORT", H.vport_table, 0);
+  add(0, "ENDTAB");
+  table("LTYPE", H.ltype_table, 3);
+  for (const [name, handle, text] of [["ByBlock", H.ltype_byblock, ""], ["ByLayer", H.ltype_bylayer, ""],
+    ["Continuous", H.ltype_continuous, "Solid line"]] as const) {
+    record("LTYPE", handle, H.ltype_table, "AcDbLinetypeTableRecord");
+    many([[2, name], [70, "0"], [3, text], [72, "65"], [73, "0"], [40, "0.0"]]);
+  }
+  add(0, "ENDTAB");
+  table("LAYER", H.layer_table, 3);
+  for (const [name, handle, color] of [["0", H.layer_0, "7"], ["CURVE", H.layer_curve, "7"],
+    ["CURVE_POINTS", H.layer_points, "1"]] as const) {
+    record("LAYER", handle, H.layer_table, "AcDbLayerTableRecord");
+    many([[2, name], [70, "0"], [62, color], [6, "Continuous"], [370, "-3"]]);
+  }
+  add(0, "ENDTAB");
+  table("STYLE", H.style_table, 1);
+  record("STYLE", H.style_standard, H.style_table, "AcDbTextStyleTableRecord");
+  many([[2, "Standard"], [70, "0"], [40, "0.0"], [41, "1.0"], [50, "0.0"], [71, "0"], [42, "2.5"], [3, "txt"], [4, ""]]);
+  add(0, "ENDTAB");
+  for (const [name, handle] of [["VIEW", H.view_table], ["UCS", H.ucs_table]] as const) {
+    table(name, handle, 0);
+    add(0, "ENDTAB");
+  }
+  table("APPID", H.appid_table, 1);
+  record("APPID", H.appid_acad, H.appid_table, "AcDbRegAppTableRecord");
+  many([[2, "ACAD"], [70, "0"], [0, "ENDTAB"]]);
+  table("DIMSTYLE", H.dimstyle_table, 1);
+  many([[100, "AcDbDimStyleTable"], [0, "DIMSTYLE"], [105, H.dimstyle_standard], [330, H.dimstyle_table],
+    [100, "AcDbSymbolTableRecord"], [100, "AcDbDimStyleTableRecord"], [2, "Standard"], [70, "0"], [0, "ENDTAB"]]);
+  table("BLOCK_RECORD", H.block_record_table, 2);
+  for (const [name, handle] of [["*Model_Space", H.model_record], ["*Paper_Space", H.paper_record]] as const) {
+    record("BLOCK_RECORD", handle, H.block_record_table, "AcDbBlockTableRecord");
+    add(2, name);
+  }
+  add(0, "ENDTAB");
+  add(0, "ENDSEC");
+
+  section("BLOCKS");
+  for (const [name, rec, block, endblk] of [["*Model_Space", H.model_record, H.model_block, H.model_endblk],
+    ["*Paper_Space", H.paper_record, H.paper_block, H.paper_endblk]] as const) {
+    many([[0, "BLOCK"], [5, block], [330, rec], [100, "AcDbEntity"], [8, "0"], [100, "AcDbBlockBegin"], [2, name],
+      [70, "0"], [10, "0.0"], [20, "0.0"], [30, "0.0"], [3, name], [1, ""],
+      [0, "ENDBLK"], [5, endblk], [330, rec], [100, "AcDbEntity"], [8, "0"], [100, "AcDbBlockEnd"]]);
+  }
+  add(0, "ENDSEC");
+
+  section("ENTITIES");
+  let handle = ENTITY_HANDLE;
+  if (points.length >= 2) {
+    const { knots, control } = cadSpline(points);
+    many([[0, "SPLINE"], [5, hex(handle)], [330, H.model_record], [100, "AcDbEntity"], [8, "CURVE"], [100, "AcDbSpline"],
+      [210, "0.0"], [220, "0.0"], [230, "1.0"], [70, "8"], [71, "3"], [72, String(knots.length)],
+      [73, String(control.length)], [74, "0"]]);
+    for (const k of knots) add(40, num(k, 9));
+    for (const [x, y] of control) many([[10, num(x, 6)], [20, num(y, 6)], [30, "0.0"]]);
+    handle++;
+  }
+  for (const [x, y] of points) {
+    many([[0, "POINT"], [5, hex(handle)], [330, H.model_record], [100, "AcDbEntity"], [8, "CURVE_POINTS"],
+      [100, "AcDbPoint"], [10, num(x, 6)], [20, num(y, 6)], [30, "0.0"]]);
+    handle++;
+  }
+  add(0, "ENDSEC");
+
+  section("OBJECTS");
+  many([[0, "DICTIONARY"], [5, H.root_dict], [330, "0"], [100, "AcDbDictionary"], [281, "1"], [3, "ACAD_GROUP"],
+    [350, H.group_dict], [0, "DICTIONARY"], [5, H.group_dict], [330, H.root_dict], [100, "AcDbDictionary"], [281, "1"]]);
+  add(0, "ENDSEC");
+  add(0, "EOF");
+  return tags.map(([c, v]) => `${String(c).padStart(3, " ")}\n${v}\n`).join("");
 }
 
 function hex(h: number): string {
   return h.toString(16).toUpperCase();
 }
 
-function guid(): string {
-  return `{${crypto.randomUUID().toUpperCase()}}`;
+/** f"{x:.{digits}f}", with no "-0.000000". */
+function num(x: number, digits: number): string {
+  const s = fixed(x, digits);
+  return s.startsWith("-") && /^-[0.]*$/.test(s) ? s.slice(1) : s;
 }
 
-/** ezdxf.tools.juliandate of a local date and time (to the second). */
-export function julianDate(d: Date): number {
-  const y = d.getFullYear() + (d.getMonth() + 1 - 2.85) / 12.0;
-  const A = Math.floor(367.0 * y) - 1.75 * Math.floor(y) + d.getDate();
-  const B = Math.floor(A) - 0.75 * Math.floor(y / 100.0);
-  const day = (d.getHours() * 3600.0 + d.getMinutes() * 60.0 + d.getSeconds()) / 86400.0;
-  return Math.floor(B) + 1721115.0 + day;
-}
-
-/** datetime.now(timezone.utc).isoformat(): microseconds when not zero, "+00:00". */
-function isoUtc(d: Date): string {
-  const base = d.toISOString().slice(0, 19);
-  const us = d.getUTCMilliseconds() * 1000;
-  return `${base}${us ? "." + String(us).padStart(6, "0") : ""}+00:00`;
-}
-
-/** The control points and knots ezdxf makes for a cubic spline through the points. */
+/** Knots and control points of the cubic B-spline through the points (dxf.cad_spline). */
 export function cadSpline(points: readonly Vec2[]): { knots: number[]; control: Vec2[] } {
   const n = points.length - 1;
   const p = 3;

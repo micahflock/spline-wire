@@ -8,7 +8,7 @@
 // decimals) can round the other way; unrounded numbers (the DXF's
 // coordinates, the truth comparison) must agree to 1e-4 mm, as in golden.test.ts. Files are
 // compared the same way, number by number, the text between the numbers
-// exactly; the DXF without its dates, GUIDs and stamps.
+// exactly.
 
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
@@ -58,37 +58,16 @@ function same(got: unknown, want: unknown, path: string): void {
 
 const NUMBER = /-?\d+\.\d+(?:e[-+]\d+)?/g;
 
-function sameText(got: string, want: string, kind: string): void {
+function sameText(got: string, want: string, kind: string, atLeast = 0): void {
   expect(got.replace(NUMBER, "#"), `${kind}: the text between numbers`).toBe(want.replace(NUMBER, "#"));
   const g = got.match(NUMBER) ?? [], w = want.match(NUMBER) ?? [];
   w.forEach((s, i) => {
     const digits = s.split(".")[1]!.replace(/e.*/, "").length;
     // Unrounded numbers (the DXF's coordinates, the truth comparison): as golden.test.ts, 1e-4 mm (the solver stops that far apart with an estimated focal length).
-    const unit = digits > 8 ? 1e-4 * Math.max(1, Math.abs(Number(s))) : 10 ** -digits;
+    const unit = Math.max(atLeast, digits > 8 ? 1e-4 * Math.max(1, Math.abs(Number(s))) : 10 ** -digits);
     if (g[i] !== s) rounding++;
     expect(Math.abs(Number(g[i]) - Number(s)), `${kind} number ${i}: ${g[i]} against ${s}`).toBeLessThanOrEqual(unit * 1.0001);
   });
-}
-
-/** The CLASSES section with its CLASS records sorted: ezdxf orders them by
- * Python's hash seed, so two of them swap places from run to run. */
-function sortedClasses(lines: string[]): string[] {
-  const start = lines.indexOf("CLASSES"), end = lines.indexOf("ENDSEC", start);
-  const records: string[][] = [];
-  for (let i = start + 1; i < end - 1; i++) {
-    if (lines[i] === "  0" && lines[i + 1] === "CLASS") records.push([]);
-    records[records.length - 1]?.push(lines[i]!);
-  }
-  const sorted = records.map((r) => r.join("\n")).sort().join("\n").split("\n");
-  return [...lines.slice(0, start + 1), ...sorted, ...lines.slice(end - 1)];
-}
-
-/** A DXF without what differs every time ezdxf writes one: dates, GUIDs, time
- * stamps, the order of the CLASS records. */
-function maskDxf(text: string): string {
-  const lines = sortedClasses(text.split("\n"));
-  return lines.map((l, i) => (["$TDCREATE", "$TDUPDATE", "$FINGERPRINTGUID", "$VERSIONGUID"].includes(lines[i - 2] ?? "")
-    || /^\d+(\.\d+)+ @ /.test(l) ? "#" : l)).join("\n");
 }
 
 describe("PhotoSession against Python", () => {
@@ -104,7 +83,9 @@ describe("PhotoSession against Python", () => {
       if (c.outputs) {
         const files = s.outputs();
         for (const kind of ["json", "csv", "svg", "fusion_csv", "tsv"] as const) sameText(files[kind]!, c.outputs[kind]!, kind);
-        sameText(maskDxf(files.dxf), maskDxf(c.outputs.dxf!), "dxf");
+        // The DXF's coordinates have 6 decimals, finer than the two measurements agree
+        // (1e-4 mm, golden.test.ts); dxf.test.ts holds the writer itself to Python's byte for byte.
+        sameText(files.dxf, c.outputs.dxf!, "dxf", 1e-4);
       }
     }, 60000);
   }

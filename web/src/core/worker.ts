@@ -9,9 +9,8 @@
 // Load order, shaped by S1's timings: the runtime, then the packages the
 // pipeline imports and the splinewire wheel (installed without its
 // dependencies: the wheel asks for opencv-python-headless, which Pyodide ships
-// as opencv-python), then `import splinewire.bridge`. ezdxf and its
-// dependencies (DXF output only; 1.4 s to import) are downloaded once that
-// is done and imported by the first `outputs`.
+// as opencv-python), then `import splinewire.bridge`. The DXF needs no
+// package of its own (splinewire/dxf.py).
 
 import type { PyodideAPI } from "pyodide";
 import type { Command, Commands, Failure, Progress, Request, Response } from "./protocol";
@@ -21,10 +20,9 @@ declare const self: DedicatedWorkerGlobalScope;
 interface Manifest {
   pyodide: { version: string; python: string; index: string };
   boot: { packages: string[]; bytes: number };
-  extras: { packages: string[]; bytes: number };
   /** Optional: a manifest from before HEIF support has none, and HEIC photos then fail as before. */
   heif?: { packages: string[]; bytes: number };
-  wheels: { splinewire: string; ezdxf: string };
+  wheels: { splinewire: string };
 }
 
 // The site's root. Built, this file is assets/worker-<hash>.js; under the dev
@@ -34,7 +32,6 @@ const ROOT = new URL(import.meta.env.DEV ? "/" : "../", import.meta.url);
 type PyCall = ((cmd: string, args: string, data?: Uint8Array) => string) & { destroy(): void };
 
 let loading: Promise<Commands["load"]["result"]> | null = null;
-let extras: Promise<void> | null = null;
 let heif: Promise<void> | null = null;
 let py: PyodideAPI;
 let manifest: Manifest;
@@ -79,23 +76,7 @@ async function loadOnce(): Promise<Commands["load"]["result"]> {
   bridgeCall = py.pyimport("splinewire.bridge").call as PyCall;
   const versions = bridge("versions", {}) as Record<string, string>;
   progress("ready", 1);
-  // Download ezdxf and its dependencies now, while the person picks a photo.
-  // Only the download: importing ezdxf (1.4 s) waits for the first "outputs",
-  // so it cannot hold up a measurement.
-  setTimeout(() => void loadExtras().catch(() => {}), 0);
   return { versions: { ...versions, pyodide: manifest.pyodide.version }, ms: Math.round(performance.now() - t0) };
-}
-
-function loadExtras(): Promise<void> {
-  extras ??= (async () => {
-    await load();
-    await py.loadPackage([...manifest.extras.packages, new URL(manifest.wheels.ezdxf, ROOT).href],
-                         { messageCallback: () => {} });
-  })().catch((err) => {
-    extras = null;
-    throw err;
-  });
-  return extras;
 }
 
 /** HEIC/HEIF decoding, loaded the first time a photo needs it. Pillow learns
@@ -155,7 +136,7 @@ const handlers: Handlers = {
     return doc;
   },
   async outputs({ photo }) {
-    await loadExtras();
+    await load();
     return bridge("outputs", { photo }) as Commands["outputs"]["result"];
   },
   async close({ photo }) {

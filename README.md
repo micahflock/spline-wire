@@ -191,4 +191,4 @@ The full plan, in risk order: [docs/next-steps.md](docs/next-steps.md).
 
 ## License
 
-[MIT](LICENSE). Built on [OpenCV](https://opencv.org/), [NumPy](https://numpy.org/), [SciPy](https://scipy.org/), [ezdxf](https://ezdxf.mozman.at/) and [Pillow](https://python-pillow.org/).
+[MIT](LICENSE). Built on [OpenCV](https://opencv.org/), [NumPy](https://numpy.org/), [SciPy](https://scipy.org/) and [Pillow](https://python-pillow.org/); the tests read the DXF back with [ezdxf](https://ezdxf.mozman.at/).
