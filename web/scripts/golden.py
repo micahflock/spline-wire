@@ -1,6 +1,8 @@
 """Golden files for the TypeScript pipeline (web/src/pipeline/): Python's
-detections and measurements on the cv_benchmark scenes, so the port is
-checked against the reference implementation (docs/web-build.md, D3).
+detections and measurements on the cv_benchmark scenes (the dot chain,
+data/chain.yaml) and on rendered photos of the snap-fit chain
+(data/chain-snap.yaml: thin rims, round contact), so the port is checked
+against the reference implementation (docs/web-build.md, D3).
 
 For every scene: the image size, the true focal length, every fiducial
 detect_fiducials found, and what pipeline.measure made of them in a few
@@ -11,6 +13,8 @@ the same centres.
 
     uv run python web/scripts/golden.py            # all 167 scenes (renders cached by cv_benchmark)
     uv run python web/scripts/golden.py --quick    # 30 scenes
+
+The snap-fit photos are rendered once into out/golden-snap/.
 
 Writes web/src/pipeline/golden/scenes.json.gz. Floats are written with
 repr, so they reach JavaScript unchanged.
@@ -35,11 +39,16 @@ sys.path.insert(0, str(REPO))
 
 import cv_benchmark as bench  # noqa: E402
 
+from splinewire.camera import focal_px_from_35mm, look_at_plane  # noqa: E402
+from splinewire.chain import chain_presets, load_chain_spec, pins_from_turns  # noqa: E402
 from splinewire.detect import detect_fiducials  # noqa: E402
 from splinewire.order import order_chain  # noqa: E402
 from splinewire.pipeline import measure  # noqa: E402
+from splinewire.synthetic import circle_wrap_pins, render_snap_photo, s_curve_pins  # noqa: E402
 
 OUT = REPO / "web" / "src" / "pipeline" / "golden" / "scenes.json.gz"
+SNAP_DIR = REPO / "out" / "golden-snap"
+SNAP_SIZE = (2000, 1500)
 
 
 def variants(spec, focal: float, size: tuple[int, int]) -> list[dict]:
@@ -54,13 +63,55 @@ def variants(spec, focal: float, size: tuple[int, int]) -> list[dict]:
 
 
 def one(sid: str) -> dict:
+    """A cv_benchmark scene (dot chain)."""
     out_dir = bench.OUT / bench.SPEC.fiducial
     meta = json.loads((out_dir / f"{sid}.json").read_text(encoding="utf-8"))
     img = cv2.imread(str(out_dir / f"{sid}.png"), cv2.IMREAD_GRAYSCALE)
+    return record(sid, img, bench.SPEC, meta["focal_px"], variants(bench.SPEC, meta["focal_px"], img.shape[::-1]))
+
+
+def snap_scenes() -> list[tuple]:
+    """(id, shape, table gray, tilt, tilt direction, roll) for the snap-fit chain."""
+    shapes = ["s-curve", "pipe", "cove", "wave"]
+    out = []
+    for k in range(24):
+        out.append((f"snap-{k:02d}", shapes[k % 4], (250, 120, 40)[k % 3], (0.0, 20.0, 35.0, 40.0)[(k // 3) % 4],
+                    37.0 * k, (-15.0, 10.0, 30.0)[(k // 2) % 3]))
+    return out
+
+
+def snap_one(scene: tuple) -> dict:
+    """A rendered snap-fit chain photo (rendered once, cached in out/golden-snap/)."""
+    sid, shape, table, tilt, direction, roll = scene
+    spec = load_chain_spec(chain_presets()["snap"])
+    focal = focal_px_from_35mm(26, SNAP_SIZE)
+    path = SNAP_DIR / f"{sid}.png"
+    if not path.exists():
+        pins = {"s-curve": s_curve_pins(spec), "pipe": circle_wrap_pins(spec, 40.0),
+                "cove": circle_wrap_pins(spec, 60.0, concave=True),
+                "wave": pins_from_turns(spec.pitch_mm, np.radians(25.0 * np.sin(0.9 * np.arange(spec.n_pins - 2))))}[shape]
+        cam = look_at_plane(focal, SNAP_SIZE, 300.0, tilt_deg=tilt, tilt_direction_deg=direction, roll_deg=roll,
+                            target_mm=tuple(pins.mean(axis=0)))
+        img = render_snap_photo(pins, spec, cam, rng=np.random.default_rng(int(sid[-2:])), table_gray=table)
+        SNAP_DIR.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(path), img)
+        (SNAP_DIR / f"{sid}.json").write_text(json.dumps({"focal_px": focal, "pins_mm": pins.tolist(),
+                                                           "spec": asdict(spec)}), encoding="utf-8")
+    img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    w, h = SNAP_SIZE
+    runs = [
+        dict(name="focal-inside", spec=spec, focal=focal, side="inside"),
+        dict(name="estimated-outside", spec=spec, focal=None, side="outside"),
+        dict(name="edge-point", spec=replace(spec, contact="edge"), focal=focal, side=[w / 2.0, h / 2.0]),
+    ]
+    return record(sid, img, spec, focal, runs)
+
+
+def record(sid: str, img: np.ndarray, spec, focal: float, runs: list[dict]) -> dict:
     h, w = img.shape[:2]
-    fids = detect_fiducials(img, bench.SPEC)
+    fids = detect_fiducials(img, spec)
     rec = {
-        "id": sid, "size": [w, h], "focal_px": meta["focal_px"],
+        "id": sid, "size": [w, h], "focal_px": focal,
         "fiducials": [[*f.center_px, *f.outer_axes_px, f.contrast, f.polarity, f.surround] for f in fids],
         "runs": [],
     }
@@ -68,7 +119,7 @@ def one(sid: str) -> dict:
         o = order_chain(np.array([f.center_px for f in fids]), max_turn_deg=80.0)
         rec["plain_order"] = {"indices": [int(i) for i in o.indices], "links": [list(map(int, ln)) for ln in o.links],
                               "gaps": [int(g) for g in o.gaps]}
-    for v in variants(bench.SPEC, meta["focal_px"], (w, h)):
+    for v in runs:
         side = v["side"] if isinstance(v["side"], str) else tuple(v["side"])
         run = {"name": v["name"], "spec": asdict(v["spec"]), "focal_px": v["focal"], "side": v["side"]}
         try:
@@ -106,6 +157,7 @@ def main() -> None:
     bench.render_suite(scenes, chain_design(bench.SPEC), out_dir, args.workers)
     with ProcessPoolExecutor(args.workers) as ex:
         recs = list(ex.map(one, [sid for sid, *_ in scenes]))
+        recs += list(ex.map(snap_one, snap_scenes()[::4] if args.quick else snap_scenes()))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps({"chain": asdict(bench.SPEC), "scenes": recs}, separators=(",", ":"))
     with gzip.GzipFile(args.out, "wb", mtime=0) as f:
