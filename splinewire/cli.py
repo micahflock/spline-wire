@@ -4,6 +4,7 @@
     splinewire synth [--env PRESET]    synthetic chain photo with known shape
     splinewire test-part               printable chain drawing with known shape
     splinewire test-plaque             3D-printable chain plaque (STL) with known shape
+    splinewire score PHOTO... --target T  test photos scored against a gauge or plaque (docs/real-world-tests.md)
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from splinewire.synthetic import (
     write_synthetic_photo,
     write_truth,
 )
+from splinewire.targets import target_names
 from splinewire.testpart import test_part_svg
 
 # measure and synth start with the default chain (the snap-fit chain); the
@@ -77,10 +79,25 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, default=Path("out/test-plaque"))
     _add_shape_args(p)
 
+    p = sub.add_parser("score", help="score test photos against their gauge or fixed-chain plaque")
+    p.add_argument("photos", type=Path, nargs="*", help="photos of one target (or use --report)")
+    p.add_argument("--target", help="the target's name: " + ", ".join(target_names()))
+    p.add_argument("--report", type=Path, help="the test page's report (JSON): each test's photo, chain, "
+                                               "pin count and target")
+    p.add_argument("--photo-dir", type=Path, help="where the report's photos are (default: beside it)")
+    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--pins", type=int, help="number of pins (default: n_pins from the chain file)")
+    p.add_argument("--saved-focal-35mm", type=float, help="the phone's focal length, for photos without EXIF")
+    p.add_argument("--fit-focal", action="store_true",
+                   help="also find the focal length that fits the target best (slower)")
+    p.add_argument("--json", type=Path, help="write every score to this JSON file")
+    _add_shade_arg(p)
+
     args = parser.parse_args(argv)
     if args.command == "synth" and args.chain is None:
         args.chain = ORING_CHAIN if args.env else DEFAULT_CHAIN
-    commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque}
+    commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque,
+                "score": _score}
     # ValueErrors carry the program's own messages for people (a photo with no
     # chain in it, a setting out of range): show the message, not a traceback.
     try:
@@ -187,6 +204,56 @@ def _test_plaque(args, spec: ChainSpec) -> int:
     write_truth(args.out / f"{args.shape}-truth.json", pins)
     print(paths["instructions"].read_text(encoding="utf-8"))
     print("wrote " + ", ".join(p.name for p in paths.values()) + f", {args.shape}-truth.json in {args.out}")
+    return 0
+
+
+def _score(args, spec: ChainSpec) -> int:
+    import json
+
+    from splinewire.chain import chain_presets
+    from splinewire.scoring import REPORT_SCHEMA, headline, score_photo
+
+    jobs = []           # (label, path, target, spec, saved focal)
+    if args.report:
+        doc = json.loads(args.report.read_text(encoding="utf-8"))
+        if doc.get("schema") != REPORT_SCHEMA:
+            raise ValueError(f"{args.report.name} is not a test page report ({REPORT_SCHEMA})")
+        folder = args.photo_dir or args.report.parent
+        presets = chain_presets()
+        for t in doc["tests"]:
+            if t.get("target") in (None, "object"):
+                continue
+            s = load_chain_spec(presets[t.get("chain") or "snap"])
+            s = replace(s, n_pins=int(t["pins"]), fiducial_shade=t.get("shade") or s.fiducial_shade)
+            jobs.append((t["id"], folder / t["photo"], t["target"], s, t.get("saved_focal_35mm")))
+    else:
+        if not args.photos or not args.target:
+            raise ValueError("give photos and --target, or --report")
+        if args.target not in target_names():
+            raise ValueError(f"no target {args.target!r}; there are {', '.join(target_names())}")
+        if args.pins is not None:
+            spec = replace(spec, n_pins=args.pins)
+        jobs = [(p.stem, p, args.target, spec, args.saved_focal_35mm) for p in args.photos]
+
+    results = []
+    print(f"{'test':14} {'target':13} {'pins':>4} {'tilt':>5}  {'EXIF/saved':>16}  {'estimated':>16}"
+          + (f"  {'best fit':>16}" if args.fit_focal else "") + "  worst mm (focal mm)")
+    for label, path, target, s, saved in jobs:
+        r = score_photo(path.read_bytes(), path.name, target, s, saved_focal_35mm=saved, fit_focal=args.fit_focal)
+        r["id"] = label
+        results.append(r)
+        if "error" in r:
+            print(f"{label:14} {target:13} error: {r['error']}")
+            continue
+        cells = []
+        for key in ("exif", "estimated", "fitted") if args.fit_focal else ("exif", "estimated"):
+            e = r["focal"].get(key)
+            cells.append(f"{'-':>16}" if e is None else f"{'failed':>16}" if "error" in e
+                         else f"{headline(e['score']):7.3f} ({e['focal_35mm']:5.1f})")
+        print(f"{label:14} {target:13} {r['pins_found']:4d} {r['tilt_deg']:5.1f}  " + "  ".join(cells))
+    if args.json:
+        args.json.write_text(json.dumps(results, indent=1) + "\n", encoding="utf-8")
+        print(f"wrote {args.json}")
     return 0
 
 
