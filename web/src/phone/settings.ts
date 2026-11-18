@@ -33,7 +33,7 @@ export interface Settings extends LensState {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  chain: "default",
+  chain: "snap",               // the snap-fit chain is the default (splinewire.chain.DEFAULT_PRESET)
   pins: null,
   savedFocal35: null,
   focalOverride35: null,
@@ -51,7 +51,7 @@ export const FOCAL_RANGE = { min: 5, max: 500 };
 export const PIN_RANGE = { min: 3, max: 999 };
 
 /** How the presets are called on the page (the current app's names). */
-const CHAIN_NAMES: Record<string, string> = { default: "O-ring chain", snap: "Snap-fit chain" };
+const CHAIN_NAMES: Record<string, string> = { snap: "Snap-fit chain", oring: "O-ring chain" };
 
 export function chainLabel(key: string): string {
   return CHAIN_NAMES[key] ?? key;
@@ -102,7 +102,10 @@ export function parsePins(text: string): number | "invalid" {
   return isPins(n) ? n : "invalid";
 }
 
-/** The preset to use: the chosen one if this build has it, else the first. */
+/** The preset to use: the chosen one if this build has it, else the first
+ * (chains.json lists the default, the snap-fit chain, first). A setting saved
+ * before the presets were renamed ("default", the O-ring chain) is not in it,
+ * and so follows the default. */
 export function presetKey(chains: Record<string, ChainSpec>, wanted: string): string {
   return wanted in chains ? wanted : Object.keys(chains)[0] ?? wanted;
 }

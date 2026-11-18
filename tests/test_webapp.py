@@ -17,12 +17,19 @@ from splinewire.synthetic import (
     LINK_GRAY, render_photo, s_curve_pins, save_photo, write_synthetic_photo, write_truth,
 )
 from splinewire.webapp import server as server_module
-from splinewire.webapp.server import AppState, _safe_name, start_server
+from splinewire.chain import default_chain_path, load_chain_spec, oring_chain_path
+from splinewire.webapp.server import CHAIN_KEYS, AppState, _safe_name, start_server
+
+
+def _oring_chain() -> dict:
+    """The O-ring dot chain as the app saves a chain: the chain these tests photograph."""
+    spec = load_chain_spec(oring_chain_path())
+    return {k: getattr(spec, k) for k in CHAIN_KEYS}
 
 
 @pytest.fixture
 def served(tmp_path):
-    app = AppState(tmp_path / "ws", settings={}, persist=False)
+    app = AppState(tmp_path / "ws", settings={"chain": _oring_chain()}, persist=False)
     server = start_server(app, 0)
     yield app, server
     server.shutdown()
@@ -187,12 +194,14 @@ def test_malformed_requests_are_refused_with_a_message(served, path, body):
     {"chain": {"pitch_mm": -1}}, {"chain": {"n_pins": 1.5}}, {"side": "left"}, {"phone_focal_35mm": "24"},
     {"focal_override_35mm": 4000}, {"truth": 7},
 ])
-def test_a_damaged_settings_file_does_not_stop_the_app(tmp_path, saved, dot_spec):
+def test_a_damaged_settings_file_does_not_stop_the_app(tmp_path, saved):
     """Settings are a convenience. Whatever is in the file (an older version's,
-    hand-edited, cut short), the app starts, with defaults for what it can't use."""
+    hand-edited, cut short), the app starts, with defaults for what it can't use:
+    the default chain is the snap-fit one."""
     app = AppState(tmp_path / "ws", settings=saved, persist=False)
     assert isinstance(app.token, str) and len(app.token) >= 16
-    assert app.spec() == dot_spec
+    assert app.spec() == load_chain_spec(default_chain_path())
+    assert app.spec().contact == "round"
     assert app.settings["side"] == "inside" and app.settings["truth"] is None
     assert app.settings["phone_focal_35mm"] is None and app.settings["focal_override_35mm"] is None
 
@@ -203,16 +212,17 @@ def test_settings_that_are_fine_are_kept(tmp_path):
     app = AppState(tmp_path / "ws", settings=saved, persist=False)
     assert app.token == "a-token-from-last-time" and app.settings["side"] == "outside"
     assert app.settings["phone_focal_35mm"] == 24 and app.settings["truth"] == "t.json"
-    spec = app.spec()
-    assert (spec.pitch_mm, spec.n_pins, spec.max_bend_deg, spec.fiducial) == (12.5, 21, 80.0, "dot")
+    spec = app.spec()                                   # the rest from the default (snap-fit) chain
+    assert (spec.pitch_mm, spec.n_pins, spec.max_bend_deg, spec.contact) == (12.5, 21, 80.0, "round")
 
 
 def test_settings_from_before_the_dot_are_brought_forward(tmp_path):
     """Every earlier version saved a ring, ring_outer_mm by ring_inner_mm. Left at the
-    old default, the chain follows today's (a dot); a ring set up on purpose stays one."""
+    old default, the chain follows today's default whole (the snap-fit chain); a ring
+    set up on purpose stays one."""
     old_default = {"pitch_mm": 10.0, "half_width_mm": 4.0, "ring_outer_mm": 5.0, "ring_inner_mm": 2.0, "n_pins": 13}
     spec = AppState(tmp_path / "a", settings={"chain": old_default}, persist=False).spec()
-    assert (spec.fiducial, spec.fiducial_mm, spec.ring_inner_mm) == ("dot", 5.0, 0.0)
+    assert spec == load_chain_spec(default_chain_path())
     custom = {**old_default, "ring_outer_mm": 6.0, "ring_inner_mm": 2.4}
     spec = AppState(tmp_path / "b", settings={"chain": custom}, persist=False).spec()
     assert (spec.fiducial, spec.fiducial_mm, spec.ring_inner_mm) == ("ring", 6.0, 2.4)
@@ -222,7 +232,7 @@ def test_chain_presets_and_what_touches_the_object(served):
     app, server = served
     state = json.loads(call(server, "/api/state", token=app.token)[1])
     presets = state["settings"]["chain_presets"]
-    assert presets["default"]["contact"] == "edge" and "n_pins" not in presets["snap"]
+    assert presets["oring"]["contact"] == "edge" and "n_pins" not in presets["snap"]
     pins = app.settings["chain"]["n_pins"]
     assert call(server, "/api/settings", json.dumps({"chain": presets["snap"]}).encode(), app.token)[0] == 200
     spec = app.spec()

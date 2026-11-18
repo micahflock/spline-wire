@@ -30,7 +30,7 @@ interface NativePhoto {
   pins_mm: Point[];
   tsv: string;
 }
-interface Native { chain: ChainSpec; photos: Record<"pipe" | "shadow" | "heic", NativePhoto> }
+interface Native { chain: ChainSpec; photos: Record<"pipe" | "tilted" | "heic", NativePhoto> }
 
 // S1: the browser's OpenCV 4.11 and native OpenCV 5.0 put pins up to 0.043 px
 // apart on these photos (identical on the same OpenCV).
@@ -125,7 +125,7 @@ test.describe(kind, () => {
         `heap ${mib((await stats()).heap_bytes)}`);
   });
 
-  for (const name of ["pipe", "shadow"] as const) {
+  for (const name of ["pipe", "tilted"] as const) {
     test(`measures the ${name} photo as the CLI does`, async () => {
       const n = native.photos[name];
       const { doc, ms } = await measure(name, name, {
@@ -152,7 +152,7 @@ test.describe(kind, () => {
       // A fresh detection, for comparison: the photo opened again and measured.
       await window.core.call("close", { photo: "pipe" });
       const t0 = performance.now();
-      await window.core.measure("pipe", { chain: (await window.chains).default! },
+      await window.core.measure("pipe", { chain: (await window.chains).snap! },
         { name: "pipe.jpg", bytes: () => fetch("__e2e/pipe.jpg").then((r) => r.arrayBuffer()) });
       return performance.now() - t0;
     });
@@ -203,7 +203,7 @@ test.describe(kind, () => {
   test("a file that is not a photo is a failure for the person", async () => {
     const failure = await page.evaluate(async () => {
       try {
-        await window.core.measure("notes", { chain: (await window.chains).default! },
+        await window.core.measure("notes", { chain: (await window.chains).snap! },
           { name: "notes.txt", bytes: async () => new TextEncoder().encode("shopping list").buffer as ArrayBuffer });
         return null;
       } catch (e) {
@@ -227,7 +227,7 @@ test.describe(kind, () => {
   test("a third photo closes the first, and measuring it again reopens it", async () => {
     const opts = { chain: native.chain };
     await measure("one", "pipe", opts);
-    await measure("two", "shadow", opts);
+    await measure("two", "tilted", opts);
     const before = await stats();
     await measure("three", "pipe", opts);
     const after = await stats();
@@ -235,7 +235,7 @@ test.describe(kind, () => {
     const { doc, reopened, ms } = await page.evaluate(async () => {
       let reopened = 0;
       const t0 = performance.now();
-      const doc = await window.core.measure("one", { chain: (await window.chains).default! }, {
+      const doc = await window.core.measure("one", { chain: (await window.chains).snap! }, {
         name: "pipe.jpg", bytes: () => { reopened++; return fetch("__e2e/pipe.jpg").then((r) => r.arrayBuffer()); },
       });
       return { doc, reopened, ms: performance.now() - t0 };

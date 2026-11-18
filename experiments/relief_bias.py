@@ -20,7 +20,7 @@ import numpy as np
 import shapely
 
 from splinewire.camera import focal_px_from_35mm, look_at_plane
-from splinewire.chain import load_chain_spec, default_chain_path
+from splinewire.chain import load_chain_spec, oring_chain_path
 from splinewire.pipeline import compare_to_truth, measure
 from splinewire.plaque import plaque_geometry
 from splinewire.synthetic import s_curve_pins
@@ -73,7 +73,7 @@ def render(mask, bounds, cam, height_mm, rng, ss=2, wall_samples=6):
 
 
 def main() -> None:
-    spec = load_chain_spec(default_chain_path())
+    spec = load_chain_spec(oring_chain_path())
     pins = s_curve_pins(spec)
     plaque = plaque_geometry(pins, spec)
     bounds = plaque.plate.bounds

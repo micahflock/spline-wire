@@ -69,7 +69,7 @@ def clicks(cam, pins, which, jitter, seed):
 
 
 def main() -> None:
-    dot = load_chain_spec(chain_presets()["default"])
+    dot = load_chain_spec(chain_presets()["oring"])
     snap = load_chain_spec(chain_presets()["snap"])
     pins = s_curve_pins(dot)
     cam = look_at_plane(FOCAL, SIZE, 180.0, tilt_deg=30.0, tilt_direction_deg=35.0, roll_deg=-15.0,

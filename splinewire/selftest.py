@@ -144,7 +144,7 @@ def _run(log_path: Path | None) -> int:
             def presets() -> str:
                 # data/ is bundled whole; a chain that is not in the build can't be picked in Settings
                 found = client.get_json("/api/state")["settings"]["chain_presets"]
-                if not {"default", "snap"} <= set(found):
+                if not {"snap", "oring"} <= set(found):
                     raise AssertionError(f"chain presets missing from the build: {sorted(found)}")
                 return ", ".join(sorted(found))
 

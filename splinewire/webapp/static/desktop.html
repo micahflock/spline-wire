@@ -1150,7 +1150,7 @@ form.elements.fiducial.addEventListener("change", showRingFields);
 $("#settings-btn").onclick = () => {
   const s = state.settings;
   for (const [k, v] of Object.entries(s.chain)) if (form.elements[k]) form.elements[k].value = v;
-  const names = {default: "O-ring chain", snap: "Snap-fit chain"};
+  const names = {snap: "Snap-fit chain", oring: "O-ring chain"};
   const presets = s.chain_presets || {};
   const same = (a) => Object.entries(a).every(([k, v]) => String(s.chain[k]) === String(v));
   $("#chain-preset").innerHTML = `<option value="">Choose…</option>` + Object.keys(presets).map((n) =>

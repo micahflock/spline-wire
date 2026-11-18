@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec
+from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec, oring_chain_path
 from splinewire.process import process_photo
 from splinewire.synthetic import (
     circle_wrap_pins,
@@ -27,7 +27,11 @@ from splinewire.synthetic import (
 )
 from splinewire.testpart import test_part_svg
 
+# measure and synth start with the default chain (the snap-fit chain); the
+# commands that draw or build hardware, and synth's realistic scenes, with the
+# O-ring dot chain they are made for. --chain picks another for any of them.
 DEFAULT_CHAIN = default_chain_path()
+ORING_CHAIN = oring_chain_path()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -49,7 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--truth", type=Path, help="truth JSON from synth/test-part; reports error")
 
     p = sub.add_parser("synth", help="render a synthetic chain photo with known geometry")
-    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--chain", type=Path, help=f"chain file (default: {DEFAULT_CHAIN.name}, the snap-fit "
+                                                  f"chain; with --env, {ORING_CHAIN.name}, the O-ring chain)")
     p.add_argument("--out", type=Path, default=Path("out/synth"))
     _add_shape_args(p)
     p.add_argument("--tilt", type=float, default=25.0, help="camera tilt from straight-on, degrees")
@@ -63,17 +68,17 @@ def main(argv: list[str] | None = None) -> int:
                         "Sets camera, light and print itself; --tilt/--distance/--size are ignored")
 
     p = sub.add_parser("test-part", help="write a printable chain drawing with known geometry")
-    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--chain", type=Path, default=ORING_CHAIN)
     p.add_argument("--out", type=Path, default=Path("out/test-part"))
     _add_shape_args(p)
 
     p = sub.add_parser("test-plaque", help="write a 3D-printable chain plaque with known geometry")
-    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--chain", type=Path, default=ORING_CHAIN)
     p.add_argument("--out", type=Path, default=Path("out/test-plaque"))
     _add_shape_args(p)
 
     p = sub.add_parser("print-chain", help="write a print-in-place chain with working joints (STL)")
-    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--chain", type=Path, default=ORING_CHAIN)
     p.add_argument("--out", type=Path, default=Path("out/print-chain"))
     p.add_argument("--pins", type=int, help="number of pins (default: n_pins from the chain file); "
                                              "3 prints a single test joint")
@@ -83,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="how far each pin bends its spring once set, mm; sets the joint friction")
 
     p = sub.add_parser("oring-chain", help="write an assembled PETG chain: printed links, M3 screws, O-rings (STL)")
-    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--chain", type=Path, default=ORING_CHAIN)
     p.add_argument("--out", type=Path, default=Path("out/oring-chain"))
     p.add_argument("--pins", type=int, help="number of pins (default: n_pins from the chain file); "
                                              "4 prints a two-joint test piece")
@@ -97,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
                         "smaller if it doesn't bite")
 
     args = parser.parse_args(argv)
+    if args.command == "synth" and args.chain is None:
+        args.chain = ORING_CHAIN if args.env else DEFAULT_CHAIN
     commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque,
                 "print-chain": _print_chain, "oring-chain": _oring_chain}
     # ValueErrors carry the program's own messages for people (a photo with no
@@ -155,6 +162,9 @@ def _synth(args, spec: ChainSpec) -> int:
     pins = _shape(args, spec)
     truth = args.out / f"{args.shape}-truth.json"
     if args.env:
+        if spec.contact == "round" or (spec.fiducial == "ring" and spec.ring_inner_mm / spec.fiducial_mm >= 0.6):
+            raise ValueError("the realistic scenes (--env) draw the O-ring dot chain; "
+                             f"leave out --chain or give {ORING_CHAIN.name}")
         from splinewire.scene import render_scene
         env = _presets()[args.env]
         scene = render_scene(pins, spec, env, seed=args.seed)

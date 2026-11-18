@@ -1,8 +1,9 @@
 """The decode check's test photo and what Python makes of it
-(spikes/decode-check/): a 2000x1500 colour JPEG with 4:2:0 chroma, stored on
-its side with EXIF orientation 6 as a phone held upright stores it; the gray
-image Pillow decodes from it (as a PNG, lossless); and Python's detections
-and pins.
+(spikes/decode-check/): the default chain (the snap-fit one) in a 2000x1500
+colour JPEG with 4:2:0 chroma, stored on its side with EXIF orientation 6 as a
+phone held upright stores it; the gray image Pillow decodes from it (as a PNG,
+lossless); and Python's detections and pins. The page measures a person's own
+photos with the same chain.
 
     uv run python spikes/decode-check/make.py
 """
@@ -26,16 +27,16 @@ from splinewire.camera import focal_px_from_35mm, look_at_plane  # noqa: E402
 from splinewire.chain import default_chain_path, load_chain_spec  # noqa: E402
 from splinewire.detect import detect_fiducials  # noqa: E402
 from splinewire.pipeline import load_photo_bytes, measure  # noqa: E402
-from splinewire.synthetic import render_photo, s_curve_pins  # noqa: E402
+from splinewire.synthetic import render_snap_photo, s_curve_pins  # noqa: E402
 
 
 def main() -> None:
     spec = load_chain_spec(default_chain_path())
     size = (2000, 1500)
     pins = s_curve_pins(spec)
-    cam = look_at_plane(focal_px_from_35mm(26, size), size, 180.0, tilt_deg=25.0, tilt_direction_deg=35.0,
+    cam = look_at_plane(focal_px_from_35mm(26, size), size, 230.0, tilt_deg=25.0, tilt_direction_deg=35.0,
                         roll_deg=10.0, target_mm=tuple(pins.mean(axis=0)))
-    color = tinted(render_photo(pins, spec, cam, rng=np.random.default_rng(5)), 6)
+    color = tinted(render_snap_photo(pins, spec, cam, rng=np.random.default_rng(5)), 6)
     data = jpeg(Image.fromarray(color).transpose(Image.Transpose.ROTATE_90), exif=exif(26, 6))
     (HERE / "photo.jpg").write_bytes(data)
     img, focal = load_photo_bytes(data, "photo.jpg")

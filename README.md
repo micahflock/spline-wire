@@ -146,7 +146,8 @@ What made this work was a simulator with known answers. Every change could be ch
 ```bash
 uv sync
 uv run splinewire-app                     # the app, at http://localhost:8765/
-uv run splinewire measure photo.jpg       # one photo from the command line -> JSON, CSV, DXF, SVG
+uv run splinewire measure photo.jpg       # one photo of the snap-fit chain (the default) -> JSON, CSV, DXF, SVG;
+                                          # --chain data/chain.yaml for the O-ring chain
 uv run pytest                             # tests (~2 min)
 ```
 
@@ -182,7 +183,8 @@ The full plan, in risk order: [docs/next-steps.md](docs/next-steps.md).
 |---|---|
 | [`splinewire/`](splinewire/) | The pipeline (`detect` → `order` → `rectify` → `contact`), the app (`webapp/`), the photo simulator (`scene`) and the chain generators (`oring_chain`, `printed_chain`, `plaque`) |
 | [`fusion/SplineWire/`](fusion/SplineWire/) | The Fusion add-in (Paste points) |
-| [`data/chain.yaml`](data/chain.yaml) | The chain's physical parameters |
+| [`data/chain-snap.yaml`](data/chain-snap.yaml) | The snap-fit chain's physical parameters: the default chain |
+| [`data/chain.yaml`](data/chain.yaml) | The O-ring dot chain's (preset `oring`; the CAD generators and the benchmark use it) |
 | [`data/chain-snap.yaml`](data/chain-snap.yaml) | The same for the snap-fit chain ([docs/snap-chain.md](docs/snap-chain.md)) |
 | [`tests/`](tests/) | pytest suite, end to end on synthetic photos |
 | [`experiments/`](experiments/) | Standalone studies: detection benchmark, fiducial designs, lens distortion, deskew accuracy |

@@ -39,7 +39,7 @@ def chain_box(path: Path, img: np.ndarray, spec) -> tuple[int, int, int, int]:
 def main() -> None:
     out = []
     for path, margin in PHOTOS:
-        spec = load_chain_spec(chain_presets()["snap" if "snap" in path.name else "default"])
+        spec = load_chain_spec(chain_presets()["snap" if "snap" in path.name else "oring"])
         img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
         x0, y0, x1, y1 = chain_box(path, img, spec)
         h, w = img.shape

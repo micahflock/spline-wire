@@ -16,6 +16,8 @@ import python from "./python.json";
 const $ = (id: string) => document.getElementById(id)!;
 const report: string[] = [`page: decode-check, ${navigator.userAgent}`];
 const spec = specFromDict(python.chain as unknown as Record<string, unknown>);
+const chainName = spec.contact === "round" ? "the snap-fit chain" : "the O-ring chain";
+report.push(`chain: ${chainName} (${spec.pitch_mm} mm pitch, ${spec.n_pins} pins)`);
 
 function show(el: HTMLElement, line: string): void {
   el.textContent += line + "\n";
@@ -81,8 +83,13 @@ async function own(file: File): Promise<void> {
     const t0 = performance.now();
     const gray = await decodeToGray(file);
     show(out, `decoded ${gray.width}x${gray.height} (${(gray.width * gray.height / 1e6).toFixed(1)} MP) in ${(performance.now() - t0).toFixed(0)} ms`);
-    show(out, "measuring…");
     await paint();
+    if (!exif.make && !exif.focal35) {
+      show(out, "this photo carries no camera data (EXIF): the focal length is estimated from the chain, which is less "
+        + "accurate. How was it picked? (a photo from the camera app keeps it; Take Photo in the picker, a screenshot "
+        + "or a photo sent through a messaging app does not)");
+    }
+    show(out, `measuring with ${chainName}…`);
     const focal = exif.focal35 ? focalPxFrom35mm(exif.focal35, [gray.width, gray.height]) : null;
     const r = measure(gray, focal);
     show(out, `detected ${r.fiducials} fiducials in ${r.detectMs.toFixed(0)} ms; measured ${r.pinsPx.length} pins in ${r.measureMs.toFixed(0)} ms`

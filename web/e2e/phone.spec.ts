@@ -117,12 +117,22 @@ async function tapButton(name: string | RegExp): Promise<void> {
 }
 
 test("a photo taken while the engine loads is measured when it is ready", async () => {
+  // The TypeScript engine is ready almost at once, sooner than the check below
+  // can see its notice: hold its worker's script back so the photo really is
+  // taken while it loads.
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  await page.route(/\/assets\/engine-[^/]*\.js$/, async (route) => {
+    await held;
+    await route.continue();
+  });
   const t0 = Date.now();
   await page.goto("phone/");
   await expect(page.locator("#engine")).toBeVisible();
   await page.setInputFiles("#take", pipe.photo);
   const item = page.locator("#photos li").first();
-  await expect(item).toHaveAttribute("data-status", /loading|queued|measuring/);
+  await expect(item).toHaveAttribute("data-status", /loading|queued/);
+  release();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 180_000 });
   photoId = (await selectedId())!;
   const engine = await page.evaluate(() => (window as unknown as PhoneWindow).phone.engine);
@@ -248,7 +258,7 @@ test("settings learn a focal length per lens, not from a selfie, and offer it as
   await expect(page.locator("#toast")).toContainText("Learned 26 mm for Phone back camera 4.25mm f/1.8");
   await expect(page.locator("#s-lenses li")).toHaveCount(1);
   await expect(page.locator("#s-offer-text")).toHaveText("Use 26 mm from your last photo (Phone back camera 4.25mm f/1.8) for photos without camera data?");
-  await expect(page.locator("#s-chain")).toHaveValue("default");
+  await expect(page.locator("#s-chain")).toHaveValue("snap");
   await page.locator("#settings").scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(SHOTS, "settings-light.png"), fullPage: true });
   await tapButton("Use it");

@@ -54,19 +54,37 @@ class ChainSpec:
             raise ValueError(f"max_bend_deg must be between 30 and 150, got {self.max_bend_deg}")
 
 
+# The chain everything starts with: the CLI's measure and synth, the app, the
+# web pages and their tests (the owner's choice, 2026-11-18: the snap-fit
+# chain is the one being tested from now on). data/chain.yaml stays the
+# O-ring dot chain, which the CAD generators, the printed test plaque, the
+# realistic scenes, the benchmark and the regression tests are built around:
+# oring_chain_path().
+DEFAULT_PRESET = "snap"
+
+
+def _data_dir() -> Path:
+    """data/ in the repo, or its bundled copy in a packaged app."""
+    return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)) / "data"
+
+
+def oring_chain_path() -> Path:
+    """data/chain.yaml: the O-ring dot chain."""
+    return _data_dir() / "chain.yaml"
+
+
 def default_chain_path() -> Path:
-    """data/chain.yaml in the repo, or its bundled copy in a packaged app."""
-    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-    return root / "data" / "chain.yaml"
+    """The default chain's file (DEFAULT_PRESET: the snap-fit chain)."""
+    return chain_presets()[DEFAULT_PRESET]
 
 
 def chain_presets() -> dict[str, Path]:
-    """The chains that ship with the app, by name: data/chain.yaml is
-    "default", data/chain-<name>.yaml is <name>."""
-    folder = default_chain_path().parent
-    found = {"default": default_chain_path()}
-    found.update({p.stem[len("chain-"):]: p for p in sorted(folder.glob("chain-*.yaml"))})
-    return found
+    """The chains that ship with the app, by name, the default first:
+    data/chain-<name>.yaml is <name>, data/chain.yaml is "oring"."""
+    folder = _data_dir()
+    found = {p.stem[len("chain-"):]: p for p in sorted(folder.glob("chain-*.yaml"))}
+    found["oring"] = oring_chain_path()
+    return {DEFAULT_PRESET: found.pop(DEFAULT_PRESET), **found}
 
 
 def load_chain_spec(path: Path) -> ChainSpec:
