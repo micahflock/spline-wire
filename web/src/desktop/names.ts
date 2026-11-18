@@ -1,6 +1,6 @@
 // The downloads a curve offers and what they are called: the names
 // splinewire/session.py OUTPUT_NAMES gives them, after the photo's stem, so a
-// file saved here has the name the .exe and the phone give it.
+// file saved here has the name the CLI and the phone give it.
 
 import type { FileKind } from "../relay/files";
 

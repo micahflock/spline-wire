@@ -1,8 +1,7 @@
 // Plain words for what the measurement reports, where the photo can be fixed
 // by hand: on the phone by touch, and on the desktop page with the mouse (a
-// photo dropped there, D9), hence `input`. The wording follows the current
-// app's readWarning and readError (splinewire/webapp/static/desktop.html and
-// phone.html). Warnings are shown in orange, notes in grey; a person's error
+// photo dropped there, D9), hence `input`. The wording follows the retired
+// Windows app's readWarning and readError. Warnings are shown in orange, notes in grey; a person's error
 // (a Python ValueError) is shown as is, under a plain heading.
 
 import type { Failure, Progress } from "../core/protocol";

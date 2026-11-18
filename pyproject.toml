@@ -16,7 +16,6 @@ dependencies = [
     "pillow-heif>=0.18",
     "pyyaml>=6.0",
     "scipy>=1.14",
-    "segno>=1.6.6",
 ]
 
 [project.urls]
@@ -24,7 +23,6 @@ Repository = "https://github.com/micahflock/spline-wire"
 
 [project.scripts]
 splinewire = "splinewire.cli:main"
-splinewire-app = "splinewire.webapp.app:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -44,7 +42,4 @@ dev = [
     "pytest>=8.0",
     "shapely>=2.1.2",
     "trimesh>=5.1.0",
-]
-build = [
-    "pyinstaller>=6.10",
 ]

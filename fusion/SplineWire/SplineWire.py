@@ -1,8 +1,8 @@
 """Spline Wire add-in for Autodesk Fusion: paste measured points into a sketch.
 
 Adds a "Paste points" button to the sketch Create panel and to the Insert
-panel. It reads the point table that SplineWire.exe's "Copy points" puts on
-the clipboard (or any pasted x/y table in mm) and adds, in the sketch being
+panel. It reads the point table that the Spline Wire desktop page's "Copy points"
+puts on the clipboard (or any pasted x/y table in mm) and adds, in the sketch being
 edited (or a new sketch on the XY plane):
 
 - a sketch point at every curve point, and

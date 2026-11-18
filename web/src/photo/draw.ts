@@ -1,6 +1,6 @@
 // The markers over the photo, as SVG in photo pixels (the editor's SVG has
 // the photo's own coordinates as its viewBox, viewport.ts). The look is the
-// desktop editor's (splinewire/webapp/static/desktop.html, drawOverlay): pins
+// retired Windows app's desktop editor's (drawOverlay): pins
 // green, pins added by hand blue (dashed where no dot was under the tap),
 // stray dots red and dashed, removed pins as crossed ghosts, gaps dashed red,
 // the edge that touched the object magenta.

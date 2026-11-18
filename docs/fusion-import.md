@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md)
 
-Goal (next-steps item 3): measured curve in the active Fusion sketch, correctly scaled in mm, with as little clicking as possible. Points are acceptable; a spline is a bonus.
+Goal: measured curve in the active Fusion sketch, correctly scaled in mm, with as little clicking as possible. Points are acceptable; a spline is a bonus.
 
 ## What Fusion can and can't do (researched 2026-09)
 
@@ -16,7 +16,7 @@ Goal (next-steps item 3): measured curve in the active Fusion sketch, correctly 
 
 | Route | One-time setup | Clicks per curve | Lands in active sketch? | Scale risk |
 |---|---|---|---|---|
-| **Add-in "Paste points"** (recommended) | Install add-in (button in SplineWire.exe), restart Fusion | Copy points → Paste points (2) | Yes (else new XY sketch) | None: mm → cm in code |
+| **Add-in "Paste points"** (recommended) | Download the add-in zip from the desktop page, add it in Scripts and Add-Ins | Copy points → Paste points (2) | Yes (else new XY sketch) | None: mm → cm in code |
 | Insert DXF (`-curve.dxf`) | None | ~6: Insert > Insert DXF, pick plane, browse to file, OK | Its own sketch on a chosen plane | Low: file says mm |
 | ImportSplineCSV (`-fusion-cm.csv`) | None | ~5: Scripts and Add-Ins, pick script, Run, browse to file | No: always a new XY sketch | Low: file already in cm |
 | Insert SVG (`-curve.svg`) | None | ~6 | Its own sketch | High: known scale issues |
@@ -26,10 +26,11 @@ The clipboard idea only works with the add-in; the "table" idea is covered by th
 
 ## What's built
 
-- `SplineWire.exe`:
-  - **Copy points** (or Ctrl+C in the photo list) puts the selected photo's curve points on the clipboard as that table.
-  - **Install Fusion add-in…** copies `fusion/SplineWire` into `%APPDATA%\Autodesk\Autodesk Fusion 360\API\AddIns\SplineWire`.
-  - Every processed photo also writes `-curve.dxf` (mm, spline + points on separate layers) and `-fusion-cm.csv` (for ImportSplineCSV) as no-install fallbacks.
+- The desktop page (website):
+  - **Copy points** (or Ctrl+C) puts the selected curve's points on the clipboard as that table.
+  - **No Paste points button in Fusion?** offers `SplineWire-fusion-addin.zip` (built from `fusion/SplineWire` by `npm run assets`) and the steps to add it in Fusion.
+  - Every curve also comes with `-curve.dxf` (mm, spline + points on separate layers) and `-fusion-cm.csv` (for ImportSplineCSV) as no-install fallbacks.
+  - Until 2026-11-18 the Windows app (`SplineWire.exe`, now retired) did the same, with an **Install Fusion add-in…** button; that is how the 2026-10-19 test below installed it.
 - `fusion/SplineWire/` add-in: a **Paste points** button in the sketch Create panel and the Insert menu. It reads the clipboard (tab/comma/space separated, optional header, mm by default, `cm`/`in` headers honored), adds a sketch point at each curve point and a fitted spline through them, in the sketch being edited or a new "Spline Wire" sketch on XY. One undo step. The spline can be deleted to keep only the points.
 
 Tested outside Fusion only: the add-in runs in the test suite against a stand-in for Fusion's API (unit conversion, sketch choice, toolbar registration and cleanup), and the DXF is read back to check units and that the spline passes through every point. Since then it has been tested in Fusion (2026-10-19): it worked with no issues, well under the 5 s target.
@@ -38,7 +39,7 @@ One API detail is unverified: whether `sketchFittedSplines.add` accepts existing
 
 ## Test protocol (in Fusion)
 
-1. SplineWire.exe → **Install Fusion add-in…** → restart Fusion. Check that **Paste points** appears in Sketch > Create and in Insert. If not: Utilities > Add-Ins, select Spline Wire, Run, tick Run on Startup.
+1. Desktop page → **No Paste points button in Fusion?** → download the zip, unzip it, add the folder in Utilities > Add-Ins > Scripts and Add-Ins, Run, tick Run on Startup. Check that **Paste points** appears in Sketch > Create and in Insert.
 2. Process a photo (a synthetic one from `splinewire synth` is fine) → **Copy points**.
 3. In Fusion, create or edit a sketch → **Paste points**. Check:
    - the points and spline appear in *that* sketch;

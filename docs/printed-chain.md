@@ -2,6 +2,8 @@
 
 [← Back to the README](../README.md)
 
+Not pursued for now: the snap-fit chain ([snap-chain.md](snap-chain.md)) is the one in use, and the risks below are not tracked as open items. This file keeps the two designs for reference.
+
 A working measuring chain that comes off a single-extruder FDM printer assembled: it bends at every pin, holds its pose by friction, and keeps every link one pitch long. It matches `data/chain.yaml` (10 mm pitch, 8 mm wide links with round ends, a 5 mm dot on every pin, 13 pins), so the software needs no changes. Code: `splinewire/printed_chain.py`.
 
 ```bash
@@ -90,7 +92,7 @@ Seen from above, everything is black except the dots. That includes the inner li
   - **Play.** The wire does not take out the joints' play, which the spring does. Play of 0.3 mm costs 0.23–0.34 mm worst pin in simulation (0.4 px centre noise, which matches the first real photo), against 0.08 mm without play. Deskewing from the outer links alone, whose dots are rigid, gets that to about 0.15 mm.
 - **An elastomer instead of the printed spring.** Designed as the assembled O-ring chain below, for PETG.
 
-The next-steps item 2 exit test applies unchanged. Wrap a gauge of known radius, photograph the chain, and the radius should come back within 0.5 mm.
+To check a printed chain: wrap a gauge of known radius, photograph the chain, and the radius should come back within 0.5 mm.
 
 # Assembled O-ring chain (PETG)
 
@@ -147,7 +149,7 @@ Everything prints as used, dots up, on one bed, with no supports:
 
 ## Measuring photos of it
 
-`data/chain.yaml` sets `max_bend_deg: 125` for this chain (use 80 for the print-in-place chain; it is also in the app's settings). The joints stop at a 106° turn. Seen through a phone tilted by 35°, that can look like ~117°.
+`data/chain.yaml` sets `max_bend_deg: 125` for this chain (use 80 for the print-in-place chain; it is also a setting on the phone page). The joints stop at a 106° turn. Seen through a phone tilted by 35°, that can look like ~117°.
 
 With the turn limit raised, the ordering walk would otherwise be tempted to skip the pin at a sharp bend: the pin after next is only 1.2 pitches away and needs half the turn. So a step that passes over an unvisited pin lying about a pitch from both its ends costs extra. Among walks that visit equally many pins, the one with fewer steps off a whole pitch wins. In tests with noise and foreshortening, single sharp corners, sharp S-bends, hooks and pitch-wide U-turns order correctly up to a 35° tilt. The one known failure: a zigzag with every joint at its stop, seen at a 35° tilt. Foreshortening then shrinks the 1.2-pitch skip to about one pitch in the photo, and about half the walks skip every other pin. Pins can be fixed by hand in the app.
 

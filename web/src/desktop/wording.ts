@@ -1,5 +1,5 @@
-// Plain words for what the measurement reports, as the current app's
-// readWarning says them (splinewire/webapp/static/desktop.html). For a curve
+// Plain words for what the measurement reports, as the retired Windows
+// app's readWarning said them. For a curve
 // from the phone the photo is on the phone, so the advice points there; for
 // one measured here (`here`, a photo dropped on this page) it points back to
 // measuring the photo again, since the page does not keep it.

@@ -2,7 +2,7 @@
 
 **Measure any curve with a 3D-printed chain and a phone photo, then paste it into CAD.**
 
-[![Windows app](https://github.com/micahflock/spline-wire/actions/workflows/windows-exe.yml/badge.svg)](https://github.com/micahflock/spline-wire/actions/workflows/windows-exe.yml)
+[![Web](https://github.com/micahflock/spline-wire/actions/workflows/web.yml/badge.svg)](https://github.com/micahflock/spline-wire/actions/workflows/web.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > Hardware design, direction and testing by me; the software was written with Opus 5.5 in [Claude Code](https://claude.com/claude-code). [How it was built](#how-it-was-built).
@@ -28,14 +28,14 @@ So I set out to keep what worked and engineer out the friction:
 - **The chain is its own ruler.** Its links are exactly 10 mm, so nothing else has to go in the photo.
 - **Software does the scaling and tracing.** From photo to sketch is two clicks: Copy points, then Paste points.
 
-Writing that software (computer vision, perspective geometry, a desktop app, a CAD add-in) was a bigger stack than my programming background covers. I wanted to see how far I could get by directing an AI coding agent to build it, while I kept the problem, the design decisions and the hardware.
+Writing that software (computer vision, perspective geometry, a web app, a CAD add-in) was a bigger stack than my programming background covers. I wanted to see how far I could get by directing an AI coding agent to build it, while I kept the problem, the design decisions and the hardware.
 
 ## How you use it
 
 1. **Wrap.** Press the chain around the curve. Its joints are stiff enough to keep the shape.
 2. **Lift and lay flat.** Take it off and lay it on any table, dots up.
-3. **Photograph.** Take one photo with the phone's normal camera, straight on or tilted. The phone page sends it to the app on your computer over Wi-Fi (scan a QR code; no phone app, no cloud).
-4. **Paste into CAD.** Click **Copy points** in the app, then **Paste points** in Autodesk Fusion. The add-in drops the points and a fitted spline into the sketch you're editing, in millimetres. DXF, SVG (1:1) and CSV files are there for other CAD tools or LLM integration.
+3. **Photograph.** Open the website on the phone (scan the QR code on the computer's page to pair them) and take one photo, straight on or tilted. The phone measures it and sends only the curve to the computer's page; the photo stays on the phone, and there is no phone app to install.
+4. **Paste into CAD.** Click **Copy points** on the computer's page, then **Paste points** in Autodesk Fusion. The add-in drops the points and a fitted spline into the sketch you're editing, in millimetres. DXF, SVG (1:1) and CSV files are there for other CAD tools or LLM integration.
 
 No ruler or reference card goes in the photo. The chain is its own scale.
 
@@ -88,7 +88,7 @@ The software runs in four steps, each tested on its own:
 
 A cubic spline through the contact points is the measured curve.
 
-The app is a small local web server. Its UI runs in the browser on your computer, with a phone upload page reached by QR code. If the detector misses a pin, you click it in the photo: the click snaps to the dot underneath, and if there's no dot to snap to, the pin is placed to fit the chain's pitch.
+The app is a website: the phone page measures the photo in the browser, with a TypeScript port of the Python pipeline, and sends the curve to the paired computer's page through a small relay, end-to-end encrypted. If the detector misses a pin, you tap it in the photo: the click snaps to the dot underneath, and if there's no dot to snap to, the pin is placed to fit the chain's pitch.
 
 More detail: [docs/architecture.md](docs/architecture.md).
 
@@ -107,7 +107,7 @@ The target is under 1 mm, so this passes about 10 times over, and it's close to 
 ![The app with a photo of the real chain: the measured curve in millimetres on the left, the pins found on the photo on the right](docs/img/real-chain-app.jpg)
 <sub>Left: the measured curve (white) offset from the pin line (grey) to the edge that touched the object. Right: the 13 pins it found (green); red marks are look-alike dots in the mousepad pattern that it left out.</sub>
 
-Both photos found all 13 pins, among 580 and 534 look-alike dots. After the perspective is removed, every link should come out exactly 10 mm. In the photo above, taken at a 24.5° tilt, they came out within **0.122 mm RMS, 0.213 mm worst**. That one number includes the dot detection, the focal length and the printed chain's own pitch accuracy. It is a consistency check, not yet a comparison with a measured object. The phone upload stripped the photo's EXIF data, so the focal length came from the app's iPhone setting (24 mm).
+Both photos found all 13 pins, among 580 and 534 look-alike dots. After the perspective is removed, every link should come out exactly 10 mm. In the photo above, taken at a 24.5° tilt, they came out within **0.122 mm RMS, 0.213 mm worst**. That one number includes the dot detection, the focal length and the printed chain's own pitch accuracy. It is a consistency check, not yet a comparison with a measured object. The phone upload stripped the photo's EXIF data, so the focal length came from the app's iPhone setting (24 mm). The website's in-page camera keeps it.
 
 Copy points, then Paste points, put the curve into a Fusion sketch as points with a fitted spline through them:
 
@@ -129,7 +129,7 @@ I came up with the idea, set the requirements (sub-millimetre accuracy, any curv
 - **Simulate before printing.** Rather than print and photograph dozens of parts, I had a photo simulator built first. Every change to the detector was measured against 167 simulated photos with known answers. The same simulator settled the fiducial design: a plain 5 mm dot, the easiest to print reliably.
 - **Two chain designs.** The print-in-place chain came first, but it relies on thin, finely toleranced spring parts. PETG strings across print-in-place gaps. So I added an assembled design that uses cheap hardware for the precise parts, and that's the one I built first.
 
-Every decision, with the numbers behind it, is recorded in [docs/](docs/). [docs/open-questions.md](docs/open-questions.md) lists what's still unresolved.
+Every decision, with the numbers behind it, is recorded in [docs/](docs/). [docs/open-items.md](docs/open-items.md) lists what's still open, and [docs/future-work.md](docs/future-work.md) what might come later.
 
 ## How it was built
 
@@ -139,13 +139,12 @@ What made this work was a simulator with known answers. Every change could be ch
 
 ## Try it
 
-**Windows app:** download `SplineWire.exe` from the [latest release](https://github.com/micahflock/spline-wire/releases/latest) and run it. It opens in your browser, and your phone connects by scanning the QR code. Windows may warn that the program is unrecognised, because it isn't code-signed: click **More info → Run anyway**. Inside the app, **Install Fusion add-in…** sets up the Paste points button.
+**Website:** open https://micahflock.github.io/spline-wire/ on the computer and scan its QR code with the phone. On the computer's page, **No Paste points button in Fusion?** has the add-in and the steps to install it.
 
 **From source** (any OS with Python 3.12 and [uv](https://docs.astral.sh/uv/)):
 
 ```bash
 uv sync
-uv run splinewire-app                     # the app, at http://localhost:8765/
 uv run splinewire measure photo.jpg       # one photo of the snap-fit chain (the default) -> JSON, CSV, DXF, SVG;
                                           # --chain data/chain.yaml for the O-ring chain
 uv run pytest                             # tests (~2 min)
@@ -167,7 +166,7 @@ Each command writes STLs (black and white bodies for the filament changes) plus 
 | | |
 |---|---|
 | ✅ | Detection, ordering, perspective removal and contact offset, validated on simulated photos |
-| ✅ | Windows app with phone upload and pin editing; DXF/SVG/CSV export |
+| ✅ | Website: measuring and pin editing on the phone, the curve relayed to the computer's page; DXF/SVG/CSV export |
 | ✅ | Fusion add-in, tested in Fusion: Copy points → Paste points lands the curve in the sketch in under 5 s |
 | ✅ | First real photo of the printed test plaque: 0.098 mm worst pin |
 | ✅ | Real-photo test series: angles, lighting, shapes, phones |
@@ -175,21 +174,20 @@ Each command writes STLs (black and white bodies for the filament changes) plus 
 | ✅ | First run with the real chain from photo to Fusion sketch |
 | 🔄 | End to end on a real object: the path works; still to check the curve against an object of known size, and the time (target under 30 s) |
 
-The full plan, in risk order: [docs/next-steps.md](docs/next-steps.md).
+What's open, in risk order: [docs/open-items.md](docs/open-items.md).
 
 ## Repository
 
 | Path | What's there |
 |---|---|
-| [`splinewire/`](splinewire/) | The pipeline (`detect` → `order` → `rectify` → `contact`), the app (`webapp/`), the photo simulator (`scene`) and the chain generators (`oring_chain`, `printed_chain`, `plaque`) |
+| [`splinewire/`](splinewire/) | The pipeline (`detect` → `order` → `rectify` → `contact`), the photo simulator (`scene`) and the chain generators (`oring_chain`, `printed_chain`, `plaque`) |
+| [`web/`](web/) | The website: phone and desktop pages, the TypeScript port of the pipeline, the relay |
 | [`fusion/SplineWire/`](fusion/SplineWire/) | The Fusion add-in (Paste points) |
-| [`data/chain-snap.yaml`](data/chain-snap.yaml) | The snap-fit chain's physical parameters: the default chain |
+| [`data/chain-snap.yaml`](data/chain-snap.yaml) | The snap-fit chain's physical parameters: the default chain ([docs/snap-chain.md](docs/snap-chain.md)) |
 | [`data/chain.yaml`](data/chain.yaml) | The O-ring dot chain's (preset `oring`; the CAD generators and the benchmark use it) |
-| [`data/chain-snap.yaml`](data/chain-snap.yaml) | The same for the snap-fit chain ([docs/snap-chain.md](docs/snap-chain.md)) |
 | [`tests/`](tests/) | pytest suite, end to end on synthetic photos |
 | [`experiments/`](experiments/) | Standalone studies: detection benchmark, fiducial designs, lens distortion, deskew accuracy |
-| [`packaging/`](packaging/) | Windows build (PyInstaller); built, tested and released by GitHub Actions |
-| [`docs/`](docs/) | [Architecture](docs/architecture.md) · [Detection robustness](docs/cv-robustness.md) · [Chain designs](docs/printed-chain.md) · [Fusion import](docs/fusion-import.md) · [Next steps](docs/next-steps.md) · [Open questions](docs/open-questions.md) |
+| [`docs/`](docs/) | [Architecture](docs/architecture.md) · [Detection robustness](docs/cv-robustness.md) · [Chain designs](docs/printed-chain.md) · [Fusion import](docs/fusion-import.md) · [Website build](docs/web-build.md) · [Open items](docs/open-items.md) · [Future work](docs/future-work.md) |
 
 ## License
 

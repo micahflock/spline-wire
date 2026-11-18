@@ -1,7 +1,7 @@
 // What a tap on the photo does to a photo's edits, and the undo history.
 //
-// The rules are the desktop editor's (splinewire/webapp/static/desktop.html,
-// onEditorClick), which have been used on real photos:
+// The rules are those of the retired Windows app's desktop editor
+// (onEditorClick), which were used on real photos:
 //   - empty space: add a pin there (the core snaps it to the dot under it);
 //   - a pin on the chain: remove it;
 //   - a detection left out of the chain (red): use it as a pin;

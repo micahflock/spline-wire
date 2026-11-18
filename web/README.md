@@ -1,6 +1,6 @@
 # web/ — the hosted build
 
-The website that replaces `SplineWire.exe`. The plan, decisions and session log are in
+The website that replaced `SplineWire.exe` (retired 2026-11-18). The plan, decisions and session log are in
 [docs/web-build.md](../docs/web-build.md); this file is the code map.
 
 ```bash
