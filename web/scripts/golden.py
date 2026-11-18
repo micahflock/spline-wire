@@ -43,6 +43,7 @@ from splinewire.camera import focal_px_from_35mm, look_at_plane  # noqa: E402
 from splinewire.chain import chain_presets, load_chain_spec, pins_from_turns  # noqa: E402
 from splinewire.detect import detect_fiducials  # noqa: E402
 from splinewire.order import order_chain  # noqa: E402
+from splinewire.live import analyse  # noqa: E402
 from splinewire.pipeline import measure  # noqa: E402
 from splinewire.synthetic import circle_wrap_pins, render_snap_photo, s_curve_pins  # noqa: E402
 
@@ -115,6 +116,13 @@ def record(sid: str, img: np.ndarray, spec, focal: float, runs: list[dict]) -> d
         "fiducials": [[*f.center_px, *f.outer_axes_px, f.contrast, f.polarity, f.surround] for f in fids],
         "runs": [],
     }
+    # The overlay's analysis (live.analyse) on the same blobs, as a 640 px work frame sees them.
+    k = 640.0 / max(w, h)
+    pts = [[f.center_px[0] * k, f.center_px[1] * k] for f in fids]
+    dia = [f.outer_axes_px[0] * k for f in fids]
+    small = (int(round(w * k)), int(round(h * k)))
+    rec["live"] = [{"points": pts, "diameters": dia, "size": list(small), "focal_px": fpx, "chain": asdict(spec),
+                    "result": analyse(pts, dia, small, spec, fpx)} for fpx in (focal * k, None)]
     if len(fids) >= 3:
         o = order_chain(np.array([f.center_px for f in fids]), max_turn_deg=80.0)
         rec["plain_order"] = {"indices": [int(i) for i in o.indices], "links": [list(map(int, ln)) for ln in o.links],

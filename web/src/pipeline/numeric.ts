@@ -72,6 +72,7 @@ export function fsum(values: Iterable<number>): number {
 /** Python's f"{x:.{digits}f}": like toFixed, but an exact tie rounds to even
  * (toFixed rounds it up: 0.125 gives "0.13" against Python's "0.12"). */
 export function fixed(x: number, digits: number): string {
+  if (Object.is(x, -0)) return "-" + (0).toFixed(digits);    // Python keeps the sign of -0.0
   const s = x.toFixed(digits);
   // toFixed(100) is the exact decimal value for the magnitudes measured here
   // (a double of at least 1e-3 has at most ~62 fractional digits).

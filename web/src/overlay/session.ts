@@ -6,7 +6,7 @@
 //
 //   const overlay = new OverlaySession({
 //     chain, focalPx: () => focalForThisVideoSize,          // null: estimate from the chain
-//     analyse: (points) => core.call("analyse", points),
+//     analyse: (points) => live.analyse(points),            // src/pipeline/live-client.ts
 //     show: (view) => draw(view),                           // every frame
 //     capture: () => takeStillAndMeasure(),                 // once per good hold; resolves when done
 //   });
@@ -15,8 +15,8 @@
 //     video.requestVideoFrameCallback(each);
 //   });
 //
-// Blobs are found on every frame (a few ms). The analysis is slower (tens to
-// hundreds of ms in the Pyodide worker), so only one runs at a time and frames
+// Blobs are found on every frame (a few ms). The analysis is slower (a few to
+// ~160 ms in its worker), so only one runs at a time and frames
 // that arrive meanwhile are not analysed: the coach hears a few readings a
 // second, which is what its timings assume.
 
