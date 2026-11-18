@@ -169,7 +169,7 @@ Each command writes STLs (black and white bodies for the filament changes) plus 
 | ✅ | Website: measuring and pin editing on the phone, the curve relayed to the computer's page; DXF/SVG/CSV export |
 | ✅ | Fusion add-in, tested in Fusion: Copy points → Paste points lands the curve in the sketch in under 5 s |
 | ✅ | First real photo of the printed test plaque: 0.098 mm worst pin |
-| ✅ | Real-photo test series: angles, lighting, shapes, phones |
+| 🔄 | Real-photo accuracy with the snap-fit chain: early tests on the live site look good; a revised test series (including an object of known size) is being planned, figures to come |
 | ✅ | O-ring chain (13 pins) printed, assembled and photographed: all 13 pins found in both first photos, links within 0.12 mm RMS of the 10 mm pitch |
 | ✅ | First run with the real chain from photo to Fusion sketch |
 | 🔄 | End to end on a real object: the path works; still to check the curve against an object of known size, and the time (target under 30 s) |
