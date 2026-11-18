@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md)
 
-Not pursued for now: the snap-fit chain ([snap-chain.md](snap-chain.md)) is the one in use, and the risks below are not tracked as open items. This file keeps the two designs for reference.
+**Retired** (2026-11-18): the generators for these two chains (`splinewire/printed_chain.py`, `oring_chain.py`, `oring_viewer.py`) and their `print-chain` and `oring-chain` commands were removed; they are in git history up to commit `b9a6cb8`. The snap-fit chain ([snap-chain.md](snap-chain.md)) is the one in use. This file stays as the design record: the joints, the fits, the risks and why copper wire was rejected.
 
 A working measuring chain that comes off a single-extruder FDM printer assembled: it bends at every pin, holds its pose by friction, and keeps every link one pitch long. It matches `data/chain.yaml` (10 mm pitch, 8 mm wide links with round ends, a 5 mm dot on every pin, 13 pins), so the software needs no changes. Code: `splinewire/printed_chain.py`.
 

@@ -100,27 +100,12 @@ def test_defaults_snap_for_measuring_oring_for_hardware(tmp_path, capsys):
     assert "the realistic scenes (--env) draw the O-ring dot chain" in capsys.readouterr().err
 
 
-def test_generator_commands_write_their_files(tmp_path, capsys):
-    """test-plaque, print-chain and oring-chain, as typed: the options reach
-    the generators and the printing notes are shown."""
-    for needed in ("shapely", "trimesh", "manifold3d"):
+def test_plaque_command_writes_its_files(tmp_path, capsys):
+    """test-plaque, as typed: the options reach the generator and the printing
+    notes are shown."""
+    for needed in ("shapely", "trimesh"):
         pytest.importorskip(needed)
     assert main(["test-plaque", "--shape", "pipe", "--radius", "40", "--out", str(tmp_path / "plaque")]) == 0
     assert (tmp_path / "plaque" / "pipe-plaque.stl").stat().st_size > 0
     assert len(json.loads((tmp_path / "plaque" / "pipe-truth.json").read_text())["pin_points"]) == 13
     assert "Start with WHITE" in capsys.readouterr().out
-
-    assert main(["print-chain", "--pins", "3", "--clearance", "0.35", "--preload", "0.1",
-                 "--out", str(tmp_path / "pc")]) == 0
-    assert (tmp_path / "pc" / "chain-3pins.stl").stat().st_size > 0
-    notes = capsys.readouterr().out
-    assert "3 pins, pitch 10 mm" in notes and "The joints are 0.35 mm apart" in notes and "0.10 mm" in notes
-
-    assert main(["oring-chain", "--pins", "4", "--squeeze", "0.2", "--pilot", "2.9", "--screw-length", "5",
-                 "--out", str(tmp_path / "oring")]) == 0
-    assert (tmp_path / "oring" / "oring-chain-4pins.stl").stat().st_size > 0
-    notes = capsys.readouterr().out
-    assert "2 x M3 x 5 countersunk" in notes and "2.9" in notes        # the screw length and the hole size
-
-    assert main(["oring-chain", "--margin", "0.9", "--out", str(tmp_path / "oring")]) == 1
-    assert "error: a 144° stop is too wide for the post" in capsys.readouterr().err
