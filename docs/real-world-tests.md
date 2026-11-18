@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md) · [open-items.md](open-items.md), item 1
 
-A plan for measuring real-world accuracy with the snap-fit chain and the website. It replaces the old test matrix (the Windows app and the O-ring dot chain). Status: **planned, nothing built yet** (2026-11-18).
+A plan for measuring real-world accuracy with the snap-fit chain and the website. It replaces the old test matrix (the Windows app and the O-ring dot chain). Status (2026-11-18): build steps 1 and 2 done (scoring, simulation); steps 3–5 in progress. Nothing printed or photographed yet.
 
 ## What it has to answer
 
@@ -27,8 +27,28 @@ Each phase isolates one more source of error than the one before it. A failure i
 
 ## What has to be built first
 
-1. **Scoring, in Python first** (the reference): plaque truth (pin positions after a rigid fit and after a scale fit; this exists as `--truth`); round gauges (the fitted circle's radius against the gauge's, and each contact point's distance from the fitted circle); the S gauge (contact points registered to the designed outline, then point-to-curve distances). End pins are scored with and without the ends until the custom end links exist. Then `splinewire score FOLDER` re-scores saved test photos in bulk and writes the results table. Port the scorers to TypeScript for the test page, checked with golden files as the rest of the port is.
+1. **Scoring, in Python first** (the reference). *Done:* `splinewire/targets.py` (the gauges as shapes, the plaque poses), `splinewire/scoring.py`, `splinewire score PHOTO... --target NAME` or `--report REPORT.json` (with `--fit-focal` for the focal length that fits the target best), `tests/test_scoring.py`. As planned: plaque truth (pin positions after a rigid fit and after a scale fit; this exists as `--truth`); round gauges (the fitted circle's radius against the gauge's, and each contact point's distance from the fitted circle); the S gauge (contact points registered to the designed outline, then point-to-curve distances). End pins are scored with and without the ends until the custom end links exist. Then `splinewire score FOLDER` re-scores saved test photos in bulk and writes the results table. Port the scorers to TypeScript for the test page, checked with golden files as the rest of the port is.
 2. **The contact model's error in simulation**, before printing anything (open item 3): render the snap-fit chain wrapped round each gauge (`synthetic.render_snap_photo`) and score it like a real photo. This gives each gauge's expected error from the model alone, so a real result can be read as model error plus everything else.
+
+   *Done:* `experiments/gauge_simulation.py` (the chain placed as its sleeves sit on each gauge's edge; model alone over 13 placements; 6–12 photos per gauge at 0°, 20° and 35° tilt, 4032×3024, 24 mm, 230 mm away). Worst contact point without the ends, and the worst radius error:
+
+   | Gauge | Model alone: points / spline between them | Photos, EXIF focal: worst / radius | Photos, focal estimated: worst / radius |
+   |---|---|---|---|
+   | Convex R25 | 0.000 / 0.026 mm | 0.004 / 0.001 mm | 0.005 / 0.002 mm |
+   | Convex R40 | 0.000 / 0.008 | 0.003 / 0.002 | 0.007 / 0.009 |
+   | Convex R60 | 0.000 / 0.003 | 0.006 / 0.017 | 0.018 / 0.047 |
+   | Convex R100 | 0.000 / 0.001 | 0.010 / 0.059 | 0.157 / **1.21** |
+   | Concave R40 | 0.000 / 0.020 | 0.003 / 0.001 | 0.004 / 0.001 |
+   | Concave R60 | 0.000 / 0.005 | 0.004 / 0.005 | 0.019 / 0.037 |
+   | Concave R100 | 0.000 / 0.001 | 0.007 / 0.044 | **4.61 / 47.0** |
+   | S | 0.017 / **0.186** | 0.009 / — | 0.009 / — |
+   | Straight | 0.000 / 0.000 | 0.001 / — | 0.005 / — |
+
+   Every photo read the whole chain. What it says:
+   - The contact model is exact on arcs: each sleeve touches the arc on its pin's bisector. Its error is at the S's inflection, where the curvature reverses between two pins: 0.017 mm at the points and 0.19 mm in the spline between them. A real S that does worse than that is the chain or the photo.
+   - With the EXIF focal length, clean renders measure every gauge within 0.01 mm. Real phone photos will add their own noise and distortion; this is the floor.
+   - **Estimating the focal length fails on gentle curves**: the concave R100 photos come out 4.6 mm off and their radius 47 mm off. The estimate needs a strongly bent chain, which is what the existing warning says ("unreliable for nearly straight chains"). In the tests, a photo without EXIF on R60–R100 is not a measurement of the chain; the test page should show the focal source with every score.
+   - The radius of a short arc is harder to pin down than its points: 0.06 mm on R100 with points within 0.01 mm.
 3. **A fixed-chain plaque generator**: the real link from its STEP file (`experiments/snap_link/`), copies placed in a known pose and fused into one rigid print (pins grown into their sleeves so the joints fuse), at the real height, so the rims, the heads and the relief look as they do on the real chain. One filament change at the rim's foot (z = 12.65 mm): black then white, or white then orange. A 50 mm caliper bar on the same print checks the printer's scale. Poses: an **S** (both bend directions, joints up to about 60°) and a **tight** pose (joints at 95–102°, near the bend limit). The link count is a parameter. Truth file: the designed pin positions.
 4. **A contact gauge generator**: flat blocks 6 mm tall (below the sleeves' tops, so the target touches the sleeves as a real object does), each with its radius embossed and a 50 mm caliper bar. A gauge covers the arc a 13-pin chain wraps on it plus a margin, so the whole chain is in contact:
 
@@ -41,8 +61,8 @@ Each phase isolates one more source of error than the one before it. A failure i
    | Concave R40 | block with an 80 mm hole | 21.0° | 252° |
    | Concave R60 | 180° hollow | 13.4° | 161° |
    | Concave R100 | 110° hollow | 7.8° | 94° |
-   | S | R60 convex into R60 concave, 70° each | 11.6–13.4° | both |
-   | Straight | a straight edge, 170 mm | 0° | — |
+   | S | R60 convex into R60 concave, 90° each (188 mm of edge) | 11.6–13.4° | both |
+   | Straight | a straight edge, 200 mm | 0° | — |
 
    Tighter gauges are left out on purpose. Below R25 a convex disc takes more than a full turn of chain, and a concave hollow below R30 needs joints near or past the ~105° limit (R15: 76°, R12: 117°). Truth file: the shape (radius and side, or the S's arcs).
 5. **A test page on the site** (a spike, as `spikes/decode-check/`), for one tester and one phone at a time:

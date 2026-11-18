@@ -30,7 +30,7 @@ Every figure the series produces goes in this file with the photo's conditions (
 
 The snap-fit chain touches the target with the round sleeves and heads about every pin (`contact: round`): the curve point is the pin offset by 4.39 mm along the bisector of its two links, on convex and concave bends alike. The stadium-link rules of the other chains do not apply.
 
-- **Quantify the model's error, in simulation first.** The target touches the chain at discrete round contacts 13 mm apart, and the curve between them is a spline. How far is that from the true curve on tight radii (down to the sleeve radius), at inflection points and where curvature changes quickly against the pitch? Then on real moldings and pipes, as part of item 1.
+- **The model's error.** Simulated (2026-11-18, `experiments/gauge_simulation.py`; [real-world-tests.md](real-world-tests.md) step 2): exact at the contact points on arcs R25–R100, the spline between them within 0.026 mm; at an S's inflection (R60 each way) 0.017 mm at the points and 0.19 mm in the spline between them. Still open: real gauges and objects (item 1), and whether the spline needs help at inflections.
 - **Ends.** Model the custom end links (item 2) so the end points are measured like the rest, rather than continuing the turn of the joint next to them.
 - **Missed pins.** Where a pin is missed the curve bridges the gap (0.16 mm off on a 30 mm radius for the O-ring chain; not yet measured for this one). Should the missing pin be placed from its two neighbours, as a pin added by hand already is, or is "add it on the photo" enough?
 - **Object side.** The phone page draws the contact edge on the photo and switches it with a tap. Does that make mistakes rare in practice?
