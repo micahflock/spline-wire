@@ -144,8 +144,8 @@ def test_versions():
 
 def test_loading_the_bridge_imports_only_what_measuring_needs():
     """Every import costs seconds under Pyodide (S1: scipy.interpolate 2.1 s,
-    ezdxf 1.4 s). ezdxf is for the DXF output only, pillow-heif and segno are
-    not in the browser at all, and the pipeline needs nothing from SciPy but
+    ezdxf 1.4 s, before the DXF was our own). ezdxf is a test tool now,
+    pillow-heif and segno are not in the browser at all, and the pipeline needs nothing from SciPy but
     optimize and interpolate (which bring linalg, sparse, spatial, special
     and fft with them)."""
     code = ("import sys, json, splinewire.bridge; "

@@ -119,11 +119,10 @@ test("opens without loading any of the measuring engine", async () => {
   log(`at open: ${js.length} scripts, ${kib(js.reduce((n, s) => n + s.bytes, 0))} (${js.map((s) => path.basename(s.name)).join(", ")})`);
 });
 
-test("a picked photo: the engine's progress, then the pins as native Python finds them", async () => {
+test("a picked photo: the pins as native Python finds them", async () => {
   const t0 = Date.now();
   await page.setInputFiles("#pick", pipe.photo);
-  await expect(page.locator(".here .engine")).toBeVisible();
-  await expect(page.locator(".here [data-out=stage]")).toHaveText(/Starting Python|Loading NumPy|Starting Spline Wire/, { timeout: 30_000 });
+  // The TypeScript engine has nothing to load: no progress to show, no Pyodide.
   await expect(page.locator('.item.draft')).toContainText("pipe.jpg");
   await expect(pins()).toHaveCount(13, { timeout: 180_000 });
   await expect(page.locator(".here .engine")).toBeHidden();
@@ -140,7 +139,8 @@ test("a picked photo: the engine's progress, then the pins as native Python find
   log(`photo to pins: ${(t.sinceDrop / 1000).toFixed(1)} s from the pick (engine load included; ${(wall / 1000).toFixed(1)} s in the test),`,
       `of which measuring ${(t.ms / 1000).toFixed(2)} s; pins ${worst.toFixed(3)} px from native`);
   log(`once the engine is needed: ${later.length} more scripts, ${kib(later.reduce((n, s) => n + s.bytes, 0))}`,
-      `(${later.map((s) => path.basename(s.name)).join(", ")}), then Pyodide and its packages`);
+      `(${later.map((s) => path.basename(s.name)).join(", ")}), and nothing of Pyodide`);
+  expect(later.some((s) => /pyodide/.test(s.name))).toBe(false);
 });
 
 test("the mouse: a click removes a pin and Undo brings it back; the wheel zooms and a drag pans, adding nothing", async () => {

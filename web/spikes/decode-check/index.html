@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Decoding check</title>
+<style>
+  :root { --bg: #f6f6f3; --card: #fff; --ink: #1d1d1b; --muted: #66665f; --line: #d8d8d0; --accent: #1f5fbf; --ok: #1d7a3a; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141413; --card: #1f1f1d; --ink: #ecece6; --muted: #a3a39a; --line: #3a3a36; --accent: #6aa0ff; --ok: #6fd08c; --bad: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 16px calc(32px + env(safe-area-inset-bottom)); }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 20px 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 8px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 14px 0; }
+  button, label.btn { display: flex; align-items: center; justify-content: center; min-height: 52px; width: 100%; margin: 8px 0;
+    border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font: inherit; font-weight: 600; }
+  input[type=file] { display: none; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Decoding check</h1>
+  <p class="muted">Does this browser decode a phone's JPEG to the same pixels as the reference software, and how fast does the
+    new in-page measuring engine run here? Nothing leaves the phone.</p>
+  <section>
+    <h2>1. The test photo</h2>
+    <p class="muted">A 2000×1500 photo of a chain, stored on its side with an EXIF rotation, as a phone stores one.</p>
+    <button id="run">Run the check</button>
+    <pre id="test-out"></pre>
+  </section>
+  <section>
+    <h2>2. A photo of your own</h2>
+    <p class="muted">Pick a chain photo from the library: it is measured here, and the time it takes is shown.</p>
+    <label class="btn" for="pick">Choose a photo</label>
+    <input id="pick" type="file" accept="image/*">
+    <pre id="own-out"></pre>
+  </section>
+  <section>
+    <h2>3. Send the report</h2>
+    <button id="copy">Copy the report</button>
+    <p class="muted" id="copied"></p>
+  </section>
+</main>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>

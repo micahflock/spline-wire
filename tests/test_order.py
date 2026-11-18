@@ -223,3 +223,25 @@ def test_ordering_memory_grows_with_the_detections_not_their_square():
         tracemalloc.stop()
     assert sorted(order.indices) == list(range(13))
     assert peak < 20 * 2 ** 20, f"{peak / 2 ** 20:.0f} MiB"
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_direction_is_the_earlier_end_on_a_near_tie(seed, monkeypatch):
+    """Both directions along a chain tie on everything but total turning,
+    which then differs only by rounding, and by platform through atan2. A
+    difference under 1e-9 rad is no reason to prefer a walk: the one from
+    the end detected first wins, so every platform agrees. Here later starts
+    are made to turn 1e-12 rad less, as another platform's rounding might."""
+    import splinewire.order as order_mod
+    walk = order_mod._walk
+
+    def rounded_otherwise(start, *args, **kwargs):
+        path, turn = walk(start, *args, **kwargs)
+        return path, turn - 1e-12 * start
+
+    monkeypatch.setattr(order_mod, "_walk", rounded_otherwise)
+    pins = pins_from_turns(10.0, np.radians(np.r_[np.full(5, 14.0), np.full(6, -14.0)])) * 9.0
+    pts, perm = _shuffled(pins, seed)
+    order = order_chain(pts)
+    ends = sorted([int(np.flatnonzero(perm == 0)[0]), int(np.flatnonzero(perm == len(pins) - 1)[0])])
+    assert order.indices[0] == ends[0]

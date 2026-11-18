@@ -10,7 +10,6 @@ license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
 dependencies = [
-    "ezdxf>=1.3",
     "numpy>=2.0",
     "opencv-python-headless>=4.10",
     "pillow>=11.0",
@@ -39,6 +38,7 @@ packages = ["splinewire"]
 
 [dependency-groups]
 dev = [
+    "ezdxf>=1.3",                 # reads our DXF back in the tests
     "manifold3d>=3.0",
     "mapbox-earcut>=2.1.0",
     "pytest>=8.0",

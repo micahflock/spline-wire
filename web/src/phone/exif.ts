@@ -7,6 +7,8 @@
 //   FocalLengthIn35mmFilm  Exif IFD, else IFD0, as splinewire/camera.py looks it up;
 //                          0 counts as missing (the Pixel's takePhoto writes 0)
 //   LensModel              Exif IFD ("iPhone 16 Pro back triple camera 6.765mm f/1.78")
+//   Orientation            IFD0: how the stored pixels turn upright (1-8), for the
+//                          stored size the photo info reports (pipeline/engine.ts)
 //
 // JPEG keeps EXIF in an APP1 segment; HEIF (iPhone library photos) in an item
 // that starts "Exif\0\0" somewhere in the file, which is searched for.
@@ -19,11 +21,13 @@ export interface Exif {
   focalMm: number | null;
   /** FocalLengthIn35mmFilm; null when missing or 0. */
   focal35: number | null;
+  /** Orientation, 1-8; null when missing. */
+  orientation?: number | null;
 }
 
-export const NO_EXIF: Exif = { make: null, model: null, lens: null, focalMm: null, focal35: null };
+export const NO_EXIF: Exif = { make: null, model: null, lens: null, focalMm: null, focal35: null, orientation: null };
 
-const TAG = { make: 0x010f, model: 0x0110, exifIfd: 0x8769, focal: 0x920a, focal35: 0xa405, lens: 0xa434 };
+const TAG = { make: 0x010f, model: 0x0110, orientation: 0x0112, exifIfd: 0x8769, focal: 0x920a, focal35: 0xa405, lens: 0xa434 };
 
 /** The tags, or NO_EXIF if the bytes carry none (a frame, a screenshot, the
  * file input's camera on iPhone and Pixel). Never throws. */
@@ -104,6 +108,7 @@ function parseTiff(v: DataView): Exif {
     lens: text(sub.get(TAG.lens)),
     focalMm: num(sub.get(TAG.focal) ?? ifd0.get(TAG.focal)),
     focal35: num(sub.get(TAG.focal35) ?? ifd0.get(TAG.focal35)),
+    orientation: num(ifd0.get(TAG.orientation)),
   };
 }
 

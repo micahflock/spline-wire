@@ -26,9 +26,7 @@ heap to ~580 MB, and the heap never shrinks). At most MAX_OPEN_PHOTOS
 sessions are kept; opening one more closes the least recently used first, so
 its memory can be reused for the new one.
 
-ezdxf (only for the DXF output, 1.4 s to import under Pyodide) is not
-imported here: `output.dxf_text` imports it when asked, and the worker loads
-the package before the first "outputs".
+The DXF is written by splinewire/dxf.py, with no package beyond NumPy.
 """
 from __future__ import annotations
 

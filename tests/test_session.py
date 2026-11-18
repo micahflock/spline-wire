@@ -44,9 +44,8 @@ def test_same_numbers_and_files_as_process_photo(spec, photo, tmp_path):
     doc = s.measure(options(spec))
     assert np.allclose(doc["curve"]["pins"], res.measurement.pins_mm, atol=1e-4)
     texts = s.outputs()
-    for kind in ("json", "csv", "svg", "fusion_csv"):
+    for kind in ("json", "csv", "svg", "fusion_csv", "dxf"):
         assert res.outputs[kind].read_bytes().decode("utf-8") == texts[kind], kind
-    assert "SPLINE" in texts["dxf"] and "CURVE_POINTS" in texts["dxf"]   # each DXF has its own GUID
     assert texts["tsv"].startswith("x_mm\ty_mm\n")
 
 

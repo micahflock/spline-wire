@@ -321,15 +321,9 @@ test.describe("paired with a computer", () => {
     expect(curve!.photo).toBe(path.basename(pipe.photo));
     const files = await unpack(curve!.files!);
     const core = await page.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), photoId);
-    // The DXF carries GUIDs and time stamps that ezdxf makes anew for every
-    // file written: a version line "x.y.z @ time", and the header's creation
-    // and update dates (Julian days, group code 40 after $TDCREATE etc.).
-    // Two files written a moment apart differ in them; CI caught it.
-    const guidless = (t: string | undefined) =>
-      t?.replace(/^\{[0-9A-F-]{36}\}$/gm, "{guid}").replace(/^(\d+\.\d+\.\d+) @ \S+$/gm, "$1 @ {time}")
-        .replace(/(\$TDU?(?:CREATE|UPDATE)\r?\n\s*40\r?\n)[^\r\n]+/g, "$1{date}");
+    // The same files the engine writes for this photo, the DXF included (nothing in it changes with time).
     for (const kind of ["json", "csv", "svg", "dxf", "fusion_csv"] as const) {
-      expect(guidless(files[kind]), kind).toBe(guidless(core.files[kind]));
+      expect(files[kind], kind).toBe(core.files[kind]);
     }
     log("link states:", JSON.stringify(await page.evaluate(() => (window as unknown as { phone: { link: unknown } }).phone.link)));
   });
@@ -361,12 +355,11 @@ test.describe("paired with a computer", () => {
   });
 });
 
-test("the second visit: with the service worker and without", async ({ browser }) => {
-  // Each case in a fresh context: a first visit fills the caches, the second is timed.
-  const visit = async (ctx: BrowserContext) => {
+/** Visits the phone page until its engine is ready: the core's files (Pyodide,
+ * wheels) fetched by the page or its workers, from the network and from the
+ * service worker, and their bytes. */
+const visitPhone = async (ctx: BrowserContext, address = "phone/") => {
     const p = await ctx.newPage();
-    // What reached the server: the core's files fetched by the page or its
-    // worker and not answered by the service worker; and their bytes.
     let network = 0, fromSw = 0, bytes = 0;
     const sizes: Promise<void>[] = [];
     p.on("requestfinished", (r) => {
@@ -381,14 +374,25 @@ test("the second visit: with the service worker and without", async ({ browser }
       }).catch(() => {}));
     });
     const t0 = Date.now();
-    await p.goto("phone/");
+    await p.goto(address);
     await p.waitForFunction(() => (window as unknown as PhoneWindow).phone.engine !== null, null, { timeout: 120_000 });
     const engine = await p.evaluate(() => (window as unknown as PhoneWindow).phone.engine!);
-    await p.waitForTimeout(500);                       // ezdxf's download follows the load
     await Promise.all(sizes);
     await p.close();
     return { readyAt: engine.readyAt, load: engine.ms, wall: Date.now() - t0, network, fromSw, mb: (bytes / 1e6).toFixed(1) };
-  };
+};
+
+test("the TypeScript engine downloads nothing of Pyodide, and is ready at once", async ({ browser }) => {
+  const ctx = await browser.newContext({ ...PHONE });
+  const v = await visitPhone(ctx);
+  await ctx.close();
+  log(`TypeScript engine: ready ${(v.readyAt / 1000).toFixed(2)} s after the page opened; core files fetched: ${v.network}`);
+  expect(v.network + v.fromSw).toBe(0);
+});
+
+test("the second visit with the Python engine (?engine=python): with the service worker and without", async ({ browser }) => {
+  // Each case in a fresh context: a first visit fills the caches, the second is timed.
+  const visit = (ctx: BrowserContext) => visitPhone(ctx, "phone/?engine=python");
   const out: string[] = [];
   for (const sw of ["allow", "block"] as const) {
     const ctx = await browser.newContext({ ...PHONE, serviceWorkers: sw });

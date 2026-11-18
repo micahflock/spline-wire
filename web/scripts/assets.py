@@ -5,12 +5,9 @@
 - Pyodide core (pyodide.mjs, pyodide.asm.*, python_stdlib.zip, pyodide-lock.json)
   from the npm `pyodide` package in node_modules, so its version is the one
   package-lock.json pins -> public/pyodide/
-- The Pyodide packages the pipeline needs and ezdxf's dependencies, with
-  their own dependencies, from cdn.jsdelivr.net/pyodide, each checked against
-  the lock file's sha256 (also checked again by Pyodide when it loads them)
-  -> public/pyodide/
-- ezdxf's pure-Python wheel, the version and sha256 uv.lock pins (the version
-  the native tests run) -> public/wheels/
+- The Pyodide packages the pipeline needs, with their own dependencies, from
+  cdn.jsdelivr.net/pyodide, each checked against the lock file's sha256 (also
+  checked again by Pyodide when it loads them) -> public/pyodide/
 - splinewire, built as a wheel -> public/wheels/<sha256 prefix>/, so a new
   build gets a new URL even when the version number has not changed
 - data/chain*.yaml as one JSON file -> public/chains.json
@@ -36,7 +33,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
 import urllib.request
 from dataclasses import asdict
 from pathlib import Path
@@ -48,8 +44,6 @@ PYODIDE_NPM = WEB / "node_modules" / "pyodide"
 CORE = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"]
 # What the pipeline imports, loaded before the first measurement.
 BOOT = ["numpy", "scipy", "opencv-python", "pillow", "pyyaml"]
-# ezdxf's dependencies (numpy aside), loaded only for the DXF output.
-EXTRAS = ["pyparsing", "typing-extensions", "fonttools"]
 # HEIC/HEIF decoding (the iPhone's own format), loaded only when a photo is one:
 # 0.7 s and about 1 MB, which JPEG photos should not pay for.
 HEIF = ["pillow-heif"]
@@ -82,14 +76,6 @@ def closure(names: list[str], packages: dict) -> list[str]:
     for n in names:
         walk(n)
     return seen
-
-
-def locked_wheel(name: str) -> tuple[str, str, str]:
-    """(version, url, sha256) of a package's pure-Python wheel in uv.lock."""
-    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
-    pkg = next(p for p in lock["package"] if p["name"] == name)
-    whl = next(w for w in pkg["wheels"] if w["url"].endswith("-py3-none-any.whl"))
-    return pkg["version"], whl["url"], whl["hash"].removeprefix("sha256:")
 
 
 ADDIN_ZIP = "SplineWire-fusion-addin.zip"
@@ -146,19 +132,13 @@ def main() -> None:
             shutil.copyfile(src, dest)
     lock = json.loads((pyo / "pyodide-lock.json").read_text())
     packages = lock["packages"]
-    boot, extras, heif = closure(BOOT, packages), closure(EXTRAS, packages), closure(HEIF, packages)
-    extras = [n for n in extras if n not in boot]
-    heif = [n for n in heif if n not in boot and n not in extras]
+    boot, heif = closure(BOOT, packages), closure(HEIF, packages)
+    heif = [n for n in heif if n not in boot]
     cdn = f"https://cdn.jsdelivr.net/pyodide/v{version}/full/"
     print("packages from jsdelivr, sha256 checked against the lock")
-    for n in boot + extras + heif:
+    for n in boot + heif:
         p = packages[n]
         fetch(cdn + p["file_name"], pyo / p["file_name"], p["sha256"])
-
-    ezdxf_version, ezdxf_url, ezdxf_sha = locked_wheel("ezdxf")
-    ezdxf_file = ezdxf_url.rsplit("/", 1)[1]
-    print(f"ezdxf {ezdxf_version} as uv.lock pins it")
-    fetch(ezdxf_url, wheels / ezdxf_file, ezdxf_sha)
 
     print("splinewire wheel")
     with tempfile.TemporaryDirectory() as tmp:
@@ -170,8 +150,8 @@ def main() -> None:
         shutil.copyfile(built, sw)
 
     # The script owns these folders: drop what an earlier run left that is not wanted now.
-    keep = {pyo / n for n in CORE} | {pyo / packages[n]["file_name"] for n in boot + extras + heif}
-    keep |= {wheels / ezdxf_file, sw, sw.parent}
+    keep = {pyo / n for n in CORE} | {pyo / packages[n]["file_name"] for n in boot + heif}
+    keep |= {sw, sw.parent}
     for folder in (pyo, wheels):
         for path in sorted(folder.iterdir(), reverse=True):
             if path not in keep:
@@ -179,18 +159,14 @@ def main() -> None:
 
     (PUBLIC / "chains.json").write_text(json.dumps(chains(), indent=2) + "\n")
     addin_zip(PUBLIC / ADDIN_ZIP)
-    size = {n: (pyo / packages[n]["file_name"]).stat().st_size for n in boot + extras + heif}
+    size = {n: (pyo / packages[n]["file_name"]).stat().st_size for n in boot + heif}
     manifest = {
         "pyodide": {"version": version, "python": lock["info"]["python"], "index": "pyodide/"},
         # Package names for pyodide.loadPackage, which finds their files (and
         # dependencies) in the lock. Sizes are for the load progress.
         "boot": {"packages": boot, "bytes": sum(size[n] for n in boot)},
-        "extras": {"packages": extras, "bytes": sum(size[n] for n in extras)},
         "heif": {"packages": heif, "bytes": sum(size[n] for n in heif)},
-        "wheels": {
-            "splinewire": sw.relative_to(PUBLIC).as_posix(),
-            "ezdxf": (wheels / ezdxf_file).relative_to(PUBLIC).as_posix(),
-        },
+        "wheels": {"splinewire": sw.relative_to(PUBLIC).as_posix()},
         "chains": "chains.json",
     }
     (PUBLIC / "core-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

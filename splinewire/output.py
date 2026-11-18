@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from splinewire.contact import spline_samples
+from splinewire.dxf import dxf_text as _dxf_text
 from splinewire.pipeline import Measurement
 
 SCHEMA = "spline-wire/points@1"
@@ -52,26 +53,11 @@ def csv_text(points_mm: np.ndarray) -> str:
 
 
 def dxf_text(curve_points_mm: np.ndarray) -> str:
-    """DXF in mm for CAD import (Fusion: Insert > Insert DXF).
-
-    Layer CURVE holds one spline through the curve points, built the way
-    AutoCAD builds a spline from fit points, so it passes exactly through
-    them. Layer CURVE_POINTS holds the points themselves. $INSUNITS = mm so
-    importers don't have to guess the scale.
-    """
-    import ezdxf
-
-    doc = ezdxf.new("R2010", units=4)   # 4 = millimeters
-    doc.layers.add("CURVE", color=7)
-    doc.layers.add("CURVE_POINTS", color=1)
-    msp = doc.modelspace()
-    pts3 = [(float(x), float(y), 0.0) for x, y in curve_points_mm]
-    msp.add_cad_spline_control_frame(pts3, dxfattribs={"layer": "CURVE"})
-    for p in pts3:
-        msp.add_point(p, dxfattribs={"layer": "CURVE_POINTS"})
-    f = io.StringIO()
-    doc.write(f)
-    return f.getvalue()
+    """DXF in mm for CAD import (Fusion: Insert > Insert DXF): one spline
+    through the curve points on layer CURVE, the points on CURVE_POINTS.
+    A small file of our own (splinewire/dxf.py), the same every time for the
+    same curve."""
+    return _dxf_text(curve_points_mm)
 
 
 def fusion_csv_text(curve_points_mm: np.ndarray) -> str:
