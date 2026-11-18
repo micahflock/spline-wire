@@ -13,6 +13,7 @@ import { splineSamples } from "../desktop/spline";
 import { specFromDict } from "./chain";
 import type { Gray, GrayF } from "./cv";
 import { detectFiducials } from "./detect";
+import { dxfText } from "./dxf";
 import { toPhotoPx } from "./drawing";
 import { editsFromJson, removeDetections, type Edits } from "./edits";
 import { PipelineError } from "./errors";
@@ -291,14 +292,14 @@ export class PhotoSession {
     return extra;
   }
 
-  /** The latest measurement's files, as text (session.outputs). The DXF is
-   * not written in TypeScript yet (O11). */
-  outputs(): Partial<Record<OutputKind, string>> {
+  /** The latest measurement's files, as text (session.outputs). */
+  outputs(now: Date = new Date()): Record<OutputKind, string> {
     const m = this.need().measurement;
     return {
       json: jsonText(m, this.jsonExtra()),
       csv: csvText(m.contacts_mm),
       svg: svgText(m),
+      dxf: dxfText(m.contacts_mm, { now }),
       fusion_csv: fusionCsvText(m.contacts_mm),
       tsv: pointsTsv(m.contacts_mm),
     };

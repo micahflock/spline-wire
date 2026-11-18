@@ -1,6 +1,5 @@
 // splinewire/output.py: the measurement's files as text, byte for byte as
-// Python writes them (golden tests in session.test.ts). The DXF is not here:
-// Python writes it with ezdxf (O11 in docs/web-build.md).
+// Python writes them (golden tests in session.test.ts). The DXF is in dxf.ts.
 
 import { splineSamples } from "../desktop/spline";
 import type { Measurement } from "./measure";
