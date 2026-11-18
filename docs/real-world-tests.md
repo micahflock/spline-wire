@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md) · [open-items.md](open-items.md), item 1
 
-A plan for measuring real-world accuracy with the snap-fit chain and the website. It replaces the old test matrix (the Windows app and the O-ring dot chain). Status (2026-11-18): build steps 1–4 done (scoring, simulation, plaque and gauge generators); step 5, the test page, in progress. Nothing printed or photographed yet.
+A plan for measuring real-world accuracy with the snap-fit chain and the website. It replaces the old test matrix (the Windows app and the O-ring dot chain). Status (2026-11-18): all five build steps done (scoring, simulation, plaque and gauge generators, the test page); ready for printing and phase 0. Nothing printed or photographed yet.
 
 ## What it has to answer
 
@@ -65,7 +65,7 @@ Each phase isolates one more source of error than the one before it. A failure i
    | Straight | a straight edge, 200 mm | 0° | — |
 
    Tighter gauges are left out on purpose. Below R25 a convex disc takes more than a full turn of chain, and a concave hollow below R30 needs joints near or past the ~105° limit (R15: 76°, R12: 117°). Truth file: the shape (radius and side, or the S's arcs).
-5. **A test page on the site** (a spike, as `spikes/decode-check/`), for one tester and one phone at a time:
+5. **A test page on the site**. *Done:* `spikes/accuracy/` (its README has the steps for the owner), logic in `web/src/testbench/bench.ts`, the scorer ported as `web/src/pipeline/scoring.ts` and `targets.ts` (pinned to Python's scores to 1e-6 mm by `scoring.test.ts`), `e2e/accuracy.spec.ts`. The focal length is chosen as on the phone page: EXIF, then a lens the phone page remembers, then a number set on the page; each photo is also scored with the focal length estimated. As planned (a spike, as `spikes/decode-check/`), for one tester and one phone at a time:
    - **Setup:** the phone's name, the chain (colourway), the number of links, the target (which plaque, which gauge, or an object with no truth), and the conditions (intended tilt, surface, lighting, place in the frame). Each photo gets a test ID from these, plus a repeat number.
    - **Capture:** with the camera in the page, as the phone page takes it, or from the photo library.
    - **Measure** with the TypeScript engine three ways: the EXIF focal length, the estimate from the chain, and the saved setting if there is one. **Score** against the target's truth at once, so a bad photo can be retaken on the spot.

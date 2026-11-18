@@ -66,4 +66,4 @@ The pages show the version and CI build in their footers. `npm run assets` bundl
 
 ## Priority
 
-The riskiest open item is real-world accuracy with the snap-fit chain. The owner's tests on the live site show good real-photo accuracy, but no figures are recorded yet and no real measurement has been checked against an object of known size; the old test matrix (Windows app, O-ring chain) is dropped and a revised test series is planned in `docs/real-world-tests.md` (open item 1).
+The riskiest open item is real-world accuracy with the snap-fit chain. The owner's tests on the live site show good real-photo accuracy, but no figures are recorded yet and no real measurement has been checked against an object of known size; the old test matrix (Windows app, O-ring chain) is dropped and a revised test series is planned in `docs/real-world-tests.md` (open item 1). Its tools are built (plaque and gauge generators, `splinewire score`, the test page `web/spikes/accuracy/`); the owner prints and tests next. `targets.py`/`scoring.py` changes go to the port too: `web/scripts/golden_scoring.py` rewrites `targets.json` and the golden scores.

@@ -138,3 +138,11 @@ def test_score_command_needs_a_target(tmp_path, capsys):
     assert "--target" in capsys.readouterr().err
     assert main(["score", str(tmp_path / "x.jpg"), "--target", "nope"]) == 1
     assert "no target 'nope'" in capsys.readouterr().err
+
+
+def test_the_web_pages_targets_are_up_to_date(snap):
+    """web/src/pipeline/targets.json (the test page's targets) is targets_json:
+    run web/scripts/golden_scoring.py after changing a gauge or a pose."""
+    from pathlib import Path
+    web = json.loads((Path(__file__).parent.parent / "web" / "src" / "pipeline" / "targets.json").read_text())
+    assert web == json.loads(json.dumps(targets_json(snap)))

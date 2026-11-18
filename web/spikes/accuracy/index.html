@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Accuracy tests</title>
+<style>
+  :root { --bg: #f6f6f3; --card: #fff; --ink: #1d1d1b; --muted: #66665f; --line: #d8d8d0; --accent: #1f5fbf; --ok: #1d7a3a; --bad: #b3261e; --field: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141413; --card: #1f1f1d; --ink: #ecece6; --muted: #a3a39a; --line: #3a3a36; --accent: #6aa0ff; --ok: #6fd08c; --bad: #ff8a80; --field: #2a2a27; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 16px calc(32px + env(safe-area-inset-bottom)); }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 20px 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 8px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 14px 0; }
+  label.field { display: block; margin: 8px 0; font-size: .9rem; color: var(--muted); }
+  label.field > input, label.field > select { display: block; width: 100%; min-height: 44px; margin-top: 4px; padding: 0 10px;
+    border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--ink); font: inherit; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+  button, label.btn { display: flex; align-items: center; justify-content: center; min-height: 52px; width: 100%; margin: 8px 0;
+    border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font: inherit; font-weight: 600; }
+  button.quiet { background: transparent; color: var(--accent); min-height: 44px; }
+  button:disabled { opacity: .5; }
+  input[type=file] { display: none; }
+  video { width: 100%; border-radius: 10px; background: #000; display: block; margin: 8px 0; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .test { border-top: 1px solid var(--line); padding: 10px 0; }
+  .test:first-child { border-top: 0; }
+  .test b { font-variant-numeric: tabular-nums; }
+  .test .actions { display: flex; gap: 8px; }
+  .test .actions button { margin: 4px 0; min-height: 40px; }
+  pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Accuracy tests</h1>
+  <p class="muted">For the real-world test series (docs/real-world-tests.md): photograph a fixed-chain plaque or the chain on a
+    gauge, and the page scores the measurement against the known shape at once. Photos and results stay on this phone until
+    you save or send them. <span id="version"></span></p>
+
+  <section>
+    <h2>1. This phone and chain</h2>
+    <label class="field">Phone (for the file names)<input id="phone" placeholder="e.g. iPhone 16 Pro" autocomplete="off"></label>
+    <label class="field">Chain<select id="shade"></select></label>
+    <div class="row">
+      <label class="field">Links (rims)<input id="links" type="number" inputmode="numeric" min="6" max="40" value="13"></label>
+      <label class="field">Focal length (optional)<input id="focal" type="number" inputmode="decimal" placeholder="35 mm equiv., e.g. 24"></label>
+    </div>
+    <p class="muted" id="focal-note"></p>
+  </section>
+
+  <section>
+    <h2>2. The test</h2>
+    <label class="field">Target<select id="target"></select></label>
+    <div class="row">
+      <label class="field">Tilt you aim for<select id="tilt"><option>0°</option><option selected>20°</option><option>35°</option><option>40°</option><option>other</option></select></label>
+      <label class="field">Place in the frame<select id="frame"><option>centre</option><option>corner</option></select></label>
+      <label class="field">Surface<select id="surface"><option>plain mid-tone</option><option>white paper</option><option>dark</option><option>patterned (wood, mousepad)</option><option>cluttered desk</option></select></label>
+      <label class="field">Light<select id="light"><option>indoor</option><option>daylight</option><option>lamp reflected in the tops</option></select></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Take the photo</h2>
+    <button id="open">Open the camera</button>
+    <video id="video" playsinline muted hidden></video>
+    <button id="shoot" hidden>Take the photo</button>
+    <button id="close" class="quiet" hidden>Close the camera</button>
+    <label class="btn" for="pick">Choose from the photo library</label>
+    <input id="pick" type="file" accept="image/*">
+    <pre id="now"></pre>
+  </section>
+
+  <section>
+    <h2>4. Tests on this phone</h2>
+    <div id="tests"><p class="muted">None yet.</p></div>
+  </section>
+
+  <section>
+    <h2>5. Send them</h2>
+    <button id="copy">Copy the report</button>
+    <button id="download">Download the report (JSON)</button>
+    <button id="save-all">Save all photos</button>
+    <p class="muted" id="sent"></p>
+    <button id="clear" class="quiet">Delete every test on this phone</button>
+  </section>
+</main>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>
