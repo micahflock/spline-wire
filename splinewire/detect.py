@@ -616,10 +616,21 @@ def detect_rims(image: np.ndarray, inner_outer_ratio: float, min_diameter_px: fl
     return _dedupe(rims)
 
 
+# The outline of a rim's hole in the threshold mask comes out small: by a
+# median 5% along the major axis and 7% along the minor (11% at most) on the
+# 24 snap-fit renders of web/scripts/golden.py. The rim is a thin band (0.24
+# hole radii on the snap-fit chain), so from that outline the first pass read
+# the hole's blurred edge as the rim and lost 4 of the 312 rims, all at 40
+# degree tilts. Grown by this much first, it lost none (1.04 to 1.08 alike).
+_RIM_HOLE_GROWTH = 1.06
+
+
 def _refine_rim(gray: np.ndarray, inverted: np.ndarray, hole: _Candidate, ratio: float) -> Fiducial | None:
     """A rim from the outline of its hole (hole.outer), or None if what
     surrounds the hole is not a bright band as wide as the rim."""
     band = 1.0 / ratio - 1.0                    # the rim's width, in hole radii
+    (cx, cy), (a, b), ang = hole.outer
+    hole = replace(hole, outer=((cx, cy), (a * _RIM_HOLE_GROWTH, b * _RIM_HOLE_GROWTH), ang))
     d = _refine_dot(inverted, hole, margin=(1.0 + 0.25 * band, 1.0 + 0.8 * band))
     if d is None:
         return None

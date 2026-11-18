@@ -8,6 +8,12 @@ pitches is accepted as one missing detection. A step never passes over an
 unvisited pin that lies about one pitch from both its ends: at a sharp
 bend the pin after next can be nearer than the next pin's turn suggests
 (1.2 pitches at the O-ring chain's stop), and skipping it would lose it.
+Nor is a step over a missing pin taken where that pin is there, looking
+like the others: past the turn limit (a bend sharper than the chain
+allows) the walk would otherwise step round the bend's pin as if it were
+undetected, and the chain read with a pin in the wrong place instead of
+as cut at the bend. (A pin that fails the size tests, say half washed out
+by glare, is still bridged as missing.)
 Every detection is tried as the starting point (on a busy background,
 only the most end-like: see _starts); the walk that visits the most pins
 wins.
@@ -272,9 +278,14 @@ def _walk(start, pts, near: _Near, nn_pitch, max_turn, sizes: _Sizes | None, max
             cos = ((pts[idx[sel]] - pts[cur]) @ heading) / (dist[sel] * math.hypot(*heading))
             sel = sel[cos >= cos_max - 1e-9]
         over = _passes_over(idx, dist, sel[~gap[sel]], pts, pitch, visited)
+        # A step over a missing pin is not taken where a detection that would
+        # pass for the next pin (all but the turn) lies where that pin would be.
+        skips = _passes_over(idx, dist, sel[gap[sel]], pts, pitch, visited, like=ok)
         for k in sel:
             j, d, is_gap = idx[k], dist[k], gap[k]
             if j in visited:
+                continue
+            if is_gap and skips[k]:
                 continue
             step = pts[j] - pts[cur]
             turn = 0.0 if heading is None else abs(_angle(heading, step))
@@ -319,13 +330,15 @@ def _off_pitch(path: list[int], pts: np.ndarray) -> tuple[int, int]:
 
 
 def _passes_over(idx: np.ndarray, dist: np.ndarray, steps: np.ndarray, pts: np.ndarray,
-                 pitch: float, visited: set) -> dict:
+                 pitch: float, visited: set, like: np.ndarray | None = None) -> dict:
     """For each of the steps from cur to idx[k] (k in steps; idx and dist are
     what lies around cur, out to more than 1.25 pitches): whether some
     unvisited pin is about one pitch from both ends, and nearer to each
-    than they are to each other."""
+    than they are to each other. For a step of two pitches (over a missing
+    pin) that is the pin it would skip. like: only detections idx[m] with
+    like[m] count (those that pass for a step from cur)."""
     out = dict.fromkeys(steps.tolist(), False)
-    mid = np.flatnonzero(np.abs(dist / pitch - 1.0) < 0.25)
+    mid = np.flatnonzero((np.abs(dist / pitch - 1.0) < 0.25) & (True if like is None else like))
     mid = mid[[idx[m] not in visited for m in mid]] if len(mid) else mid
     if len(mid) == 0 or len(steps) == 0:
         return out

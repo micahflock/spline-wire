@@ -28,6 +28,10 @@ export const WORK_LONG_SIDE = 640;
  * 13 rims of a synthetic snap-chain frame are found (17 ms, against 12 of 13). */
 export const WORK_LONG_SIDE_RINGS = 800;
 
+/** A ring whose hole is at least this share of its outer diameter is a thin rim,
+ * found by its hole alone (detect.py's THIN_RING). */
+export const THIN_RING = 0.6;
+
 export const BLOBS = {
   /** Local threshold window (px, odd) and offset, as in detect.py at its coarsest level. */
   block: 25,
@@ -44,6 +48,15 @@ export const BLOBS = {
   ringMargin: [1.08, 1.2] as const,
   /** The share of rays on which a ring's margin must be darker than its rim. */
   ringMarginRays: 0.6,
+  /** A thin rim's hole edge is this close to the hole's radius (a share of it) on
+   * a ray: a 40 degree tilt, seen through an axis-aligned box, varies it by ~13%. */
+  holeRoundness: 0.25,
+  /** A thin rim's least minor/major ratio (a 60 degree tilt). */
+  minRimAspect: 0.5,
+  /** Rays on which a thin rim must be brighter than what lies just outside it. The
+   * snap-fit chain's arms are 0.57 ring radii wide: about 2.7 of 16 rays each, head on;
+   * a tilt shows the dark side of the head too. */
+  minRimBandRays: 2,
   /** Median inside-minus-margin contrast, gray levels; the share of rays that must show any. */
   minContrast: 15,
   minRayContrast: 6,
@@ -93,8 +106,9 @@ export function detectBlobs(frame: GrayFrame, scale = 1, shape: Shape = { inner:
   if (shape.inner > 0) {
     // Rings are found by their holes first, as detect.py finds rims: a hole is
     // a clean dark disc, while a thin rim often merges with a light table in
-    // the mask wherever the link around it is a pixel or two wide (the
-    // snap-fit chain's is: 1.3 ring radii). Closed rims are a second source.
+    // the mask wherever the link around it is narrow or missing (the snap-fit
+    // chain's rim is as wide as its head: only the arms show outside it).
+    // Closed rims are a second source.
     for (const c of components(localThreshold(frame, true), w, h)) {
       keep(ringAt(frame, c.cx, c.cy, c.rx / shape.inner, c.ry / shape.inner, shape.inner));
     }
@@ -232,46 +246,72 @@ export function dotAt(frame: GrayFrame, cx: number, cy: number, rx: number, ry: 
 
 /** Is the bright thing in this box a ring (a light rim around a darker hole)
  * on a link? The ring's own test, as detect.py's rings and rims are found by
- * their hole: along rays from the centre, the rim is brighter than both the
- * hole inside it and the link's margin outside it. A solid dot fails (no hole),
- * and so does a bright spot of glare. The snap-fit chain's thin rim
- * (data/chain-snap.yaml, hole 0.76 of the outer diameter) is a few work
- * pixels wide, so the rim is read as the brightest sample across its band,
- * not a mean. The flood fill found the rim itself, so the box is its outer edge. */
+ * their hole: along rays from the centre, the rim is brighter than the hole
+ * inside it, and a wide-banded ring's also than the link's margin outside it.
+ * A solid dot fails (no hole), and so does a bright spot of glare. A thin rim
+ * (hole at least THIN_RING of the outer diameter, as detect.py's detect_rims:
+ * the snap-fit chain's, 0.80) is a few work pixels wide, so the rim is read as
+ * the brightest sample across its band, not a mean; and nothing dark need lie
+ * outside it. The snap-fit chain's rim is as wide as the head it sits on, and
+ * the next link's sleeve is hidden under that head, so outside the rim the
+ * camera sees the table wherever the arms are not: on white paper the rim has
+ * no outer edge. Such a rim is taken by its hole alone and centred on the
+ * hole, as detect_rims does. The box is the ring's outer edge. */
 export function ringAt(frame: GrayFrame, cx: number, cy: number, rx: number, ry: number, inner: number): Blob | null {
   const n = BLOBS.rays;
+  const thin = inner >= THIN_RING;
   const rimHole: number[] = [], rimMargin: number[] = [], ratios: number[] = [], widths: number[] = [];
-  let rimSum = 0, marginSum = 0;
+  let rimSum = 0, marginSum = 0, holeSum = 0, round = 0;
   for (let k = 0; k < n; k++) {
     const a = (2 * Math.PI * k) / n;
     const ex = rx * Math.cos(a), ey = ry * Math.sin(a);
     const len = Math.hypot(ex, ey);
     const hole = meanAlong(frame, cx, cy, ex, ey, 0.1, Math.max(0.15, 0.7 * inner), len);
     const rim = maxAlong(frame, cx, cy, ex, ey, 0.85 * inner, 1.05, len);
-    // The snap-fit chain's link is barely wider than its ring (round sleeves:
-    // 4.68 mm half-width against a 3.6 mm ring radius, 1.3 radii), so the dot's
-    // margin band (1.15-1.45) would reach the table. Read the link just outside the rim.
+    // Read the link just outside the rim: on a ring's chain the link may be
+    // barely wider than the ring, so the dot's margin band (1.15-1.45) would
+    // reach the table.
     const margin = meanAlong(frame, cx, cy, ex, ey, BLOBS.ringMargin[0], BLOBS.ringMargin[1], len);
     rimSum += rim;
     marginSum += margin;
+    holeSum += hole;
     rimHole.push(rim - hole);
     rimMargin.push(rim - margin);
     ratios.push((margin + 4) / (rim + 4));
-    const width = edgeWidth(frame, cx, cy, ex, ey, len, rim, margin);
+    // A thin rim's sharp edge is its hole's, which every ray crosses where the
+    // hole's outline is: about `inner` out, the box being the ring's.
+    const width = thin ? edgeWidth(frame, cx, cy, ex, ey, len, rim, hole, (1 + inner) / 2, 0.4 * inner)
+      : edgeWidth(frame, cx, cy, ex, ey, len, rim, margin);
     if (width !== null) widths.push(width);
+    if (thin) {
+      const edge = crossing(frame, cx, cy, ex, ey, len, (rim + hole) / 2, 0.3 * inner, 1.05);
+      if (edge !== null && Math.abs(edge / inner - 1) < BLOBS.holeRoundness) round++;
+    }
   }
   // The hole is what makes a ring (detect.py finds rims by it): it must show on
-  // nearly every ray. The dark link outside the rim must show on most, as glare
-  // or a tilt can wash out one side.
-  const contrast = median(rimMargin);
-  if (contrast < BLOBS.minContrast || median(rimHole) < BLOBS.minContrast) return null;
+  // nearly every ray. A wide-banded ring's dark link outside the rim must show
+  // on most, as glare or a tilt can wash out one side.
   const share = (v: number[]) => v.filter((c) => c > BLOBS.minRayContrast).length / n;
-  if (share(rimHole) < BLOBS.minRaysWithContrast || share(rimMargin) < BLOBS.ringMarginRays) return null;
-  if (median(ratios) > BLOBS.maxMarginRatio) return null;
+  if (median(rimHole) < BLOBS.minContrast || share(rimHole) < BLOBS.minRaysWithContrast) return null;
+  const contrast = thin ? median(rimHole) : median(rimMargin);
+  if (thin) {
+    // A rim's hole is round, or an ellipse no narrower than a 60 degree tilt
+    // makes it: not a dark arm between two rims.
+    if (Math.min(rx, ry) < BLOBS.minRimAspect * Math.max(rx, ry) || round < BLOBS.minRaysWithContrast * n) return null;
+    // Some dark link lies just outside the rim somewhere (an arm, at least):
+    // a dark speck of the hole's size on a plain table has no rim round it.
+    if (share(rimMargin) * n < BLOBS.minRimBandRays) return null;
+  }
+  if (!thin) {
+    if (contrast < BLOBS.minContrast || share(rimMargin) < BLOBS.ringMarginRays) return null;
+    if (median(ratios) > BLOBS.maxMarginRatio) return null;
+  }
 
-  // Centre: brightness-weighted over the rim's band, which a ring has all round,
-  // so the weights balance about its centre as a dot's do.
-  const outLevel = marginSum / n, span = rimSum / n - outLevel;
+  // Centre: a thin rim's, darkness-weighted over its hole out to the middle of
+  // the rim; a wide ring's, brightness-weighted over its rim's band. Either is
+  // there all round, so the weights balance about the centre as a dot's do.
+  const rimLevel = rimSum / n;
+  const outLevel = thin ? holeSum / n : marginSum / n, span = rimLevel - outLevel;
   const { width: w, height: h, data } = frame;
   const xa = Math.max(0, Math.floor(cx - 1.2 * rx)), xb = Math.min(w - 1, Math.ceil(cx + 1.2 * rx));
   const ya = Math.max(0, Math.floor(cy - 1.2 * ry)), yb = Math.min(h - 1, Math.ceil(cy + 1.2 * ry));
@@ -279,8 +319,14 @@ export function ringAt(frame: GrayFrame, cx: number, cy: number, rx: number, ry:
   for (let y = ya; y <= yb; y++) {
     for (let x = xa; x <= xb; x++) {
       const u = (x - cx) / rx, v = (y - cy) / ry, r = Math.sqrt(u * u + v * v);
-      if (r < 0.6 * inner || r > 1.2) continue;          // the hole and beyond the margin are not the rim
-      const wgt = Math.min(1, Math.max(0, (data[y * w + x]! - outLevel) / span));
+      let wgt: number;
+      if (thin) {
+        if (r > (1 + inner) / 2) continue;                 // beyond the middle of the rim
+        wgt = Math.min(1, Math.max(0, (rimLevel - data[y * w + x]!) / span));
+      } else {
+        if (r < 0.6 * inner || r > 1.2) continue;          // the hole and beyond the margin are not the rim
+        wgt = Math.min(1, Math.max(0, (data[y * w + x]! - outLevel) / span));
+      }
       sw += wgt;
       sx += wgt * x;
       sy += wgt * y;
@@ -289,6 +335,19 @@ export function ringAt(frame: GrayFrame, cx: number, cy: number, rx: number, ry:
   if (sw <= 0) return null;
   // The rim's area says little about the ring's size; its outer edge, the box, does.
   return { x: sx / sw, y: sy / sw, d: rx + ry, contrast, sharpness: sharpnessOf(widths) };
+}
+
+/** Where along a ray (in radii) the gray level first reaches `level`, reading outwards from `from` to `to`. */
+function crossing(f: GrayFrame, cx: number, cy: number, ex: number, ey: number, len: number, level: number,
+  from: number, to: number): number | null {
+  const step = 0.25 / len;                                   // a quarter pixel, in radii
+  let prev = sample(f, cx + from * ex, cy + from * ey);
+  for (let s = from + step; s <= to; s += step) {
+    const v = sample(f, cx + s * ex, cy + s * ey);
+    if (prev < level && v >= level) return s - step + ((level - prev) / (v - prev)) * step;
+    prev = v;
+  }
+  return null;
 }
 
 function maxAlong(f: GrayFrame, cx: number, cy: number, ex: number, ey: number, from: number, to: number, len: number): number {
@@ -320,18 +379,21 @@ function meanAlong(f: GrayFrame, cx: number, cy: number, ex: number, ey: number,
   return sum / (steps + 1);
 }
 
-/** Distance in px along a ray between the 75% and 25% levels of the edge, or null if it has no clean edge. */
-function edgeWidth(f: GrayFrame, cx: number, cy: number, ex: number, ey: number, len: number, inside: number, outside: number): number | null {
+/** Distance in px along a ray between the 75% and 25% levels of the edge, or
+ * null if it has no clean edge. The ray is read from `from` to `to` radii (outwards
+ * by default; inwards for a hole), going from the bright `inside` level to `outside`. */
+function edgeWidth(f: GrayFrame, cx: number, cy: number, ex: number, ey: number, len: number, inside: number, outside: number,
+  from = 0.5, to = 1.5): number | null {
   if (inside - outside < BLOBS.minRayContrast) return null;
   const hiLevel = outside + 0.75 * (inside - outside), loLevel = outside + 0.25 * (inside - outside);
-  const step = 0.25 / len;                                   // a quarter pixel, in radii
-  let at75: number | null = null, prev = sample(f, cx + 0.5 * ex, cy + 0.5 * ey), prevS = 0.5;
-  for (let s = 0.5 + step; s <= 1.5; s += step) {
+  const step = (to > from ? 0.25 : -0.25) / len;             // a quarter pixel, in radii
+  let at75: number | null = null, prev = sample(f, cx + from * ex, cy + from * ey), prevS = from;
+  for (let s = from + step; to > from ? s <= to : s >= to; s += step) {
     const v = sample(f, cx + s * ex, cy + s * ey);
     if (at75 === null && prev >= hiLevel && v < hiLevel) at75 = prevS + ((prev - hiLevel) / (prev - v)) * step;
     if (at75 !== null && prev >= loLevel && v < loLevel) {
       const at25 = prevS + ((prev - loLevel) / (prev - v)) * step;
-      return (at25 - at75) * len;
+      return Math.abs(at25 - at75) * len;
     }
     prev = v;
     prevS = s;

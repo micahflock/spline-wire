@@ -394,10 +394,16 @@ function refineDot(gray: GrayF, cand: Candidate, passes = 2, margin: [number, nu
   };
 }
 
+/** How much a rim's hole outline from the threshold mask is grown before it is
+ * refined: the outline comes out small, and the rim is thin (detect._RIM_HOLE_GROWTH). */
+const RIM_HOLE_GROWTH = 1.06;
+
 /** A rim from the outline of its hole (detect._refine_rim). */
 function refineRim(gray: GrayF, inverted: GrayF, hole: Candidate, ratio: number): Fiducial | null {
   const band = 1.0 / ratio - 1.0;
-  const d = refineDot(inverted, hole, 2, [1.0 + 0.25 * band, 1.0 + 0.8 * band]);
+  const grown: Candidate = { ...hole, outer: { ...hole.outer, width: hole.outer.width * RIM_HOLE_GROWTH,
+    height: hole.outer.height * RIM_HOLE_GROWTH } };
+  const d = refineDot(inverted, grown, 2, [1.0 + 0.25 * band, 1.0 + 0.8 * band]);
   if (d === null) return null;
   const [major, minor] = d.outer_axes_px;
   const t = (d.angle_deg * Math.PI) / 180;

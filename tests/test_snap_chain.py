@@ -29,8 +29,8 @@ def _photo(spec, pins, table, tilt=30.0, distance=230.0):
 
 
 def test_preset(snap):
-    assert (snap.pitch_mm, snap.half_width_mm, snap.contact) == (13.0, 4.68, "round")
-    assert (snap.fiducial, snap.fiducial_mm, snap.ring_inner_mm) == ("ring", 7.2, 5.48)
+    assert (snap.pitch_mm, snap.half_width_mm, snap.contact) == (13.0, 4.39, "round")
+    assert (snap.fiducial, snap.fiducial_mm, snap.ring_inner_mm) == ("ring", 8.79, 7.07)
     assert load_chain_spec(chain_presets()["oring"]).contact == "edge"
 
 
