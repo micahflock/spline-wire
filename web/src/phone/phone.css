@@ -1,4 +1,4 @@
-/* The phone page in the Test bench design of the current app (splinewire/webapp/static/phone.html):
+/* The phone page in the Test bench design (first made for the retired Windows app's phone page):
    one column, warm grey panels, monospaced readouts, one loud key per step. Tap targets are at least
    44 px; nothing depends on hover. */
 @font-face { font-family: "Plex Cond"; font-weight: 400; src: url("../fonts/plex-sans-condensed-400.woff2") format("woff2"); font-display: swap; }

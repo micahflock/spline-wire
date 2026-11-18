@@ -19,6 +19,8 @@ export default defineConfig({
         capabilities: "spikes/phone-capabilities/index.html",
         // The decoding check (spikes/decode-check/README.md): the TypeScript engine on a phone.
         decode: "spikes/decode-check/index.html",
+        // The accuracy test page (spikes/accuracy/README.md, docs/real-world-tests.md).
+        accuracy: "spikes/accuracy/index.html",
       },
       // The service worker keeps a fixed name at the site's root: its scope is
       // its own folder, and the pages register it by name.

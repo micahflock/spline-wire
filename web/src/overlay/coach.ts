@@ -33,7 +33,7 @@ export const COACH = {
   /** A problem is shown once it has lasted this long. */
   PROBLEM_MS: 250,
   /** Camera tilt from straight-on, degrees. In simulation a 2% focal error costs
-   * up to 0.05 mm at 25° and 0.11 mm at 40° (open-questions.md): block the shot
+   * up to 0.05 mm at 25° and 0.11 mm at 40° (docs/open-items.md, item 1): block the shot
    * above 25°, and nudge toward straighter above 12°. */
   tiltDeg: { enter: 25, keep: 30 } as Limits,
   straighterDeg: 12,

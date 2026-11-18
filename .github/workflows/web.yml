@@ -53,8 +53,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      # The pages show it in their footers (vite.config.ts), as the .exe shows
-      # its build (packaging/stamp_build.py): this run's number and commit.
+      # The pages show it in their footers (vite.config.ts): this run's number
+      # and commit.
       - name: Build id
         run: echo "BUILD_ID=${{ github.run_number }}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 

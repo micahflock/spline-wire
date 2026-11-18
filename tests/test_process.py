@@ -3,7 +3,6 @@ import json
 from PIL import Image
 
 from splinewire.process import process_photo
-from splinewire.selftest import run_selftest
 from splinewire.synthetic import s_curve_pins, write_synthetic_photo, write_truth
 
 
@@ -53,12 +52,6 @@ def test_focal_override_beats_exif(spec, tmp_path):
     write_synthetic_photo(photo, pins, spec, (2000, 1500), focal_35mm=26)
     res = process_photo(photo, spec, tmp_path / "out", focal_35mm=52)
     assert res.measurement.rectification.focal_px > 2900   # twice the EXIF focal (~1500 px)
-
-
-def test_selftest_passes(tmp_path):
-    log = tmp_path / "selftest.log"
-    assert run_selftest(log) == 0
-    assert "OK: 0 failure(s)" in log.read_text()
 
 
 def test_fusion_outputs(spec, tmp_path):

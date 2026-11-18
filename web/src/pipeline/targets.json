@@ -1,0 +1,222 @@
+{
+ "gauges": [
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "convex-r25",
+   "label": "Convex R25 (full circle)",
+   "units": "mm",
+   "closed": true,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 25.0,
+      "start_deg": 0.0,
+      "sweep_deg": 360.0
+     }
+    }
+   ],
+   "radius_mm": 25.0,
+   "concave": false
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "convex-r40",
+   "label": "Convex R40 (full circle)",
+   "units": "mm",
+   "closed": true,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 40.0,
+      "start_deg": 0.0,
+      "sweep_deg": 360.0
+     }
+    }
+   ],
+   "radius_mm": 40.0,
+   "concave": false
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "convex-r60",
+   "label": "Convex R60 (180\u00b0 arc)",
+   "units": "mm",
+   "closed": false,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 60.0,
+      "start_deg": -90.0,
+      "sweep_deg": 180.0
+     }
+    }
+   ],
+   "radius_mm": 60.0,
+   "concave": false
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "convex-r100",
+   "label": "Convex R100 (110\u00b0 arc)",
+   "units": "mm",
+   "closed": false,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 100.0,
+      "start_deg": -55.0,
+      "sweep_deg": 110.0
+     }
+    }
+   ],
+   "radius_mm": 100.0,
+   "concave": false
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "concave-r40",
+   "label": "Concave R40 (full circle)",
+   "units": "mm",
+   "closed": true,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 40.0,
+      "start_deg": 0.0,
+      "sweep_deg": 360.0
+     }
+    }
+   ],
+   "radius_mm": 40.0,
+   "concave": true
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "concave-r60",
+   "label": "Concave R60 (180\u00b0 arc)",
+   "units": "mm",
+   "closed": false,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 60.0,
+      "start_deg": -90.0,
+      "sweep_deg": 180.0
+     }
+    }
+   ],
+   "radius_mm": 60.0,
+   "concave": true
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "concave-r100",
+   "label": "Concave R100 (110\u00b0 arc)",
+   "units": "mm",
+   "closed": false,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 100.0,
+      "start_deg": -55.0,
+      "sweep_deg": 110.0
+     }
+    }
+   ],
+   "radius_mm": 100.0,
+   "concave": true
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "s-r60",
+   "label": "S, R60 each way (90\u00b0 + 90\u00b0)",
+   "units": "mm",
+   "closed": false,
+   "segments": [
+    {
+     "arc": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "radius": 60.0,
+      "start_deg": -180.0,
+      "sweep_deg": 90.0
+     }
+    },
+    {
+     "arc": {
+      "center": [
+       -9.648735898059818e-15,
+       -120.0
+      ],
+      "radius": 60.0,
+      "start_deg": 90.0,
+      "sweep_deg": -90.0
+     }
+    }
+   ]
+  },
+  {
+   "schema": "spline-wire/gauge@1",
+   "name": "straight",
+   "label": "Straight edge, 200 mm",
+   "units": "mm",
+   "closed": false,
+   "segments": [
+    {
+     "line": {
+      "start": [
+       0.0,
+       0.0
+      ],
+      "end": [
+       200.0,
+       0.0
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "plaques": [
+  {
+   "name": "plaque-s",
+   "label": "S: bends ease in to about 45\u00b0 and out again, then the same the other way",
+   "pitch_mm": 13.0
+  },
+  {
+   "name": "plaque-tight",
+   "label": "Tight: four sharp bends of 95\u2013100\u00b0, alternating, joined by straight links",
+   "pitch_mm": 13.0
+  }
+ ]
+}

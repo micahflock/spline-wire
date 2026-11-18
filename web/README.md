@@ -1,6 +1,6 @@
 # web/ — the hosted build
 
-The website that replaces `SplineWire.exe`. The plan, decisions and session log are in
+The website that replaced `SplineWire.exe` (retired 2026-11-18). The plan, decisions and session log are in
 [docs/web-build.md](../docs/web-build.md); this file is the code map.
 
 ```bash
@@ -53,6 +53,7 @@ camera ─▶ overlay ─▶ still      relay/outbox ══ relay ══▶ rela
 | `src/overlay/`, `src/camera/` | The live camera overlay: `blobs.ts` (fast dot detector for video frames), `reading.ts`, `coach.ts` (what to tell the person, when to take the still; limits calibrated on S5's renders), `session.ts` (the loop), `words.ts` (what the camera view says), `trace.ts` (the chain drawn over the video). `camera/choose.ts` picks the camera (O10), `camera/focal.ts` carries focal lengths between stills and frames. The chain's order and tilt come from `src/pipeline/live.ts` in its own small worker, so coaching starts with the first frame. | Tested in Node, and in Chromium with a fake camera (`e2e/camera.spec.ts`). Not tried on a phone. |
 | `spikes/phone-capabilities/` | The S2/S3 test page for a real phone. | Done and tried on four phones. |
 | `spikes/decode-check/` | A test page for a real phone: does the browser decode a phone's JPEG to Pillow's pixels (Safari uses its own decoder), and how fast is the TypeScript engine there. | In Chromium: Pillow's pixels and Python's pins exactly (`e2e/decode-check.spec.ts`). Waiting for a phone. |
+| `spikes/accuracy/`, `src/testbench/` | The accuracy test page for the real-world test series (docs/real-world-tests.md): a photo of a fixed-chain plaque or a contact gauge measured and scored at once against its known shape (`src/pipeline/scoring.ts` and `targets.ts`, ports of `splinewire/scoring.py` and `targets.py`), kept on the phone with its photo, and a report `splinewire score --report` reads. | In Node (`scoring.test.ts` against Python's scores, `bench.test.ts`) and in Chromium (`e2e/accuracy.spec.ts`). Waiting for the owner's phones. |
 
 ## Rules of the road
 

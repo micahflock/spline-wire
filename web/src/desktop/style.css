@@ -1,4 +1,4 @@
-/* The desktop page in the Test bench design of the current app (splinewire/webapp/static/desktop.html):
+/* The desktop page in the Test bench design (first made for the retired Windows app's desktop page):
    warm grey panels and hairlines, monospaced readouts, one loud key (Copy points). The curve sits on
    pale chart paper in light mode and on a scope screen in dark mode. */
 @font-face { font-family: "Plex Cond"; font-weight: 400; src: url("../fonts/plex-sans-condensed-400.woff2") format("woff2"); font-display: swap; }

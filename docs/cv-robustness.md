@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md)
 
-How the detector holds up in realistic phone photos of a 3D-printed chain, what was changed to make it hold up, and which fiducial works best for a 0.4 mm nozzle. Everything here is simulated; real photos (next-steps item 1) still have to confirm it.
+How the detector holds up in realistic phone photos of a 3D-printed chain, what was changed to make it hold up, and which fiducial works best for a 0.4 mm nozzle. Everything here is simulated; real photos ([open-items.md](open-items.md), item 1) still have to confirm it.
 
 ## Summary
 

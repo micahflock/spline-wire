@@ -197,21 +197,6 @@ def test_parse_points_formats(addin, text, expected):
     np.testing.assert_allclose(curvedata.parse_points(text), expected)
 
 
-def test_install_copies_the_addin_into_fusions_folder(tmp_path):
-    from splinewire.fusion_addin import install_addin
-
-    addins = tmp_path / "Autodesk" / "Autodesk Fusion 360" / "API" / "AddIns"
-    with pytest.raises(FileNotFoundError, match="Fusion"):
-        install_addin(addins)                      # Fusion not installed yet
-    (tmp_path / "Autodesk" / "Autodesk Fusion 360").mkdir(parents=True)
-    dest = install_addin(addins)
-    assert (dest / "SplineWire.py").is_file()
-    assert (dest / "SplineWire.manifest").is_file()
-    assert (dest / "curvedata.py").is_file()
-    assert not list(dest.rglob("__pycache__"))
-    install_addin(addins)                          # reinstalling over an old copy is fine
-
-
 def test_copied_table_round_trips_through_the_addin_parser():
     import numpy as np
 
