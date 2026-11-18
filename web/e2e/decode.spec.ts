@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
 
-const OUT = join(test.info === undefined ? "" : "", "test-results", "decode");
+const OUT = join("test-results", "decode");
 
 test.describe.configure({ mode: "serial" });
 

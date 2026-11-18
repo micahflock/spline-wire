@@ -17,6 +17,8 @@ export default defineConfig({
         desktop: "index.html", phone: "phone/index.html", sw: "src/phone/sw.ts",
         // The S2/S3 test page, for the owner to open on a phone at spikes/phone-capabilities/.
         capabilities: "spikes/phone-capabilities/index.html",
+        // The decoding check (spikes/decode-check/README.md): the TypeScript engine on a phone.
+        decode: "spikes/decode-check/index.html",
       },
       // The service worker keeps a fixed name at the site's root: its scope is
       // its own folder, and the pages register it by name.
