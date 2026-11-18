@@ -357,6 +357,7 @@ export function outerContour(c: Components, width: number, height: number, label
     }
   }
   void height;
+  if (start < 0) return new Int32Array(0);
   const pts: number[] = [];
   const delta = (s: number) => DX[s & 7]! + DY[s & 7]! * W;
   const i0 = start;
@@ -686,4 +687,45 @@ function cubicRoots(a: number, b: number, c: number): number[] {
 export function roundEven(x: number): number {
   const r = Math.round(x);
   return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
+// ---------------------------------------------------------------------------
+// Otsu's threshold, 8-bit (thresh.cpp getThreshVal_Otsu_8u)
+
+/** The threshold Otsu's method picks: the gray level that best splits the
+ * histogram into two classes, computed in doubles as OpenCV does. */
+export function otsuThreshold(data: Uint8Array): number {
+  const h = new Float64Array(256);
+  for (let i = 0; i < data.length; i++) h[data[i]!]!++;
+  const scale = 1 / data.length;
+  let mu = 0;
+  for (let i = 0; i < 256; i++) mu += i * h[i]!;
+  mu *= scale;
+  let mu1 = 0, q1 = 0, maxSigma = 0, maxVal = 0;
+  for (let i = 0; i < 256; i++) {
+    const p = h[i]! * scale;
+    mu1 *= q1;
+    q1 += p;
+    const q2 = 1 - q1;
+    if (Math.min(q1, q2) < FLT_EPSILON || Math.max(q1, q2) > 1 - FLT_EPSILON) continue;
+    mu1 = (mu1 + i * p) / q1;
+    const mu2 = (mu - q1 * mu1) / q2;
+    const sigma = q1 * q2 * (mu1 - mu2) * (mu1 - mu2);
+    if (sigma > maxSigma) {
+      maxSigma = sigma;
+      maxVal = i;
+    }
+  }
+  return maxVal;
+}
+
+/** Each component's centroid (connectedComponentsWithStats' centroids). */
+export function centroids(c: Components, width: number): [number, number][] {
+  const sx = new Float64Array(c.count), sy = new Float64Array(c.count);
+  for (let i = 0; i < c.labels.length; i++) {
+    const l = c.labels[i]!;
+    sx[l] = sx[l]! + (i % width);
+    sy[l] = sy[l]! + Math.floor(i / width);
+  }
+  return Array.from({ length: c.count }, (_, l) => [sx[l]! / c.area[l]!, sy[l]! / c.area[l]!] as [number, number]);
 }

@@ -13,8 +13,8 @@
 // geometry is float64, ellipses come back from OpenCV as float32.
 
 import {
-  adaptiveMeanThreshold, brightMask, connectedComponents, fitEllipse, fitEllipseDirect, gaussianBlur8, halveArea8,
-  outerContour, sampleLinear, type Ellipse, type Gray, type GrayF,
+  adaptiveMeanThreshold, brightMask, centroids, connectedComponents, fitEllipse, fitEllipseDirect, gaussianBlur8,
+  halveArea8, otsuThreshold, outerContour, sampleLinear, type Ellipse, type Gray, type GrayF,
 } from "./cv";
 import { PipelineError } from "./errors";
 import type { ChainSpec, Fiducial } from "./types";
@@ -89,6 +89,77 @@ export function detectRims(gray: Gray, innerOuterRatio: number, minDiameterPx = 
     if (r) rims.push(r);
   }
   return dedupe(rims);
+}
+
+// ---------------------------------------------------------------------------
+// Snapping a click to a fiducial (detect.snap_fiducial)
+
+/** The fiducial a person pointed at, found and refined like any detection;
+ * null if there is no clear one there. `like` is a neighbouring pin, which
+ * says how big the one looked for is. `grayf` is the photo as float32, if
+ * the caller keeps one (it is made otherwise). */
+export function snapFiducial(gray: Gray, point: readonly [number, number], spec: ChainSpec, like: Fiducial,
+  grayf: GrayF = toFloat(gray)): Fiducial | null {
+  const ring = spec.fiducial === "ring" ? spec.ring_inner_mm / spec.fiducial_mm : 0;
+  let found: Fiducial | null;
+  if (ring >= THIN_RING) {
+    // A thin rim: the dark hole under the click.
+    const hole = blobUnder(gray, point, { ...like, outer_axes_px: like.inner_axes_px, polarity: -1 }, 0);
+    const inverted: GrayF = { width: grayf.width, height: grayf.height, data: grayf.data.map((v) => 255 - v) };
+    found = hole ? refineRim(grayf, inverted, hole, ring) : null;
+  } else {
+    if (spec.fiducial !== "dot") throw new PipelineError("thick ring fiducials are not supported in this build yet");
+    const cand = blobUnder(gray, point, like, ring);
+    if (cand === null) return null;
+    found = refineDot(grayf, cand);
+  }
+  if (found === null) return null;
+  const [major, minor] = like.outer_axes_px;
+  if (Math.hypot(found.center_px[0] - point[0], found.center_px[1] - point[1]) > 0.5 * minor) return null;
+  if (!(0.6 < found.outer_axes_px[0] / major && found.outer_axes_px[0] / major < 1.6)) return null;
+  return found;
+}
+
+/** The outline of the blob under (or nearest) a point, as a start for
+ * refinement (detect._blob_under). */
+function blobUnder(gray: Gray, point: readonly [number, number], like: Fiducial, ringRatio: number): Candidate | null {
+  const [major, minor] = like.outer_axes_px;
+  const half = roundHalfEven(1.7 * major);
+  const { width: w, height: h } = gray;
+  const x0 = Math.max(0, Math.trunc(point[0]) - half), y0 = Math.max(0, Math.trunc(point[1]) - half);
+  const x1 = Math.min(w, Math.trunc(point[0]) + half + 1), y1 = Math.min(h, Math.trunc(point[1]) + half + 1);
+  if (Math.min(x1 - x0, y1 - y0) < 8) return null;
+  const cw = x1 - x0, ch = y1 - y0;
+  const crop = new Uint8Array(cw * ch);
+  for (let y = 0; y < ch; y++) crop.set(gray.data.subarray((y0 + y) * w + x0, (y0 + y) * w + x1), y * cw);
+  const blurred = gaussianBlur8({ width: cw, height: ch, data: crop }, 1.0).data;
+  const t = otsuThreshold(blurred);
+  const mask = blurred.map((v) => ((v > t) === like.polarity > 0 ? 255 : 0));
+  const c = connectedComponents(mask, cw, ch);
+  const px = point[0] - x0, py = point[1] - y0;
+  let label = c.labels[Math.min(Math.max(Math.trunc(py), 0), ch - 1) * cw + Math.min(Math.max(Math.trunc(px), 0), cw - 1)]!;
+  if (label === 0) {
+    // The click fell in a ring's hole or just off the blob: the nearest one.
+    const cents = centroids(c, cw);
+    let best = -1, bestD = Infinity;
+    for (let l = 1; l < c.count; l++) {
+      const d = Math.hypot(cents[l]![0] - px, cents[l]![1] - py);
+      if (d < bestD) {
+        bestD = d;
+        best = l;
+      }
+    }
+    if (best < 0 || bestD > 0.7 * minor) return null;
+    label = best;
+  }
+  const expected = (Math.PI / 4) * major * minor * (1.0 - ringRatio ** 2);
+  const area = c.area[label]!;
+  if (!(0.35 * expected < area && area < 2.5 * expected)) return null;
+  const contour = outerContour(c, cw, ch, label);
+  if (contour.length / 2 < 12) return null;
+  const e = fitEllipse(contour);
+  const cx = e.cx + x0, cy = e.cy + y0;
+  return { cx, cy, outer: { ...e, cx, cy }, polarity: like.polarity };
 }
 
 function toFloat(gray: Gray): GrayF {

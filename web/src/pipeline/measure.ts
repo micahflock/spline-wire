@@ -1,10 +1,11 @@
-// splinewire/pipeline.py measure(), from the detections on: order the pins
-// (each polarity on its own), drop pins that turn out not to belong and solve
-// again, deskew, warn, and offset to the contact points. Hand edits
-// (splinewire/edits.py) are not ported yet: they need detection to snap a
-// click to a dot.
+// splinewire/pipeline.py measure(), from the detections on: apply a
+// person's edits, order the pins (each polarity on its own), drop pins that
+// turn out not to belong and solve again, deskew, warn, and offset to the
+// contact points.
 
 import { contactPoints, objectSign, sideName, signFromPhotoPoint } from "./contact";
+import type { Gray, GrayF } from "./cv";
+import { addPins, hasEdits, pinToPitch, removeDetections, type Edits, type ManualPin } from "./edits";
 import { PipelineError } from "./errors";
 import { fixed, median, norm2, type Vec2 } from "./numeric";
 import { orderChain } from "./order";
@@ -26,21 +27,36 @@ export interface Measurement {
   warnings: string[];
   notes: string[];
   pins_px: Vec2[];
+  manual: ManualPin[];       // pins a person added
 }
 
 /** Measure the chain from a photo's detections. side: "inside" or "outside"
- * of the bend, or a photo point on the object's side. */
+ * of the bend, or a photo point on the object's side. edits: pins a person
+ * removed or added; adding needs the photo (`image`, and its float32 copy
+ * `grayf` if the caller keeps one) to snap the clicks to the dots. */
 export function measureDetections(
-  fiducials: readonly Fiducial[],
+  detected: readonly Fiducial[],
   imageSize: readonly [number, number],
   spec: ChainSpec,
   focalPx: number | null,
   side: Side | Vec2 = "inside",
+  edits: Edits | null = null,
+  image: Gray | null = null,
+  grayf?: GrayF,
 ): Measurement {
   const warnings: string[] = [];
   const notes: string[] = [];
-  const fids = fiducials.slice();
+  let fids = detected.slice();
+  let manual: ManualPin[] = [];
+  if (hasEdits(edits)) {
+    fids = removeDetections(fids, edits);
+    const chain = canOrder(fids) ? orderFiducials(fids, spec, new Set()).indices : [];
+    if (edits.add_px.length && image === null) throw new Error("adding pins needs the photo");
+    [fids, manual] = addPins(image!, fids, spec, edits, chain, grayf);
+  }
   if (fids.length < 3) throw new PipelineError(`found ${fids.length} fiducials; need the whole chain in view`);
+  const keep = new Set(manual.map((mp) => mp.fiducial));
+  const byClick = new Set(manual.filter((mp) => !mp.snapped).map((mp) => mp.fiducial));
   const busy = fids.length > BUSY
     ? `the background has ${fids.length} dot-like spots (fabric, terrazzo, print?) that can pass `
       + "for pins: lay the chain on a plain surface"
@@ -51,7 +67,8 @@ export function measureDetections(
   let rect!: Rectification;
   for (let attempt = 0; attempt <= MISFIT_ROUNDS; attempt++) {
     order = orderFiducials(fids, spec, excluded);
-    const links = order.links;              // no pins placed by a click yet: every link is measured
+    // Fit the plane from links between pins that were measured, not clicked.
+    const links = measuredLinks(order, byClick);
     const need = minLinks(focalPx !== null);
     if (links.length < need) {
       throw new PipelineError(
@@ -62,16 +79,30 @@ export function measureDetections(
     }
     rect = rectifyChain(order.indices.map((i) => centers[i]!), links, spec.pitch_mm, imageSize, focalPx);
     if (attempt === MISFIT_ROUNDS) break;
-    const bad = misfits(fids, order, rect, spec);
+    const bad = misfits(fids, { ...order, links }, rect, spec, keep);
     if (bad.size === 0) break;
     for (const b of bad) excluded.add(b);
   }
+  const free = order.indices.flatMap((i, k) => (byClick.has(i) ? [k] : []));
+  if (free.length) rect = settleClickedPins(rect, order, free, spec);
   const nOnChain = order.indices.length;
-  const skipped = order.rejected.length;
+  const rejected = new Set(order.rejected);
+  const leftOut = manual.filter((mp) => rejected.has(mp.fiducial));
+  const byHand = manual.filter((mp) => !mp.snapped && !leftOut.includes(mp));
+  const skipped = order.rejected.length - leftOut.length;
   if (skipped) notes.push(`ignored ${skipped} look-alike detection(s) not on the chain`);
+  if (leftOut.length) {
+    warnings.push(`${leftOut.length} pin(s) you added were left out: each must be about one pitch `
+      + "from the pins next to it, in line with the chain");
+  }
+  if (byHand.length) {
+    warnings.push(`${byHand.length} pin(s) you added have no fiducial to snap to: placed by your click, `
+      + "then fitted to the link lengths around them");
+  }
   if (order.gaps.length) warnings.push(`${order.gaps.length} pin(s) not detected; the curve bridges those gaps`);
   const expected = spec.n_pins - order.gaps.length;
-  const beyond = pastTheEnds(fids, order, rect.pins_mm, spec, new Set(order.rejected));
+  const leftOutIdx = new Set(leftOut.map((mp) => mp.fiducial));
+  const beyond = pastTheEnds(fids, order, rect.pins_mm, spec, new Set(order.rejected.filter((i) => !leftOutIdx.has(i))));
   if (beyond && nOnChain === expected) {
     warnings.push(
       `the chain seems to go on past its end (${beyond} more pin(s) about one pitch on); `
@@ -109,8 +140,34 @@ export function measureDetections(
   const contacts = contactPoints(rect.pins_mm, spec.half_width_mm, sign, spec.contact === "round", order.gaps);
   return {
     fiducials: fids, order, rectification: rect, object_side: sideName(rect.pins_mm, sign), object_sign: sign,
-    side_px: sidePx, contacts_mm: contacts, warnings, notes, pins_px: pinsPx,
+    side_px: sidePx, contacts_mm: contacts, warnings, notes, pins_px: pinsPx, manual,
   };
+}
+
+function canOrder(fids: readonly Fiducial[]): boolean {
+  return [1, -1].some((p) => fids.filter((f) => f.polarity === p).length >= 3);
+}
+
+/** The links between pins whose positions were measured; those touching a
+ * clicked pin are left out of the plane fit unless too few remain. */
+function measuredLinks(order: ChainOrder, byClick: ReadonlySet<number>): [number, number][] {
+  const clicked = new Set(order.indices.flatMap((i, k) => (byClick.has(i) ? [k] : [])));
+  const measured = order.links.filter(([a, b]) => !clicked.has(a) && !clicked.has(b));
+  return measured.length >= 6 ? measured : order.links;
+}
+
+/** Clicked pins moved onto the pitch, and the link errors recomputed over
+ * every link (pipeline._settle_clicked_pins). */
+function settleClickedPins(rect: Rectification, order: ChainOrder, free: number[], spec: ChainSpec): Rectification {
+  const depth = median(free.map((k) => rect.depth_mm[k]!));
+  const pins = pinToPitch(rect.pins_mm, order.links, free, spec.pitch_mm, (3.0 * depth) / rect.focal_px);
+  const res = order.links.map(([a, b]) => norm2(pins[b]![0] - pins[a]![0], pins[b]![1] - pins[a]![1]) - spec.pitch_mm);
+  let sq = 0, worst = 0;
+  for (const r of res) {
+    sq += r * r;
+    worst = Math.max(worst, Math.abs(r));
+  }
+  return { ...rect, pins_mm: pins, link_residuals_mm: res, residual_rms_mm: Math.sqrt(sq / res.length), residual_max_mm: worst };
 }
 
 /** Chain order over the fiducials, each polarity on its own; the longer chain
@@ -142,7 +199,9 @@ export function orderFiducials(fids: readonly Fiducial[], spec: ChainSpec, exclu
 }
 
 /** Pins that do not belong on the chain, judged after deskewing (pipeline._misfits). */
-function misfits(fids: readonly Fiducial[], order: ChainOrder, rect: Rectification, spec: ChainSpec): Set<number> {
+function misfits(
+  fids: readonly Fiducial[], order: ChainOrder, rect: Rectification, spec: ChainSpec, keep: ReadonlySet<number> = new Set(),
+): Set<number> {
   const idx = order.indices;
   const bad = new Set<number>();
   if (idx.length < 6) return bad;
@@ -150,7 +209,7 @@ function misfits(fids: readonly Fiducial[], order: ChainOrder, rect: Rectificati
   for (let k = 0; k < idx.length; k++) {
     const nb: number[] = [];
     for (let j = Math.max(0, k - 2); j < Math.min(idx.length, k + 3); j++) if (j !== k) nb.push(sizeMm[j]!);
-    if (Math.abs(sizeMm[k]! / median(nb) - 1.0) > 0.12) bad.add(idx[k]!);
+    if (Math.abs(sizeMm[k]! / median(nb) - 1.0) > 0.12 && !keep.has(idx[k]!)) bad.add(idx[k]!);
   }
   if (bad.size === 0 && idx.length + order.gaps.length > spec.n_pins) {
     // More pins than the chain has: drop the end that stands out more by what
@@ -162,10 +221,13 @@ function misfits(fids: readonly Fiducial[], order: ChainOrder, rect: Rectificati
       return Math.abs(surround[k]! - median(nb.map((j) => surround[j]!))) / spread
         + Math.abs(sizeMm[k]! / median(nb.map((j) => sizeMm[j]!)) - 1.0) / 0.03;
     };
-    const ends = [0, idx.length - 1];
-    // max() keeps the first of equals, as Python's.
-    const worst = oddness(ends[1]!) > oddness(ends[0]!) ? ends[1]! : ends[0]!;
-    bad.add(idx[worst]!);
+    const ends = [0, idx.length - 1].filter((k) => !keep.has(idx[k]!));
+    if (ends.length) {
+      // max() keeps the first of equals, as Python's.
+      let worst = ends[0]!;
+      for (const k of ends.slice(1)) if (oddness(k) > oddness(worst)) worst = k;
+      bad.add(idx[worst]!);
+    }
     return bad;
   }
   const res = rect.link_residuals_mm;
@@ -175,7 +237,7 @@ function misfits(fids: readonly Fiducial[], order: ChainOrder, rect: Rectificati
     for (const r of res) worst = Math.max(worst, Math.abs(r));
     for (const [endLink, endPin] of [[0, 0], [links.length - 1, idx.length - 1]] as const) {
       const [a, b] = links[endLink]!;
-      if (endPin !== a && endPin !== b) continue;      // the end is across a gap: leave it
+      if ((endPin !== a && endPin !== b) || keep.has(idx[endPin]!)) continue;   // across a gap, or added by hand
       if (Math.abs(res[endLink]!) > 0.08 * spec.pitch_mm && Math.abs(res[endLink]!) >= 0.999 * worst) {
         bad.add(idx[endPin]!);
       }
