@@ -22,7 +22,7 @@
 
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec } from "../core/types";
-import { detectBlobs } from "./blobs";
+import { detectBlobs, shapeOf, type Shape } from "./blobs";
 import { Coach } from "./coach";
 import { makeReading } from "./reading";
 import type { Blob, CoachState, FrameReading, GrayFrame, Point } from "./types";
@@ -70,13 +70,20 @@ export class OverlaySession {
   private lastStart = -Infinity;
   readonly stats: OverlayStats = { frames: 0, analysed: 0, blobMs: 0, lastAnalyseMs: 0 };
 
+  /** The chain's fiducial (a dot or a ring): what the frames are searched for,
+   * and how large the page should draw them (blobs.workSize). */
+  get shape(): Shape {
+    return shapeOf(this.o.chain);
+  }
+
   constructor(private readonly o: OverlayOptions) {}
 
   /** One video frame: `work` is the frame drawn small and gray (blobs.workSize, toGray). */
   frame(work: GrayFrame, videoWidth: number, videoHeight: number, t: number): void {
     const scale = videoWidth / work.width;
     const t0 = performance.now();
-    const blobs = detectBlobs(work, scale);
+    // The chain's own fiducial: a dot, or a ring like the snap-fit chain's rim.
+    const blobs = detectBlobs(work, scale, this.shape);
     this.stats.blobMs += performance.now() - t0;
     this.stats.frames++;
     this.o.show({ state: this.coach.current, chain: this.chain, blobs });

@@ -23,6 +23,10 @@
 import type { Blob, GrayFrame } from "./types";
 
 export const WORK_LONG_SIDE = 640;
+/** Thin rims need more pixels: at 640 the snap-fit chain's rim is about one
+ * pixel wide and breaks, so an end pin's hole leaks into the link; at 800 all
+ * 13 rims of a synthetic snap-chain frame are found (17 ms, against 12 of 13). */
+export const WORK_LONG_SIDE_RINGS = 800;
 
 export const BLOBS = {
   /** Local threshold window (px, odd) and offset, as in detect.py at its coarsest level. */
@@ -36,6 +40,10 @@ export const BLOBS = {
   rays: 16,
   inside: [0.1, 0.7] as const,
   margin: [1.15, 1.45] as const,
+  /** A ring's margin, in its outer radii: just outside the rim (see ringAt). */
+  ringMargin: [1.08, 1.2] as const,
+  /** The share of rays on which a ring's margin must be darker than its rim. */
+  ringMarginRays: 0.6,
   /** Median inside-minus-margin contrast, gray levels; the share of rays that must show any. */
   minContrast: 15,
   minRayContrast: 6,
@@ -56,25 +64,65 @@ export function toGray(rgba: Uint8ClampedArray | Uint8Array, width: number, heig
 }
 
 /** The size to draw a frame at for detectBlobs, and the factor back to frame pixels. */
-export function workSize(width: number, height: number): { width: number; height: number; scale: number } {
-  const scale = Math.max(1, Math.max(width, height) / WORK_LONG_SIDE);
+export function workSize(width: number, height: number, shape: Shape = { inner: 0 }): { width: number; height: number; scale: number } {
+  const scale = Math.max(1, Math.max(width, height) / (shape.inner > 0 ? WORK_LONG_SIDE_RINGS : WORK_LONG_SIDE));
   return { width: Math.round(width / scale), height: Math.round(height / scale), scale };
 }
 
 /** Dots in a gray work frame. `scale` multiplies positions and sizes back
  * into the pixels of the frame the work frame was drawn from. */
-export function detectBlobs(frame: GrayFrame, scale = 1): Blob[] {
-  const { width: w, height: h, data } = frame;
+/** What the fiducials look like: `inner` is a ring's hole diameter over its
+ * outer diameter (ChainSpec ring_inner_mm / fiducial_mm), 0 for a solid dot. */
+export interface Shape {
+  inner: number;
+}
+
+/** The fiducial shape of a chain preset. */
+export function shapeOf(chain: { fiducial?: string; fiducial_mm: number; ring_inner_mm?: number }): Shape {
+  return chain.fiducial === "ring" && chain.ring_inner_mm ? { inner: chain.ring_inner_mm / chain.fiducial_mm } : { inner: 0 };
+}
+
+export function detectBlobs(frame: GrayFrame, scale = 1, shape: Shape = { inner: 0 }): Blob[] {
+  const { width: w, height: h } = frame;
   if (w < BLOBS.block || h < BLOBS.block) return [];
-  const mask = localThreshold(frame);
-  const out: Blob[] = [];
+  const found: Blob[] = [];
+  const keep = (blob: Blob | null) => {
+    // A ring can be found twice (by its hole and by its rim): keep the first.
+    if (blob && !found.some((f) => Math.hypot(f.x - blob.x, f.y - blob.y) < 0.4 * Math.max(f.d, blob.d))) found.push(blob);
+  };
+  if (shape.inner > 0) {
+    // Rings are found by their holes first, as detect.py finds rims: a hole is
+    // a clean dark disc, while a thin rim often merges with a light table in
+    // the mask wherever the link around it is a pixel or two wide (the
+    // snap-fit chain's is: 1.3 ring radii). Closed rims are a second source.
+    for (const c of components(localThreshold(frame, true), w, h)) {
+      keep(ringAt(frame, c.cx, c.cy, c.rx / shape.inner, c.ry / shape.inner, shape.inner));
+    }
+    for (const c of components(localThreshold(frame), w, h)) keep(ringAt(frame, c.cx, c.cy, c.rx, c.ry, shape.inner));
+  } else {
+    for (const c of components(localThreshold(frame), w, h)) keep(dotAt(frame, c.cx, c.cy, c.rx, c.ry));
+  }
+  return found.map((b) => ({ x: (b.x + 0.5) * scale - 0.5, y: (b.y + 0.5) * scale - 0.5, d: b.d * scale,
+    contrast: b.contrast, sharpness: b.sharpness }));
+}
+
+interface Box {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+}
+
+/** The mask's connected components (8-connected) of a plausible size and
+ * shape, as boxes: at least BLOBS.minSide across, at most a quarter of the
+ * frame and BLOBS.maxAspect times longer than wide. Stops after
+ * BLOBS.maxCandidates. The mask is used up (visited pixels are set to 2). */
+function components(mask: Uint8Array, w: number, h: number): Box[] {
+  const out: Box[] = [];
   const stack = new Int32Array(w * h);
   const maxSide = Math.max(w, h) / 4;
-  let candidates = 0;
-
-  for (let start = 0; start < mask.length && candidates < BLOBS.maxCandidates; start++) {
+  for (let start = 0; start < mask.length && out.length < BLOBS.maxCandidates; start++) {
     if (mask[start] !== 1) continue;
-    // Flood fill (8-connected), marking visited pixels 2.
     let top = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
     stack[top++] = start;
     mask[start] = 2;
@@ -102,18 +150,14 @@ export function detectBlobs(frame: GrayFrame, scale = 1): Blob[] {
     const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
     const lo = Math.min(bw, bh), hi = Math.max(bw, bh);
     if (lo < BLOBS.minSide || hi > maxSide || hi > BLOBS.maxAspect * lo) continue;
-    candidates++;
-    const blob = dotAt(frame, (x0 + x1) / 2, (y0 + y1) / 2, bw / 2, bh / 2);
-    if (blob) {
-      out.push({ x: (blob.x + 0.5) * scale - 0.5, y: (blob.y + 0.5) * scale - 0.5, d: blob.d * scale,
-        contrast: blob.contrast, sharpness: blob.sharpness });
-    }
+    out.push({ cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rx: bw / 2, ry: bh / 2 });
   }
   return out;
 }
 
-/** 1 where a pixel is above its neighbourhood's mean by BLOBS.offset, else 0. */
-export function localThreshold(frame: GrayFrame): Uint8Array {
+/** 1 where a pixel is above its neighbourhood's mean by BLOBS.offset (with
+ * `dark`, below it by as much), else 0. */
+export function localThreshold(frame: GrayFrame, dark = false): Uint8Array {
   const { width: w, height: h, data } = frame;
   // Summed-area table with a zero row and column in front.
   const sat = new Uint32Array((w + 1) * (h + 1));
@@ -131,8 +175,9 @@ export function localThreshold(frame: GrayFrame): Uint8Array {
     for (let x = 0; x < w; x++) {
       const xa = Math.max(0, x - r), xb = Math.min(w, x + r + 1);
       const sum = sat[yb * (w + 1) + xb]! - sat[ya * (w + 1) + xb]! - sat[yb * (w + 1) + xa]! + sat[ya * (w + 1) + xa]!;
-      // pixel > mean + offset, without dividing
-      if ((data[y * w + x]! - BLOBS.offset) * (xb - xa) * (yb - ya) > sum) mask[y * w + x] = 1;
+      // pixel > mean + offset (dark: pixel < mean - offset), without dividing
+      const area = (xb - xa) * (yb - ya), v = data[y * w + x]!;
+      if (dark ? (v + BLOBS.offset) * area < sum : (v - BLOBS.offset) * area > sum) mask[y * w + x] = 1;
     }
   }
   return mask;
@@ -183,6 +228,77 @@ export function dotAt(frame: GrayFrame, cx: number, cy: number, rx: number, ry: 
   if (sw <= 0) return null;
   // The weights sum to the dot's area in pixels.
   return { x: sx / sw, y: sy / sw, d: 2 * Math.sqrt(sw / Math.PI), contrast, sharpness: sharpnessOf(widths) };
+}
+
+/** Is the bright thing in this box a ring (a light rim around a darker hole)
+ * on a link? The ring's own test, as detect.py's rings and rims are found by
+ * their hole: along rays from the centre, the rim is brighter than both the
+ * hole inside it and the link's margin outside it. A solid dot fails (no hole),
+ * and so does a bright spot of glare. The snap-fit chain's thin rim
+ * (data/chain-snap.yaml, hole 0.76 of the outer diameter) is a few work
+ * pixels wide, so the rim is read as the brightest sample across its band,
+ * not a mean. The flood fill found the rim itself, so the box is its outer edge. */
+export function ringAt(frame: GrayFrame, cx: number, cy: number, rx: number, ry: number, inner: number): Blob | null {
+  const n = BLOBS.rays;
+  const rimHole: number[] = [], rimMargin: number[] = [], ratios: number[] = [], widths: number[] = [];
+  let rimSum = 0, marginSum = 0;
+  for (let k = 0; k < n; k++) {
+    const a = (2 * Math.PI * k) / n;
+    const ex = rx * Math.cos(a), ey = ry * Math.sin(a);
+    const len = Math.hypot(ex, ey);
+    const hole = meanAlong(frame, cx, cy, ex, ey, 0.1, Math.max(0.15, 0.7 * inner), len);
+    const rim = maxAlong(frame, cx, cy, ex, ey, 0.85 * inner, 1.05, len);
+    // The snap-fit chain's link is barely wider than its ring (round sleeves:
+    // 4.68 mm half-width against a 3.6 mm ring radius, 1.3 radii), so the dot's
+    // margin band (1.15-1.45) would reach the table. Read the link just outside the rim.
+    const margin = meanAlong(frame, cx, cy, ex, ey, BLOBS.ringMargin[0], BLOBS.ringMargin[1], len);
+    rimSum += rim;
+    marginSum += margin;
+    rimHole.push(rim - hole);
+    rimMargin.push(rim - margin);
+    ratios.push((margin + 4) / (rim + 4));
+    const width = edgeWidth(frame, cx, cy, ex, ey, len, rim, margin);
+    if (width !== null) widths.push(width);
+  }
+  // The hole is what makes a ring (detect.py finds rims by it): it must show on
+  // nearly every ray. The dark link outside the rim must show on most, as glare
+  // or a tilt can wash out one side.
+  const contrast = median(rimMargin);
+  if (contrast < BLOBS.minContrast || median(rimHole) < BLOBS.minContrast) return null;
+  const share = (v: number[]) => v.filter((c) => c > BLOBS.minRayContrast).length / n;
+  if (share(rimHole) < BLOBS.minRaysWithContrast || share(rimMargin) < BLOBS.ringMarginRays) return null;
+  if (median(ratios) > BLOBS.maxMarginRatio) return null;
+
+  // Centre: brightness-weighted over the rim's band, which a ring has all round,
+  // so the weights balance about its centre as a dot's do.
+  const outLevel = marginSum / n, span = rimSum / n - outLevel;
+  const { width: w, height: h, data } = frame;
+  const xa = Math.max(0, Math.floor(cx - 1.2 * rx)), xb = Math.min(w - 1, Math.ceil(cx + 1.2 * rx));
+  const ya = Math.max(0, Math.floor(cy - 1.2 * ry)), yb = Math.min(h - 1, Math.ceil(cy + 1.2 * ry));
+  let sw = 0, sx = 0, sy = 0;
+  for (let y = ya; y <= yb; y++) {
+    for (let x = xa; x <= xb; x++) {
+      const u = (x - cx) / rx, v = (y - cy) / ry, r = Math.sqrt(u * u + v * v);
+      if (r < 0.6 * inner || r > 1.2) continue;          // the hole and beyond the margin are not the rim
+      const wgt = Math.min(1, Math.max(0, (data[y * w + x]! - outLevel) / span));
+      sw += wgt;
+      sx += wgt * x;
+      sy += wgt * y;
+    }
+  }
+  if (sw <= 0) return null;
+  // The rim's area says little about the ring's size; its outer edge, the box, does.
+  return { x: sx / sw, y: sy / sw, d: rx + ry, contrast, sharpness: sharpnessOf(widths) };
+}
+
+function maxAlong(f: GrayFrame, cx: number, cy: number, ex: number, ey: number, from: number, to: number, len: number): number {
+  const steps = Math.max(3, Math.ceil((to - from) * len * 2));
+  let best = -Infinity;
+  for (let i = 0; i <= steps; i++) {
+    const s = from + ((to - from) * i) / steps;
+    best = Math.max(best, sample(f, cx + s * ex, cy + s * ey));
+  }
+  return best;
 }
 
 /** Edge sharpness, 0-1, from the widths (px) over which rays cross from 75% to

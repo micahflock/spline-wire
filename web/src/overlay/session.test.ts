@@ -105,3 +105,10 @@ describe("overlay session", () => {
     expect(motion(prev, [], 500)).toBeNull();
   });
 });
+
+it("searches for the fiducial its chain preset names", () => {
+  const snap = { pitch_mm: 13, half_width_mm: 4.68, fiducial_mm: 7.2, n_pins: 13, fiducial: "ring" as const, ring_inner_mm: 5.48 };
+  const o = { focalPx: () => null, analyse, show: () => {}, capture: async () => {} };
+  expect(new OverlaySession({ ...o, chain: snap }).shape.inner).toBeCloseTo(0.761, 3);
+  expect(new OverlaySession({ ...o, chain }).shape.inner).toBe(0);
+});
