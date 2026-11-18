@@ -35,6 +35,7 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 - `docs/web-build.md` — the move from the .exe to a hosted website (measuring in the browser on the phone, curve relayed to the desktop page): decisions, steps, status and a session log. Read it first when asked to continue the web build, and update its Status and Log before finishing.
 - `docs/open-items.md` — what should be done, in risk order (the one list of open items).
 - `docs/future-work.md` — what might be done later.
+- `docs/real-world-tests.md` — the planned real-world test series (open item 1): what to build, the phases, pass criteria.
 
 ## Conventions
 
@@ -62,4 +63,4 @@ The pages show the version and CI build in their footers. `npm run assets` bundl
 
 ## Priority
 
-The riskiest open item is real-world accuracy with the snap-fit chain. The owner's tests on the live site show good real-photo accuracy, but no figures are recorded yet and no real measurement has been checked against an object of known size; the old test matrix (Windows app, O-ring chain) is dropped and a revised test series is to be planned. See `docs/open-items.md`, item 1.
+The riskiest open item is real-world accuracy with the snap-fit chain. The owner's tests on the live site show good real-photo accuracy, but no figures are recorded yet and no real measurement has been checked against an object of known size; the old test matrix (Windows app, O-ring chain) is dropped and a revised test series is planned in `docs/real-world-tests.md` (open item 1).

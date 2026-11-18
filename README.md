@@ -180,7 +180,7 @@ What's open, in risk order: [docs/open-items.md](docs/open-items.md).
 | [`data/chain.yaml`](data/chain.yaml) | The O-ring dot chain's (preset `oring`; the CAD generators and the benchmark use it) |
 | [`tests/`](tests/) | pytest suite, end to end on synthetic photos |
 | [`experiments/`](experiments/) | Standalone studies: detection benchmark, fiducial designs, lens distortion, deskew accuracy |
-| [`docs/`](docs/) | [Architecture](docs/architecture.md) · [Detection robustness](docs/cv-robustness.md) · [Chain designs](docs/printed-chain.md) · [Fusion import](docs/fusion-import.md) · [Website build](docs/web-build.md) · [Open items](docs/open-items.md) · [Future work](docs/future-work.md) |
+| [`docs/`](docs/) | [Architecture](docs/architecture.md) · [Detection robustness](docs/cv-robustness.md) · [Chain designs](docs/printed-chain.md) · [Fusion import](docs/fusion-import.md) · [Website build](docs/web-build.md) · [Open items](docs/open-items.md) · [Test plan](docs/real-world-tests.md) · [Future work](docs/future-work.md) |
 
 ## License
 
