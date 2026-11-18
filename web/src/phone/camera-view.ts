@@ -370,7 +370,7 @@ export class CameraView {
       return;
     }
     const t0 = performance.now();
-    const ws = workSize(v.videoWidth, v.videoHeight);
+    const ws = workSize(v.videoWidth, v.videoHeight, this.session.shape);
     const mode = this.workMode ?? (this.trial.gpu.length < TRIAL_FRAMES ? "gpu" : "cpu");
     const work = this.workCanvas(mode, ws);
     work.g.drawImage(v, 0, 0, ws.width, ws.height);
