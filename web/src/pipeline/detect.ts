@@ -78,11 +78,11 @@ export function detectRims(gray: Gray, innerOuterRatio: number, minDiameterPx = 
   const candidates: Candidate[] = [];
   for (const [g, scale] of pyramid(gray)) {
     const binary = adaptiveMeanThreshold(g, BLOCK, -4);
-    const below = binary.map((v) => 255 - v);
+    const below = invert8(binary);
     candidates.push(...dotCandidates(below, g.width, g.height, scale === 1 ? minDiameterPx : 10.0, scale, -1));
   }
   const grayf = toFloat(gray);
-  const inverted: GrayF = { width: gray.width, height: gray.height, data: grayf.data.map((v) => 255 - v) };
+  const inverted = invertF(grayf);
   const rims: Fiducial[] = [];
   for (const c of dedupeCandidates(candidates).slice(0, MAX_CANDIDATES)) {
     const r = refineRim(grayf, inverted, c, innerOuterRatio);
@@ -105,7 +105,7 @@ export function snapFiducial(gray: Gray, point: readonly [number, number], spec:
   if (ring >= THIN_RING) {
     // A thin rim: the dark hole under the click.
     const hole = blobUnder(gray, point, { ...like, outer_axes_px: like.inner_axes_px, polarity: -1 }, 0);
-    const inverted: GrayF = { width: grayf.width, height: grayf.height, data: grayf.data.map((v) => 255 - v) };
+    const inverted = invertF(grayf);
     found = hole ? refineRim(grayf, inverted, hole, ring) : null;
   } else {
     if (spec.fiducial !== "dot") throw new PipelineError("thick ring fiducials are not supported in this build yet");
@@ -163,7 +163,22 @@ function blobUnder(gray: Gray, point: readonly [number, number], like: Fiducial,
 }
 
 function toFloat(gray: Gray): GrayF {
-  return { width: gray.width, height: gray.height, data: Float32Array.from(gray.data) };
+  const out = new Float32Array(gray.data.length);
+  out.set(gray.data);
+  return { width: gray.width, height: gray.height, data: out };
+}
+
+/** 255 - v for a mask or a photo (both exact). */
+function invert8(v: Uint8Array): Uint8Array {
+  const out = new Uint8Array(v.length);
+  for (let i = 0; i < v.length; i++) out[i] = 255 - v[i]!;
+  return out;
+}
+
+function invertF(img: GrayF): GrayF {
+  const out = new Float32Array(img.data.length);
+  for (let i = 0; i < out.length; i++) out[i] = 255 - img.data[i]!;
+  return { width: img.width, height: img.height, data: out };
 }
 
 /** Blobs that could be a dot: components of a plausible size and shape whose
@@ -282,7 +297,10 @@ class Claims<T> {
 // Refinement
 
 /** Profiles along rays from the ellipse's centre out to sMax of its radius:
- * q[ray][sample] (float32), the rays' ends at s = 1, and the sample spacing. */
+ * q[ray][sample] (float32), the rays' ends at s = 1, and the sample spacing.
+ * Samples are taken when asked for, `sample(k0, k1)` filling k0..k1-1 on
+ * every ray: a candidate turned down on its dot and margin is never sampled
+ * across its edge. A sample is the same whenever it is taken. */
 function rays(gray: GrayF, e: Ellipse, nRays: number, sMax: number, R: number) {
   const t = (e.angle * Math.PI) / 180;
   const ct = Math.cos(t), st = Math.sin(t);
@@ -299,14 +317,17 @@ function rays(gray: GrayF, e: Ellipse, nRays: number, sMax: number, R: number) {
   const s = linspace32(0, sMax, nS);
   const ds = f32(s[1]! - s[0]!);
   const q: Float32Array[] = [];
-  for (let i = 0; i < nRays; i++) {
-    const row = new Float32Array(nS);
-    for (let k = 0; k < nS; k++) {
-      row[k] = sampleLinear(gray, f32(e.cx + s[k]! * ex[i]!), f32(e.cy + s[k]! * ey[i]!));
+  for (let i = 0; i < nRays; i++) q.push(new Float32Array(nS));
+  const filled = new Uint8Array(nS);
+  const sample = (k0: number, k1: number) => {
+    for (let k = Math.max(0, k0); k < Math.min(k1, nS); k++) {
+      if (filled[k]) continue;
+      filled[k] = 1;
+      const sk = s[k]!;
+      for (let i = 0; i < nRays; i++) q[i]![k] = sampleLinear(gray, f32(e.cx + sk * ex[i]!), f32(e.cy + sk * ey[i]!));
     }
-    q.push(row);
-  }
-  return { q, ex, ey, nS, ds };
+  };
+  return { q, ex, ey, nS, ds, sample };
 }
 
 /** np.linspace(start, stop, n, dtype=float32). */
@@ -329,8 +350,10 @@ function refineDot(gray: GrayF, cand: Candidate, passes = 2, margin: [number, nu
     const R = Math.max(e.width, e.height) / 2;
     if (!Number.isFinite(R) || R < 3 || R > 0.25 * Math.max(gray.width, gray.height)) return null;
     const nRays = Math.trunc(Math.min(180, Math.max(32, Math.PI * R)));
-    const { q, ex, ey, nS, ds } = rays(gray, e, nRays, 1.5, R);
+    const { q, ex, ey, nS, ds, sample } = rays(gray, e, nRays, 1.5, R);
     const idx = (v: number) => Math.min(nS - 1, Math.max(0, roundHalfEven(v / ds)));
+    sample(idx(0.1), idx(0.7) + 1);
+    sample(idx(margin[0]), idx(margin[1]) + 1);
     const inside = new Float32Array(nRays), outside = new Float32Array(nRays);
     for (let i = 0; i < nRays; i++) {
       inside[i] = median32(q[i]!, idx(0.1), idx(0.7) + 1);
@@ -345,6 +368,7 @@ function refineDot(gray: GrayF, cand: Candidate, passes = 2, margin: [number, nu
     const close = f32(0.15);
     if (mr > 0.92 || count(ratio, (v) => Math.abs(f32(v - mr)) < close) / nRays < 0.6) return null;
     const level = inside.map((v, i) => f32(f32(v + outside[i]!) / 2));
+    sample(idx(0.7), Math.max(idx(1.3), idx(0.7) + 1) + 1);
     const edge = crossings(q, level, idx(0.7), idx(1.3), 1.0 / ds, ds, false);
     const pts: number[] = [];
     for (let i = 0; i < nRays; i++) {
@@ -476,10 +500,68 @@ function ellipseDistance(pts: number[], e: Ellipse): number[] {
 
 /** np.median of float32 values from..to (exclusive): the mean of the two
  * middle values computed in float32. */
+let medianScratch = new Float32Array(256);
+
+/** np.median of float32 values from..to (exclusive): the middle value, or
+ * the mean of the two middle values computed in float32. Found by selection
+ * on a scratch copy; the values (gray levels) are never NaN. */
 function median32(v: Float32Array, from: number, to: number): number {
-  const s = v.slice(from, to).sort();
-  const n = s.length, h = n >> 1;
-  return n % 2 ? s[h]! : f32(f32(s[h - 1]! + s[h]!) / 2);
+  const n = to - from, h = n >> 1;
+  if (n > medianScratch.length) medianScratch = new Float32Array(2 * n);
+  const a = medianScratch;
+  a.set(v.subarray(from, to));
+  const hi = select(a, n, h);
+  if (n % 2) return hi;
+  // The largest of the values below the h-th.
+  let lo = a[0]!;
+  for (let i = 1; i < h; i++) if (a[i]! > lo) lo = a[i]!;
+  return f32(f32(lo + hi) / 2);
+}
+
+/** The k-th smallest of a[0..n-1] (Hoare's selection), leaving the k
+ * smallest in a[0..k-1] and the k-th at a[k]. */
+function select(a: Float32Array, n: number, k: number): number {
+  let l = 0, r = n - 1;
+  while (r > l) {
+    if (r - l < 16) {
+      for (let i = l + 1; i <= r; i++) {
+        const x = a[i]!;
+        let j = i - 1;
+        while (j >= l && a[j]! > x) {
+          a[j + 1] = a[j]!;
+          j--;
+        }
+        a[j + 1] = x;
+      }
+      break;
+    }
+    const m = (l + r) >> 1;
+    // Median of three as the pivot.
+    if (a[m]! < a[l]!) swap(a, m, l);
+    if (a[r]! < a[l]!) swap(a, r, l);
+    if (a[r]! < a[m]!) swap(a, r, m);
+    const pivot = a[m]!;
+    let i = l, j = r;
+    while (i <= j) {
+      while (a[i]! < pivot) i++;
+      while (a[j]! > pivot) j--;
+      if (i <= j) {
+        swap(a, i, j);
+        i++;
+        j--;
+      }
+    }
+    if (k <= j) r = j;
+    else if (k >= i) l = i;
+    else break;
+  }
+  return a[k]!;
+}
+
+function swap(a: Float32Array, i: number, j: number): void {
+  const t = a[i]!;
+  a[i] = a[j]!;
+  a[j] = t;
 }
 
 function median64(v: number[]): number {
