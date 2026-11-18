@@ -30,7 +30,12 @@ export interface Settings extends LensState {
   camera: CameraInfo | null;
   /** How photos are given: the page's live camera, or uploaded (library or system camera). */
   photoMode: "live" | "upload";
+  /** The chain's colours: light dots or rims on dark links (as the presets print),
+   * or dark ones on light links (ChainSpec fiducial_shade). */
+  shade: Shade;
 }
+
+export type Shade = "light" | "dark";
 
 export const DEFAULT_SETTINGS: Settings = {
   chain: "snap",               // the snap-fit chain is the default (splinewire.chain.DEFAULT_PRESET)
@@ -43,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   declinedOffer: null,
   camera: null,
   photoMode: "live",
+  shade: "light",
 };
 
 /** session._focal accepts 5 to 500 mm. */
@@ -82,6 +88,7 @@ export function loadSettings(store: KeyValueStore): Settings {
   s.camera = cam && typeof cam === "object" && typeof cam.deviceId === "string" && typeof cam.label === "string"
     ? { deviceId: cam.deviceId, label: cam.label } : null;
   if (raw.photoMode === "upload") s.photoMode = "upload";
+  if (raw.shade === "dark") s.shade = "dark";
   return s;
 }
 
@@ -115,12 +122,19 @@ export function defaultPins(s: Settings, chains: Record<string, ChainSpec>): num
   return s.pins ?? chains[presetKey(chains, s.chain)]?.n_pins ?? 13;
 }
 
-/** The chain the core measures a photo with: the preset, with the photo's pin count. */
-export function chainSpec(chains: Record<string, ChainSpec>, preset: string, pins: number): ChainSpec {
+/** The chain the core measures a photo with: the preset, with the photo's pin
+ * count and colours (a photo stored before the colours could be chosen is light on dark). */
+export function chainSpec(chains: Record<string, ChainSpec>, preset: string, pins: number, shade: Shade = "light"): ChainSpec {
   const spec = chains[presetKey(chains, preset)];
   if (!spec) throw new Error("no chain presets in this build (chains.json is empty)");
-  return { ...spec, n_pins: pins };
+  return { ...spec, n_pins: pins, fiducial_shade: shade };
 }
+
+/** How the colours are called on the page. */
+export const SHADE_TEXT: Record<Shade, string> = {
+  light: "Light dots or rims on dark links",
+  dark: "Dark dots or rims on light links",
+};
 
 function isFocal(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= FOCAL_RANGE.min && v <= FOCAL_RANGE.max;

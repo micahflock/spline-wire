@@ -229,10 +229,12 @@ function walk(
     const { idx, dist } = near.around(cur, 2.4 * pitch);
     const band = sizes ? medianSorted(pathSizes) : 0;
     const sel: number[] = [];
+    const ok: boolean[] = new Array<boolean>(idx.length).fill(false);   // all but the turn
     for (let k = 0; k < idx.length; k++) {
       const d = dist[k]!;
       if (!(d > 0.5 * pitch && d < 2.4 * pitch)) continue;
       if (sizes && !sizes.fits(cur, idx[k]!, d, d / pitch > 1.5, band)) continue;
+      ok[k] = true;
       if (heading !== null) {
         const q = pts[idx[k]!]!;
         const cos = ((q[0] - pc[0]) * heading[0] + (q[1] - pc[1]) * heading[1]) / (d * Math.hypot(heading[0], heading[1]));
@@ -241,12 +243,16 @@ function walk(
       sel.push(k);
     }
     const over = passesOver(idx, dist, sel.filter((k) => !(dist[k]! / pitch > 1.5)), pts, pitch, visited);
+    // A step over a missing pin is not taken where a detection that would
+    // pass for the next pin (all but the turn) lies where that pin would be.
+    const skips = passesOver(idx, dist, sel.filter((k) => dist[k]! / pitch > 1.5), pts, pitch, visited, ok);
     let best = -1, bestScore = Infinity, bestTurn = 0, bestLen = 0;
     for (const k of sel) {
       const j = idx[k]!, d = dist[k]!;
       const ratio = d / pitch;
       const isGap = ratio > 1.5;
       if (visited.has(j)) continue;
+      if (isGap && skips.get(k)) continue;
       const step: Vec2 = [pts[j]![0] - pc[0], pts[j]![1] - pc[1]];
       const turn = heading === null ? 0 : Math.abs(angle(heading, step));
       if (turn > maxTurn) continue;
@@ -309,16 +315,18 @@ function offPitch(path: readonly number[], pts: readonly Vec2[]): [number, numbe
 
 /** For each step from cur to idx[k] (k in `steps`): whether some unvisited
  * detection is about one pitch from both its ends, and nearer to each than
- * they are to each other (order._passes_over). */
+ * they are to each other (order._passes_over). For a step over a missing
+ * pin, that is the pin it would skip. like: only detections idx[m] with
+ * like[m] count (those that pass for a step from cur). */
 function passesOver(
   idx: readonly number[], dist: readonly number[], steps: readonly number[], pts: readonly Vec2[], pitch: number,
-  visited: ReadonlySet<number>,
+  visited: ReadonlySet<number>, like: readonly boolean[] | null = null,
 ): Map<number, boolean> {
   const out = new Map<number, boolean>();
   for (const k of steps) out.set(k, false);
   const mid: number[] = [];
   for (let m = 0; m < idx.length; m++) {
-    if (Math.abs(dist[m]! / pitch - 1.0) < 0.25 && !visited.has(idx[m]!)) mid.push(m);
+    if (Math.abs(dist[m]! / pitch - 1.0) < 0.25 && (like === null || like[m]) && !visited.has(idx[m]!)) mid.push(m);
   }
   if (mid.length === 0 || steps.length === 0) return out;
   for (const k of steps) {

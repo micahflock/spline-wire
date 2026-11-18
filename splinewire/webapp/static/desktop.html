@@ -327,6 +327,7 @@ legend { padding: 0 6px; color: var(--muted); font-size: 11px; text-transform: u
         <span>What touches the object</span><select name="contact"><option value="edge">Link edges</option><option value="round">Round sleeves</option></select>
         <span>Pin to link edge, or sleeve radius (mm)</span><input name="half_width_mm" inputmode="decimal">
         <span>Mark on each pin</span><select name="fiducial"><option value="dot">Dot</option><option value="ring">Ring</option></select>
+        <span>Colours</span><select name="fiducial_shade"><option value="light">Light marks on dark links</option><option value="dark">Dark marks on light links</option></select>
         <span>Mark diameter (mm)</span><input name="fiducial_mm" inputmode="decimal">
         <span class="ring-only">Ring hole diameter (mm)</span><input class="ring-only" name="ring_inner_mm" inputmode="decimal">
         <span>Sharpest bend at a joint (°)</span><input name="max_bend_deg" inputmode="decimal">
@@ -1173,7 +1174,7 @@ $("#settings-save").onclick = async (ev) => {
   const e = form.elements;
   const body = {chain: {}, phone_focal_35mm: e.phone_focal_35mm.value.trim(),
     focal_override_35mm: e.focal_override_35mm.value.trim()};
-  for (const k of ["pitch_mm", "half_width_mm", "contact", "fiducial", "fiducial_mm", "ring_inner_mm", "max_bend_deg"]) body.chain[k] = e[k].value.trim();
+  for (const k of ["pitch_mm", "half_width_mm", "contact", "fiducial", "fiducial_shade", "fiducial_mm", "ring_inner_mm", "max_bend_deg"]) body.chain[k] = e[k].value.trim();
   try {
     await api("/api/settings", {method: "POST", body: JSON.stringify(body)});
     $("#settings").close();

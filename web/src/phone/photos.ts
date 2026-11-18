@@ -16,6 +16,7 @@
 import type { Failure } from "../core/protocol";
 import type { Edits, MeasurementDocument, Point, Side } from "../core/types";
 import type { Exif } from "./exif";
+import type { Shade } from "./settings";
 
 export type Status = "queued" | "loading" | "measuring" | "done" | "error";
 export type BlobKind = "original" | "preview" | "thumb";
@@ -43,6 +44,8 @@ export interface PhotoRecord {
   /** Chain preset key and pin count the photo is measured with. */
   chain: string;
   pins: number;
+  /** Its chain's colours (settings.Shade); absent on photos from before they could be chosen: light. */
+  shade?: Shade;
   side: Side | Point;
   edits: Edits;
   status: Status;

@@ -35,7 +35,7 @@ import { PhotoStore, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecor
 import { curveKey, delivery, deliveryText, sendOffer } from "./send";
 import {
   chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
-  type Settings,
+  type Settings, type Shade,
 } from "./settings";
 import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, photoFocalText, readNote, readWarning } from "./wording";
 
@@ -80,7 +80,7 @@ function options(id: string): MeasureOptions | null {
   const r = records.get(id);
   if (!r) return null;
   return {
-    chain: chainSpec(chains, r.chain, r.pins), side: r.side, edits: r.edits,
+    chain: chainSpec(chains, r.chain, r.pins, r.shade), side: r.side, edits: r.edits,
     saved_focal_35mm: settings.savedFocal35, focal_override_35mm: settings.focalOverride35 ?? r.focal?.focal35 ?? null,
   };
 }
@@ -153,7 +153,7 @@ async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | n
     const focal = learnFrom(exif, made?.pixels ?? null, still);
     const r: PhotoRecord = {
       id, name: file.name || "photo.jpg", type: file.type, size: file.size, added: Date.now() + i, via,
-      chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), side: settings.side, edits: NO_EDITS,
+      chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), shade: settings.shade, side: settings.side, edits: NO_EDITS,
       status: "queued", doc: null, failure: null, pixels: made?.pixels ?? null, preview: made?.previewSize ?? null, sent: [],
       measuredWith: null, exif, focal,
       camera: still ? { label: still.camera, still: still.kind, frameChain: still.frameChain, frameSize: still.frameSize, fov: null, ms: Math.round(still.ms) } : null,
@@ -752,7 +752,7 @@ $("send").onclick = async () => {
   button.disabled = true;
   try {
     const out = await outputsOf(r.id);
-    const spec = chainSpec(chains, r.chain, r.pins);
+    const spec = chainSpec(chains, r.chain, r.pins, r.shade);
     const curve = curveFrom(doc, { chainName: chainLabel(r.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm, n_pins: r.pins },
       await pack(out.files));
     if (!curve) return;
@@ -849,6 +849,7 @@ function renderSettings(): void {
     select.replaceChildren(...Object.keys(chains).map((k) => new Option(chainLabel(k), k)));
   }
   select.value = presetKey(chains, settings.chain);
+  $<HTMLSelectElement>("s-shade").value = settings.shade;
   settingsPins.value = String(defaultPins(settings, chains));
   const focal = $<HTMLInputElement>("s-focal");
   if (document.activeElement !== focal) focal.value = settings.savedFocal35?.toString() ?? "";
@@ -879,6 +880,18 @@ $<HTMLSelectElement>("s-chain").onchange = (e) => {
   // A new chain brings its own pin count.
   setSettings({ ...settings, chain, pins: null });
   toast("New photos are measured with this chain.");
+};
+$<HTMLSelectElement>("s-shade").onchange = (e) => {
+  const shade = (e.target as HTMLSelectElement).value as Shade;
+  setSettings({ ...settings, shade });
+  // Most often chosen after a photo of such a chain found nothing: measure it again too.
+  const r = selected ? records.get(selected) : undefined;
+  if (r && (r.shade ?? "light") !== shade) {
+    r.shade = shade;
+    measurer.request(r.id, true);
+    renderResult();
+  }
+  toast(shade === "dark" ? "Measuring dark dots or rims on light links." : "Measuring light dots or rims on dark links.");
 };
 const settingsPins = stepper($("s-pins"), () => defaultPins(settings, chains), (n) => setSettings({ ...settings, pins: n }));
 
@@ -952,7 +965,7 @@ function toast(text: string, ms = 3500): void {
 const cameraView = new CameraView({
   chain: async () => {
     await chainsLoaded;
-    return chainSpec(chains, presetKey(chains, settings.chain), defaultPins(settings, chains));
+    return chainSpec(chains, presetKey(chains, settings.chain), defaultPins(settings, chains), settings.shade);
   },
   settings: () => settings,
   saveCamera: (camera: CameraInfo) => {

@@ -1,6 +1,7 @@
 """Small test photos and Python's detections on them, for the TypeScript
 detector's CI test (web/src/pipeline/detect.test.ts): crops of a few
-cv_benchmark renders and snap-fit renders around their chains, cut to
+cv_benchmark renders and snap-fit renders around their chains (one of them
+with dark rims on light links), cut to
 multiples of 16 px, so the pyramid halves them evenly. The test over all
 191 full renders runs where they are cached (out/), not in CI.
 
@@ -11,7 +12,7 @@ from __future__ import annotations
 import gzip
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import cv2
@@ -20,8 +21,10 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
+from splinewire.camera import focal_px_from_35mm, look_at_plane  # noqa: E402
 from splinewire.chain import chain_presets, load_chain_spec  # noqa: E402
 from splinewire.detect import detect_fiducials  # noqa: E402
+from splinewire.synthetic import render_snap_photo, s_curve_pins  # noqa: E402
 
 DIR = REPO / "web" / "src" / "pipeline" / "golden"
 PHOTOS = [  # (source, crop margin around the chain in px)
@@ -30,24 +33,37 @@ PHOTOS = [  # (source, crop margin around the chain in px)
 ]
 
 
-def chain_box(path: Path, img: np.ndarray, spec) -> tuple[int, int, int, int]:
+def chain_box(img: np.ndarray, spec) -> tuple[int, int, int, int]:
     found = detect_fiducials(img, spec)
     pts = np.array([f.center_px for f in found])
     return (*pts.min(axis=0), *pts.max(axis=0))
 
 
+def dark_snap_photo():
+    """The snap-fit chain printed the other way round, dark rims on light links
+    (fiducial_shade "dark"), on a light gray table at a 30 degree tilt."""
+    spec = replace(load_chain_spec(chain_presets()["snap"]), fiducial_shade="dark")
+    pins = s_curve_pins(spec)
+    size = (2000, 1500)
+    cam = look_at_plane(focal_px_from_35mm(26, size), size, 260.0, tilt_deg=30.0, tilt_direction_deg=200.0,
+                        roll_deg=5.0, target_mm=tuple(pins.mean(axis=0)))
+    return render_snap_photo(pins, spec, cam, rng=np.random.default_rng(11), table_gray=200), spec
+
+
 def main() -> None:
     out = []
-    for path, margin in PHOTOS:
-        spec = load_chain_spec(chain_presets()["snap" if "snap" in path.name else "oring"])
-        img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-        x0, y0, x1, y1 = chain_box(path, img, spec)
+    photos = [(path.stem, cv2.imread(str(path), cv2.IMREAD_GRAYSCALE),
+               load_chain_spec(chain_presets()["snap" if "snap" in path.name else "oring"]), margin)
+              for path, margin in PHOTOS]
+    photos.append(("snap-dark", *dark_snap_photo(), 80))
+    for stem, img, spec, margin in photos:
+        x0, y0, x1, y1 = chain_box(img, spec)
         h, w = img.shape
         x0, y0 = max(0, int(x0) - margin) // 16 * 16, max(0, int(y0) - margin) // 16 * 16
         x1, y1 = min(w, int(x1) + margin), min(h, int(y1) + margin)
         x1, y1 = x0 + (x1 - x0) // 16 * 16, y0 + (y1 - y0) // 16 * 16
         crop = np.ascontiguousarray(img[y0:y1, x0:x1])
-        name = f"photo-{path.stem}.png"
+        name = f"photo-{stem}.png"
         cv2.imwrite(str(DIR / name), crop, [cv2.IMWRITE_PNG_COMPRESSION, 9])
         fids = detect_fiducials(crop, spec)
         out.append({"photo": name, "chain": asdict(spec), "fiducials": [

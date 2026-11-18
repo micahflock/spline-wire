@@ -16,6 +16,8 @@ export interface ChainSpec {
   ring_inner_mm?: number;
   max_bend_deg?: number;
   contact?: "edge" | "round";
+  /** The fiducials lighter than the links ("light", the default) or darker. */
+  fiducial_shade?: "light" | "dark";
 }
 
 /** Pins a person removed or added by tapping the photo, in photo pixels. */

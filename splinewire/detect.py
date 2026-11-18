@@ -72,8 +72,20 @@ _MAX_SCALE = 8          # coarsest level: 1/8 resolution
 THIN_RING = 0.6
 
 
+def shaded(image: np.ndarray, spec: ChainSpec) -> np.ndarray:
+    """The photo as the detectors want it: light fiducials on dark links. A
+    chain with dark fiducials on light links (fiducial_shade "dark") is read
+    from the inverted gray image, where it looks like any other chain (only
+    the table's shade is turned round, and every shade of table is handled)."""
+    if spec.fiducial_shade == "light":
+        return image
+    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return 255 - gray
+
+
 def detect_fiducials(image: np.ndarray, spec: ChainSpec) -> list[Fiducial]:
     """The fiducials a ChainSpec describes: dots, rings or thin rims."""
+    image = shaded(image, spec)
     if spec.fiducial == "dot":
         return detect_dots(image)
     ratio = spec.ring_inner_mm / spec.fiducial_mm
@@ -616,10 +628,21 @@ def detect_rims(image: np.ndarray, inner_outer_ratio: float, min_diameter_px: fl
     return _dedupe(rims)
 
 
+# The outline of a rim's hole in the threshold mask comes out small: by a
+# median 5% along the major axis and 7% along the minor (11% at most) on the
+# 24 snap-fit renders of web/scripts/golden.py. The rim is a thin band (0.24
+# hole radii on the snap-fit chain), so from that outline the first pass read
+# the hole's blurred edge as the rim and lost 4 of the 312 rims, all at 40
+# degree tilts. Grown by this much first, it lost none (1.04 to 1.08 alike).
+_RIM_HOLE_GROWTH = 1.06
+
+
 def _refine_rim(gray: np.ndarray, inverted: np.ndarray, hole: _Candidate, ratio: float) -> Fiducial | None:
     """A rim from the outline of its hole (hole.outer), or None if what
     surrounds the hole is not a bright band as wide as the rim."""
     band = 1.0 / ratio - 1.0                    # the rim's width, in hole radii
+    (cx, cy), (a, b), ang = hole.outer
+    hole = replace(hole, outer=((cx, cy), (a * _RIM_HOLE_GROWTH, b * _RIM_HOLE_GROWTH), ang))
     d = _refine_dot(inverted, hole, margin=(1.0 + 0.25 * band, 1.0 + 0.8 * band))
     if d is None:
         return None
@@ -668,6 +691,7 @@ def snap_fiducial(
     than a poor fit: a wrong snap looks as confident as a right one and is
     worse than the click.
     """
+    image = shaded(image, spec)
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     ring = spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0
     grayf = gray.astype(np.float32)

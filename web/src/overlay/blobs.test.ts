@@ -52,27 +52,32 @@ function chain(pins: [number, number][], dotR: number, linkR: number, dot = 230,
 }
 
 /** The snap-fit chain's look (data/chain-snap.yaml): a thin light rim around a dark
- * hole, on round sleeves barely wider than the ring (half-width 1.3 ring radii). */
-function ringChain(pins: [number, number][], outerR: number, inner: number, linkR: number, rim = 225, link = 40) {
+ * hole, on the top edge of a head no wider than the rim: from above, the next
+ * link's sleeve is hidden under it (radius linkR, here at most the rim's), and
+ * the dark link shows outside the rim only where the arms (half-width armR,
+ * 0.57 ring radii) leave it. */
+function ringChain(pins: [number, number][], outerR: number, inner: number, linkR: number, armR = linkR,
+  rim = 225, link = 40, hole = 20) {
   const x0 = Math.min(...pins.map((p) => p[0])) - linkR - 1, x1 = Math.max(...pins.map((p) => p[0])) + linkR + 1;
   const y0 = Math.min(...pins.map((p) => p[1])) - linkR - 1, y1 = Math.max(...pins.map((p) => p[1])) + linkR + 1;
   return (x: number, y: number): number | null => {
     if (x < x0 || x > x1 || y < y0 || y > y1) return null;
     for (const [px, py] of pins) {
       const r = Math.hypot(x - px, y - py);
-      if (r <= inner * outerR) return 20;                 // the hole
+      if (r <= inner * outerR) return hole;
       if (r <= outerR) return rim;
     }
     for (let k = 0; k + 1 < pins.length; k++) {
       const [ax, ay] = pins[k]!, [bx, by] = pins[k + 1]!;
       const t = Math.min(1, Math.max(0, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2)));
-      if (Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay)) <= linkR) return link;
+      if (Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay)) <= armR) return link;
     }
+    for (const [px, py] of pins) if (Math.hypot(x - px, y - py) <= linkR) return link;
     return null;
   };
 }
 
-const SNAP = { fiducial: "ring", fiducial_mm: 7.2, ring_inner_mm: 5.48 };
+const SNAP = { fiducial: "ring", fiducial_mm: 8.79, ring_inner_mm: 7.07 };
 
 const PINS: [number, number][] = Array.from({ length: 9 }, (_, k) => [70.3 + 60 * k, 180.6 + 50 * Math.sin(k * 0.8)]);
 
@@ -142,17 +147,42 @@ describe("detectBlobs", { timeout: 60_000 }, () => {
     expect(ms).toBeLessThan(30);
   });
 
-  it("finds the snap-fit chain's rims as rings, and does not take them for dots", () => {
+  const SNAP_PINS: [number, number][] = Array.from({ length: 13 }, (_, k) => [70.4 + 42 * k, 180.3 + 40 * Math.sin(k * 0.6)]);
+  for (const [name, table] of [["a dark table", 60], ["a light gray table", 200], ["white paper, brighter than the rims", 235]] as const) {
+    it(`finds the snap-fit chain's rims as rings on ${name}, and does not take them for dots`, () => {
+      const shape = shapeOf(SNAP);
+      expect(shape.inner).toBeCloseTo(0.804, 3);
+      // Nothing dark outside the rims but the arms.
+      const frame = scene(640, 360, table, ringChain(SNAP_PINS, 8, shape.inner, 8, 4.55));
+      const rings = detectBlobs(frame, 1, shape);
+      expect(rings.length).toBe(13);
+      expect(matched(rings, SNAP_PINS)).toBeLessThan(0.4);
+      for (const r of rings) expect(r.d).toBeGreaterThan(14);
+      expect(detectBlobs(frame, 1)).toEqual([]);                          // as dots: none
+    });
+  }
+
+  it("finds dark rims on light links when the chain says so (fiducial_shade dark), and only then", () => {
+    const dark = shapeOf({ ...SNAP, fiducial_shade: "dark" });
+    expect(dark).toEqual({ inner: shapeOf(SNAP).inner, dark: true });
+    for (const table of [60, 200]) {
+      const frame = scene(640, 360, table, ringChain(SNAP_PINS, 8, dark.inner, 8, 4.55, 30, 215, 235));
+      const rings = detectBlobs(frame, 1, dark);
+      expect(rings.length).toBe(13);
+      expect(matched(rings, SNAP_PINS)).toBeLessThan(0.4);
+      const asLight = detectBlobs(frame, 1, shapeOf(SNAP));                 // read as light rims: none on the pins
+      expect(asLight.filter((b) => SNAP_PINS.some(([x, y]) => Math.hypot(b.x - x, b.y - y) < 2)).length).toBe(0);
+    }
+  });
+
+  it("does not take dots, or dark specks on a light table, for the snap-fit chain's rims", () => {
     const shape = shapeOf(SNAP);
-    expect(shape.inner).toBeCloseTo(0.761, 3);
-    const pins: [number, number][] = Array.from({ length: 13 }, (_, k) => [70.4 + 42 * k, 180.3 + 40 * Math.sin(k * 0.6)]);
-    const frame = scene(640, 360, 200, ringChain(pins, 8, shape.inner, 10.4));   // table lighter than the rims' margin
-    const rings = detectBlobs(frame, 1, shape);
-    expect(rings.length).toBe(13);
-    expect(matched(rings, pins)).toBeLessThan(0.4);
-    for (const r of rings) expect(r.d).toBeGreaterThan(14);
-    expect(detectBlobs(frame, 1)).toEqual([]);                            // as dots: none
     expect(detectBlobs(scene(640, 360, 128, chain(PINS, 11, 18)), 1, shape)).toEqual([]);   // dots, as rings: none
+    const specks = (x: number, y: number) => {
+      for (const [px, py] of SNAP_PINS) if (Math.hypot(x - px, y - py) <= 6.4) return 40;     // a rim's hole, no rim
+      return null;
+    };
+    expect(detectBlobs(scene(640, 360, 128, specks), 1, shape)).toEqual([]);   // no bright band round them
   });
 
   it("gives rings a larger work frame, since their rims are thin", () => {

@@ -181,7 +181,8 @@ class PhotoSession:
 
     def detections(self, spec: ChainSpec) -> list[Fiducial]:
         """The photo's fiducials, found once per kind of fiducial."""
-        key = (spec.fiducial, spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0)
+        key = (spec.fiducial, spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0,
+               spec.fiducial_shade)
         if self._detected is None or (self._detected_for is not None and self._detected_for != key):
             self._detected = detect_fiducials(self.image, spec)
         self._detected_for = key

@@ -113,6 +113,16 @@ def _walk(start, pts, dist, nn_pitch, max_turn, sizes: _Sizes | None):
     of the walk's median size: perspective changes size along a real chain
     by ~1.3x at most, but a walk judging only neighbours could drift from
     pin to ever smaller specks."""
+    def _fits(cur: int, j: int, path: list[int]) -> bool:
+        """A step from cur to j passes the size and length tests."""
+        if sizes is None:
+            return True
+        lo, hi = sizes.step_range(cur, 2 if dist[cur, j] / pitch > 1.5 else 1)
+        if not (lo <= dist[cur, j] <= hi and sizes.similar(cur, j)):
+            return False
+        band = float(np.median(sizes.major[path]))
+        return band / 1.6 < sizes.major[j] < band * 1.6
+
     path = [start]
     visited = {start}
     pitch = nn_pitch if sizes is None else sizes.k * 0.5 * (sizes.major[start] + sizes.minor[start])
@@ -131,13 +141,10 @@ def _walk(start, pts, dist, nn_pitch, max_turn, sizes: _Sizes | None):
                 continue
             ratio = dist[cur, j] / pitch
             is_gap = ratio > 1.5
-            if sizes is not None:
-                lo, hi = sizes.step_range(cur, 2 if is_gap else 1)
-                if not (lo <= dist[cur, j] <= hi and sizes.similar(cur, j)):
-                    continue
-                band = float(np.median(sizes.major[path]))
-                if not band / 1.6 < sizes.major[j] < band * 1.6:
-                    continue
+            if not _fits(cur, j, path):
+                continue
+            if is_gap and _passes_over(cur, j, dist, pitch, visited, like=lambda m: _fits(cur, m, path)):
+                continue                    # the pin it would step over is there, not missing
             score = turn + 2.0 * abs(ratio - (2.0 if is_gap else 1.0)) + (1.0 if is_gap else 0.0)
             if not is_gap and _passes_over(cur, j, dist, pitch, visited):
                 score += 1.0
@@ -167,14 +174,14 @@ def _off_pitch(path: list[int], dist: np.ndarray) -> tuple[int, int]:
     return int(np.sum(np.abs(ratio - whole) > 0.1)), int(np.sum(whole == 2))
 
 
-def _passes_over(cur: int, j: int, dist: np.ndarray, pitch: float, visited: set) -> bool:
-    """Some unvisited pin is about one pitch from both cur and j, and nearer
-    to each than they are to each other."""
+def _passes_over(cur: int, j: int, dist: np.ndarray, pitch: float, visited: set, like=None) -> bool:
+    """Some unvisited pin (for which like(m), if given) is about one pitch
+    from both cur and j, and nearer to each than they are to each other."""
     d = dist[cur, j]
     near = ((np.abs(dist[cur] / pitch - 1.0) < 0.25) & (np.abs(dist[j] / pitch - 1.0) < 0.25)
             & (dist[cur] < d) & (dist[j] < d))
     near[[cur, j]] = False
-    return any(m not in visited for m in np.flatnonzero(near))
+    return any(m not in visited and (like is None or like(m)) for m in np.flatnonzero(near))
 
 
 def _angle(a: np.ndarray, b: np.ndarray) -> float:

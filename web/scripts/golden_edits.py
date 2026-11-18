@@ -28,7 +28,7 @@ from splinewire.chain import chain_presets, load_chain_spec  # noqa: E402
 from splinewire.detect import detect_fiducials  # noqa: E402
 from splinewire.edits import Edits  # noqa: E402
 from splinewire.pipeline import measure  # noqa: E402
-from splinewire.synthetic import LINK_GRAY, render_photo, render_snap_photo, s_curve_pins  # noqa: E402
+from splinewire.synthetic import LINK_GRAY, circle_wrap_pins, render_photo, render_snap_photo, s_curve_pins  # noqa: E402
 
 DIR = REPO / "web" / "src" / "pipeline" / "golden"
 SIZE = (2000, 1500)
@@ -118,22 +118,22 @@ def main() -> None:
             ("glare-clicked-off", Edits(add_px=clicks(cam, pins, [5, 6], 4.0, 2))),
         ]),
     ]
-    # The snap-fit chain: a render where Python misses a rim (golden.py's snap-09).
-    snap_path = REPO / "out" / "golden-snap" / "snap-09.png"
-    if snap_path.exists():
-        sfull = cv2.imread(str(snap_path), cv2.IMREAD_GRAYSCALE)
-        meta = json.loads(snap_path.with_suffix(".json").read_text(encoding="utf-8"))
-        spins = np.array(meta["pins_mm"])
-        scam = look_at_plane(meta["focal_px"], SIZE, 300.0, tilt_deg=40.0, tilt_direction_deg=37.0 * 9, roll_deg=10.0,
-                             target_mm=tuple(spins.mean(axis=0)))
-        sx0, sy0, sx1, sy1 = crop_box(scam.project(spins), SIZE, 90)
-        simg = np.ascontiguousarray(sfull[sy0:sy1, sx0:sx1])
-        sdet = detect_fiducials(simg, snap)
-        truth = scam.project(spins) - np.array([sx0, sy0], float)
-        missing = [k for k, p in enumerate(truth)
-                   if min(np.hypot(*(np.array(f.center_px) - p)) for f in sdet) > 5.0]
-        adds = tuple((float(x) + 2.0, float(y) - 1.0) for x, y in truth[missing])
-        cases.append(("photo-snap-09.png", simg, snap, sdet, [("snap-add-missed", Edits(add_px=adds))]))
+    # The snap-fit chain: a render where Python misses a rim (golden.py's
+    # snap-09 scene, a pipe at a 40 degree tilt on white, drawn softer: blurred
+    # 1.6 px instead of 0.7, it loses the rim of pin 11, which a click finds).
+    spins = circle_wrap_pins(snap, 40.0)
+    scam = look_at_plane(FOCAL, SIZE, 300.0, tilt_deg=40.0, tilt_direction_deg=37.0 * 9, roll_deg=10.0,
+                         target_mm=tuple(spins.mean(axis=0)))
+    sfull = render_snap_photo(spins, snap, scam, rng=np.random.default_rng(9), table_gray=250, blur_px=1.6)
+    sx0, sy0, sx1, sy1 = crop_box(scam.project(spins), SIZE, 90)
+    simg = np.ascontiguousarray(sfull[sy0:sy1, sx0:sx1])
+    sdet = detect_fiducials(simg, snap)
+    truth = scam.project(spins) - np.array([sx0, sy0], float)
+    missing = [k for k, p in enumerate(truth)
+               if min(np.hypot(*(np.array(f.center_px) - p)) for f in sdet) > 5.0]
+    assert missing, "the snap-fit render no longer misses a rim: pick a harder one"
+    adds = tuple((float(x) + 2.0, float(y) - 1.0) for x, y in truth[missing])
+    cases.append(("photo-snap-09.png", simg, snap, sdet, [("snap-add-missed", Edits(add_px=adds))]))
 
     out, written = [], set()
     for photo, image, spec, detected, runs in cases:

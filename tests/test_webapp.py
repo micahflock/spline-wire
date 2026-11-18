@@ -244,6 +244,22 @@ def test_chain_presets_and_what_touches_the_object(served):
     assert call(server, "/api/settings", json.dumps(bad).encode(), app.token)[0] == 400
 
 
+def test_the_chain_colours_are_the_persons_choice(served):
+    """Dark marks on light links (fiducial_shade): saved with the chain, kept by
+    a page that does not send it and by filling in a preset (no preset sets it)."""
+    app, server = served
+    state = json.loads(call(server, "/api/state", token=app.token)[1])
+    presets = state["settings"]["chain_presets"]
+    assert app.spec().fiducial_shade == "light" and all("fiducial_shade" not in p for p in presets.values())
+    dark = {"chain": {**app.settings["chain"], "fiducial_shade": "dark"}}
+    assert call(server, "/api/settings", json.dumps(dark).encode(), app.token)[0] == 200
+    assert app.spec().fiducial_shade == "dark"
+    assert call(server, "/api/settings", json.dumps({"chain": presets["oring"]}).encode(), app.token)[0] == 200
+    assert (app.spec().fiducial, app.spec().fiducial_shade) == ("dot", "dark")
+    bad = {"chain": {**app.settings["chain"], "fiducial_shade": "grey"}}
+    assert call(server, "/api/settings", json.dumps(bad).encode(), app.token)[0] == 400
+
+
 def test_phone_side_is_limited(served):
     """From another device: pages and uploads work; settings, downloads and quit don't."""
     app, server = served

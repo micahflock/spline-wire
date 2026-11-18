@@ -14,6 +14,10 @@ FIDUCIALS = ("dot", "ring")
 # ends, or "round", a round sleeve about every pin with the link between
 # them narrower (the snap-fit chain).
 CONTACTS = ("edge", "round")
+# The fiducials' shade against the links: "light" (white on black links, as
+# the chains print by default) or "dark" (black on white links). Detection
+# reads a "dark" chain's photo inverted, which turns it into a "light" one.
+SHADES = ("light", "dark")
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,7 @@ class ChainSpec:
     ring_inner_mm: float = 0.0    # a ring's hole diameter; 0 for a dot
     max_bend_deg: float = 80.0    # sharpest turn at a pin the ordering accepts, as seen in the photo
     contact: str = "edge"         # what touches the target: see CONTACTS
+    fiducial_shade: str = "light"  # the fiducials lighter or darker than the links: see SHADES
 
     def __post_init__(self) -> None:
         if self.pitch_mm <= 0:
@@ -36,6 +41,8 @@ class ChainSpec:
             raise ValueError(f"fiducial must be one of {FIDUCIALS}, got {self.fiducial!r}")
         if self.contact not in CONTACTS:
             raise ValueError(f"contact must be one of {CONTACTS}, got {self.contact!r}")
+        if self.fiducial_shade not in SHADES:
+            raise ValueError(f"fiducial_shade must be one of {SHADES}, got {self.fiducial_shade!r}")
         if self.fiducial_mm <= 0:
             raise ValueError(f"fiducial_mm must be positive, got {self.fiducial_mm}")
         if self.fiducial == "ring" and not 0 < self.ring_inner_mm < self.fiducial_mm:
@@ -116,6 +123,7 @@ def spec_from_dict(raw: dict) -> ChainSpec:
         ring_inner_mm=float(raw.get("ring_inner_mm") or 0.0) if kind == "ring" else 0.0,
         max_bend_deg=float(raw.get("max_bend_deg") or ChainSpec.max_bend_deg),
         contact=str(raw.get("contact") or "edge"),
+        fiducial_shade=str(raw.get("fiducial_shade") or "light"),
     )
 
 

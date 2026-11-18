@@ -15,7 +15,8 @@ describe("settings", () => {
   it("start from the defaults and survive a round trip", () => {
     const store = new MemoryStore();
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
-    const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const, photoMode: "upload" as const };
+    const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const, photoMode: "upload" as const,
+      shade: "dark" as const };
     saveSettings(store, s);
     expect(loadSettings(store)).toEqual(s);
   });
@@ -42,7 +43,8 @@ describe("settings", () => {
   });
 
   it("measure with the preset and the photo's pin count", () => {
-    expect(chainSpec(chains, "snap", 7)).toEqual({ ...chains.snap, n_pins: 7 });
+    expect(chainSpec(chains, "snap", 7)).toEqual({ ...chains.snap, n_pins: 7, fiducial_shade: "light" });
+    expect(chainSpec(chains, "snap", 7, "dark")).toEqual({ ...chains.snap, n_pins: 7, fiducial_shade: "dark" });
     expect(chainSpec(chains, "gone", 7).pitch_mm).toBe(13);          // a preset this build lacks: the first, the default
     expect(presetKey(chains, "gone")).toBe("snap");
     expect(presetKey(chains, "default")).toBe("snap");                // saved before the rename: the default now

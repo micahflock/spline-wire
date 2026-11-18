@@ -36,8 +36,18 @@ interface Candidate {
   polarity: number;
 }
 
+/** The photo as the detectors want it, light fiducials on dark links
+ * (detect.shaded): a chain with dark fiducials on light links is read inverted. */
+export function shaded(gray: Gray, spec: ChainSpec): Gray {
+  if (spec.fiducial_shade !== "dark") return gray;
+  const data = new Uint8Array(gray.data.length);
+  for (let i = 0; i < data.length; i++) data[i] = 255 - gray.data[i]!;
+  return { width: gray.width, height: gray.height, data };
+}
+
 /** The fiducials a ChainSpec describes (detect_fiducials). */
 export function detectFiducials(image: Gray, spec: ChainSpec): Fiducial[] {
+  image = shaded(image, spec);
   if (spec.fiducial === "dot") return detectDots(image);
   const ratio = spec.ring_inner_mm / spec.fiducial_mm;
   if (ratio >= THIN_RING) return detectRims(image, ratio);
@@ -100,6 +110,10 @@ export function detectRims(gray: Gray, innerOuterRatio: number, minDiameterPx = 
  * the caller keeps one (it is made otherwise). */
 export function snapFiducial(gray: Gray, point: readonly [number, number], spec: ChainSpec, like: Fiducial,
   grayf: GrayF = toFloat(gray)): Fiducial | null {
+  if (spec.fiducial_shade === "dark") {
+    gray = shaded(gray, spec);
+    grayf = invertF(grayf);
+  }
   const ring = spec.fiducial === "ring" ? spec.ring_inner_mm / spec.fiducial_mm : 0;
   let found: Fiducial | null;
   if (ring >= THIN_RING) {
@@ -394,10 +408,16 @@ function refineDot(gray: GrayF, cand: Candidate, passes = 2, margin: [number, nu
   };
 }
 
+/** How much a rim's hole outline from the threshold mask is grown before it is
+ * refined: the outline comes out small, and the rim is thin (detect._RIM_HOLE_GROWTH). */
+const RIM_HOLE_GROWTH = 1.06;
+
 /** A rim from the outline of its hole (detect._refine_rim). */
 function refineRim(gray: GrayF, inverted: GrayF, hole: Candidate, ratio: number): Fiducial | null {
   const band = 1.0 / ratio - 1.0;
-  const d = refineDot(inverted, hole, 2, [1.0 + 0.25 * band, 1.0 + 0.8 * band]);
+  const grown: Candidate = { ...hole, outer: { ...hole.outer, width: hole.outer.width * RIM_HOLE_GROWTH,
+    height: hole.outer.height * RIM_HOLE_GROWTH } };
+  const d = refineDot(inverted, grown, 2, [1.0 + 0.25 * band, 1.0 + 0.8 * band]);
   if (d === null) return null;
   const [major, minor] = d.outer_axes_px;
   const t = (d.angle_deg * Math.PI) / 180;

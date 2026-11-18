@@ -25,6 +25,12 @@ LINK_GRAY = 45
 RING_GRAY = 235
 
 
+def _shades(spec: ChainSpec) -> tuple[int, int]:
+    """(link gray, fiducial gray): dark links with light fiducials, or the
+    other way round for a chain with fiducial_shade "dark"."""
+    return (LINK_GRAY, RING_GRAY) if spec.fiducial_shade == "light" else (RING_GRAY, LINK_GRAY)
+
+
 def s_curve_pins(spec: ChainSpec, bend_deg: float = 14.0) -> np.ndarray:
     """Chain bent one way for its first half and the other way for the rest."""
     n_turns = spec.n_pins - 2
@@ -51,12 +57,22 @@ def circle_wrap_pins(spec: ChainSpec, radius_mm: float, concave: bool = False) -
     return pin_radius * np.c_[np.cos(angles), np.sin(angles)]
 
 
-# The snap-fit chain's relief, mm below the plane of its rims: the table,
-# the sleeve tops, and the pin and arm tops where the rim's white ends.
-SNAP_TABLE_MM = 12.4
-SNAP_SLEEVE_MM = 2.4
+# The snap-fit chain's relief, mm below the top of its rims (the link
+# 3DP_Link_Ver_MF, 2026-11-17; numbers from experiments/snap_link_geometry.py).
+# Each pin hangs from a head, a cone that narrows downwards 16.7 degrees from
+# vertical: the rim's full width at the rim's foot, 3.15 mm radius at the
+# head's foot. Under the head the next link's sleeve, its outside a zigzag
+# between its widest (the chain's half width) and 0.71 mm less, reaches down
+# to the table.
+SNAP_TABLE_MM = 13.05
 SNAP_RIM_MM = 0.4
-SNAP_ARM_MM = 5.0          # arm width
+SNAP_HEAD_FOOT_MM = 4.55
+SNAP_HEAD_SLOPE = 0.3            # radius lost per mm down (tan 16.7 degrees)
+SNAP_PIN_MM = 3.0                # the pin's radius below the head (the first pin has no sleeve)
+SNAP_ARM_MM = 5.0                # arm width
+# The sleeve's outside: (depth, how much narrower than its widest).
+SNAP_SLEEVE_PROFILE = ((5.07, 0.71), (5.95, 0.0), (8.40, 0.71), (10.9, 0.0), (12.6, 0.0), (13.05, 0.11))
+SNAP_SLEEVE_MM = SNAP_SLEEVE_PROFILE[0][0]     # the sleeve tops
 
 
 def render_snap_photo(
@@ -72,12 +88,14 @@ def render_snap_photo(
 ) -> np.ndarray:
     """Grayscale photo of the snap-fit chain (contact: round), with its relief.
 
-    Unlike the flat chains, this one stands 12 mm tall with its rims on top
-    and its sleeves 2.4 mm below them, so a tilted camera sees the sleeves
-    and the table shifted against the rims. The chain is drawn as a stack
-    of flat slices, each put where the camera sees it on the rim plane
-    (z = 0, where pins_mm are): table, sleeves and arms up to the sleeve
-    tops, arms and pin tops, then the white rims with their 0.4 mm walls.
+    Unlike the flat chains, this one stands 13 mm tall with its rims on top.
+    The rim is as wide as the head it sits on, which narrows downwards, and
+    the sleeves are 5 mm below the rims, so straight down the camera sees
+    the table right next to a rim, and a tilted camera sees the near side
+    of the head, the sleeves and the table shifted against the rims. The
+    chain is drawn as a stack of flat slices, deepest first, each put where
+    the camera sees it on the rim plane (z = 0, where pins_mm are): sleeves
+    and arms, the heads, then the white rims with their 0.4 mm walls.
     """
     rng = rng or np.random.default_rng(0)
     tau = texture_px_per_mm
@@ -103,13 +121,26 @@ def render_snap_photo(
             cv2.line(img, to_tex(a), to_tex(b), 255, int(round(SNAP_ARM_MM * tau)), cv2.LINE_AA, shift)
 
     blank = np.zeros((tex_h, tex_w), np.uint8)
-    lower, upper, rim = blank.copy(), blank.copy(), blank.copy()
-    arms(lower)
-    arms(upper)
-    for k, p in enumerate(pins_mm):
-        # Every pin but the first sits in the next link's sleeve.
-        disc(lower, p, spec.half_width_mm if k else 3.0)
-        disc(upper, p, spec.fiducial_mm / 2)
+    sleeve_d, sleeve_dr = np.array(SNAP_SLEEVE_PROFILE).T
+
+    def link_slice(depth_mm: float) -> np.ndarray:
+        """What of the chain is cut by the plane depth_mm below the rims' top."""
+        mask = blank.copy()
+        arms(mask)
+        if depth_mm >= SNAP_SLEEVE_MM:
+            sleeve = spec.half_width_mm - float(np.interp(depth_mm, sleeve_d, sleeve_dr))
+        head = spec.fiducial_mm / 2 - SNAP_HEAD_SLOPE * (depth_mm - SNAP_RIM_MM)
+        for k, p in enumerate(pins_mm):
+            if depth_mm <= SNAP_HEAD_FOOT_MM:
+                disc(mask, p, head)
+            elif depth_mm >= SNAP_SLEEVE_MM and k:      # every pin but the first sits in the next link's sleeve
+                disc(mask, p, sleeve)
+            else:
+                disc(mask, p, SNAP_PIN_MM)
+        return mask
+
+    rim = blank.copy()
+    for p in pins_mm:
         disc(rim, p, spec.fiducial_mm / 2)
         cv2.circle(rim, to_tex(p), int(round(spec.ring_inner_mm / 2 * tau * scale)), 0, -1, cv2.LINE_AA, shift)
 
@@ -122,9 +153,10 @@ def render_snap_photo(
         return cv2.warpPerspective(mask, M, (tex_w, tex_h), flags=cv2.INTER_LINEAR)
 
     tex = np.full((tex_h, tex_w), float(table_gray), np.float32)
-    slices = [(lower, d, LINK_GRAY) for d in np.arange(SNAP_TABLE_MM, SNAP_SLEEVE_MM - 1e-9, -0.5)]
-    slices += [(upper, d, LINK_GRAY) for d in np.arange(SNAP_SLEEVE_MM, SNAP_RIM_MM - 1e-9, -0.5)]
-    slices += [(rim, d, RING_GRAY) for d in (SNAP_RIM_MM, SNAP_RIM_MM / 2, 0.0)]
+    depths = np.r_[np.arange(SNAP_TABLE_MM, SNAP_HEAD_FOOT_MM, -0.5), np.arange(SNAP_HEAD_FOOT_MM, SNAP_RIM_MM - 1e-9, -0.25)]
+    link_gray, rim_gray = _shades(spec)
+    slices = [(link_slice(float(d)), float(d), link_gray) for d in depths]
+    slices += [(rim, d, rim_gray) for d in (SNAP_RIM_MM, SNAP_RIM_MM / 2, 0.0)]
     for mask, depth, gray in slices:
         a = lowered(mask, float(depth)).astype(np.float32) / 255.0
         tex = tex * (1 - a) + gray * a
@@ -164,6 +196,7 @@ def render_photo(
     x0, y0 = pins_mm.min(axis=0) - margin
     x1, y1 = pins_mm.max(axis=0) + margin
     tex_w, tex_h = int(math.ceil((x1 - x0) * tau)) + 1, int(math.ceil((y1 - y0) * tau)) + 1
+    link_gray, fid_gray = _shades(spec)
     tex = np.full((tex_h, tex_w), TABLE_GRAY, np.uint8)
 
     shift = 4
@@ -174,12 +207,12 @@ def render_photo(
 
     link_thickness = max(1, int(round(2 * spec.half_width_mm * tau)))
     for a, b in zip(pins_mm[:-1], pins_mm[1:]):
-        cv2.line(tex, to_tex(a), to_tex(b), LINK_GRAY, link_thickness, cv2.LINE_AA, shift)
+        cv2.line(tex, to_tex(a), to_tex(b), link_gray, link_thickness, cv2.LINE_AA, shift)
     for p in pins_mm:
         c = to_tex(p)
-        cv2.circle(tex, c, int(round(spec.fiducial_mm / 2 * tau * scale)), RING_GRAY, -1, cv2.LINE_AA, shift)
+        cv2.circle(tex, c, int(round(spec.fiducial_mm / 2 * tau * scale)), fid_gray, -1, cv2.LINE_AA, shift)
         if spec.fiducial == "ring":
-            cv2.circle(tex, c, int(round(spec.ring_inner_mm / 2 * tau * scale)), LINK_GRAY, -1, cv2.LINE_AA, shift)
+            cv2.circle(tex, c, int(round(spec.ring_inner_mm / 2 * tau * scale)), link_gray, -1, cv2.LINE_AA, shift)
 
     # texture pixel -> plane mm -> image pixel (supersampled grid)
     T = np.array([[1 / tau, 0, x0], [0, -1 / tau, y1], [0, 0, 1]])
