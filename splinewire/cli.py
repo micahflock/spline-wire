@@ -5,6 +5,7 @@
     splinewire test-part               printable chain drawing with known shape
     splinewire test-plaque             3D-printable chain plaque (STL) with known shape
     splinewire test-gauges             3D-printable contact gauges (STL) with known shapes
+    splinewire fixed-chain             the snap-fit chain posed and fused into one print (STL), with its truth
     splinewire score PHOTO... --target T  test photos scored against a gauge or plaque (docs/real-world-tests.md)
 """
 from __future__ import annotations
@@ -25,7 +26,7 @@ from splinewire.synthetic import (
     write_synthetic_photo,
     write_truth,
 )
-from splinewire.targets import GAUGES, target_names
+from splinewire.targets import GAUGES, PLAQUE_POSES, target_names
 from splinewire.testpart import test_part_svg
 
 # measure and synth start with the default chain (the snap-fit chain); the
@@ -85,6 +86,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, default=Path("out/test-gauges"))
     p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN, help=argparse.SUPPRESS)
 
+    p = sub.add_parser("fixed-chain", help="write the fixed-chain test plaque: the snap-fit link posed and fused (STL)")
+    p.add_argument("--pose", choices=list(PLAQUE_POSES), default="plaque-s")
+    p.add_argument("--links", type=int, help="number of links (default: n_pins from the chain file)")
+    p.add_argument("--out", type=Path, default=Path("out/fixed-chain"))
+    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN, help=argparse.SUPPRESS)
+
     p = sub.add_parser("score", help="score test photos against their gauge or fixed-chain plaque")
     p.add_argument("photos", type=Path, nargs="*", help="photos of one target (or use --report)")
     p.add_argument("--target", help="the target's name: " + ", ".join(target_names()))
@@ -103,7 +110,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "synth" and args.chain is None:
         args.chain = ORING_CHAIN if args.env else DEFAULT_CHAIN
     commands = {"measure": _measure, "synth": _synth, "test-part": _test_part, "test-plaque": _test_plaque,
-                "score": _score, "test-gauges": _test_gauges}
+                "score": _score, "test-gauges": _test_gauges,
+                "fixed-chain": _fixed_chain}
     # ValueErrors carry the program's own messages for people (a photo with no
     # chain in it, a setting out of range): show the message, not a traceback.
     try:
@@ -223,6 +231,22 @@ def _test_gauges(args, spec: ChainSpec) -> int:
     if unknown:
         raise ValueError(f"no gauge {unknown[0]!r}; there are {', '.join(GAUGES)}")
     paths = write_gauges(args.out, args.names or None)
+    print(paths["instructions"].read_text(encoding="utf-8"))
+    print("wrote " + ", ".join(p.name for p in paths.values()) + f" in {args.out}")
+    return 0
+
+
+def _fixed_chain(args, spec: ChainSpec) -> int:
+    try:
+        from splinewire.fixed_chain import write_fixed_chain
+    except ImportError as err:
+        print(f"fixed-chain needs the dev dependencies (uv sync): {err}", file=sys.stderr)
+        return 1
+    if spec.contact != "round":
+        raise ValueError("the fixed-chain plaque is made of the snap-fit link; leave out --chain")
+    if args.links is not None and not 6 <= args.links <= 40:
+        raise ValueError(f"--links must be between 6 and 40, got {args.links}")
+    paths = write_fixed_chain(args.out, args.pose, spec, args.links)
     print(paths["instructions"].read_text(encoding="utf-8"))
     print("wrote " + ", ".join(p.name for p in paths.values()) + f" in {args.out}")
     return 0

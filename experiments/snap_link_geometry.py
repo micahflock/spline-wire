@@ -8,6 +8,11 @@ target at the pin (the head) and at the sleeve, and the joint's range, found
 by turning a second link about the pin until the two solids overlap.
 
     uv run --with cadquery-ocp python experiments/snap_link_geometry.py [file.step]
+    uv run --with cadquery-ocp python experiments/snap_link_geometry.py [file.step] --mesh data/snap-link.stl.gz
+
+--mesh writes the link as a gzipped STL for splinewire.fixed_chain (the
+fixed-chain test plaque), placed with its pin axis on the origin, its sleeve
+axis on the -x axis and its foot on z = 0, so nothing else needs OpenCascade.
 
 The default file is experiments/snap_link/3DP_Link_Ver_MF.step (2026-11-17).
 The link lies with its pin axis and sleeve axis along x, the pin's at the
@@ -126,8 +131,30 @@ def joint_range(mesh: trimesh.Trimesh, pin: np.ndarray, sleeve: np.ndarray) -> t
     return limit(+1), limit(-1)
 
 
+def export_mesh(mesh: trimesh.Trimesh, out: Path) -> None:
+    """The link, pin axis on the origin, sleeve axis on -x, foot on z = 0, as a gzipped binary STL."""
+    import gzip
+
+    pin, sleeve = axes(mesh)
+    d = (sleeve - pin) / np.linalg.norm(sleeve - pin)
+    turn = np.arctan2(-d[1], -d[0])                 # bring the sleeve onto -x
+    placed = mesh.copy()
+    placed.apply_translation([-pin[0], -pin[1], -mesh.bounds[0, 2]])
+    placed.apply_transform(trimesh.transformations.rotation_matrix(-turn, [0, 0, 1]))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(gzip.compress(placed.export(file_type="stl"), 9, mtime=0))
+    print(f"wrote {out}: {len(placed.faces)} faces, {out.stat().st_size // 1024} KB")
+
+
 def main() -> None:
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else STEP
+    args = [a for a in sys.argv[1:]]
+    if "--mesh" in args:
+        i = args.index("--mesh")
+        out = Path(args[i + 1])
+        del args[i:i + 2]
+        export_mesh(load(Path(args[0]) if args else STEP), out)
+        return
+    path = Path(args[0]) if args else STEP
     mesh = load(path)
     z0, z1 = mesh.bounds[:, 2]
     pin, sleeve = axes(mesh)

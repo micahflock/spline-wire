@@ -37,6 +37,7 @@ packages = ["splinewire"]
 [dependency-groups]
 dev = [
     "ezdxf>=1.3",                 # reads our DXF back in the tests
+    "manifold3d>=3.0",                     # fuses the fixed-chain plaque
     "mapbox-earcut>=2.1.0",
     "pytest>=8.0",
     "shapely>=2.1.2",
