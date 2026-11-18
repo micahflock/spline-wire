@@ -62,7 +62,8 @@ describe("hand edits against Python", () => {
       it(`${c.photo}: ${run.name}`, () => {
         const image = photo(c.photo);
         // As Python's measure got them: not rounded as editsFromJson rounds the page's clicks.
-        const edits = { add_px: run.edits.add as Vec2[], remove_px: run.edits.remove as Vec2[] };
+        const pair = (p: number[]): Vec2 => [p[0]!, p[1]!];
+        const edits = { add_px: run.edits.add.map(pair), remove_px: run.edits.remove.map(pair) };
         let m;
         try {
           m = measureDetections(c.detected.map(fiducial), c.size, c.chain, c.focal_px, "inside", edits, image);
