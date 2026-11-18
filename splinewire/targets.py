@@ -134,8 +134,8 @@ def _s_gauge(radius: float, sweep: float) -> Gauge:
 GAUGES: dict[str, Gauge] = {g.name: g for g in (
     _round("convex-r25", 25.0, False, 360.0),
     _round("convex-r40", 40.0, False, 360.0),
-    _round("convex-r60", 60.0, False, 160.0),
-    _round("convex-r100", 100.0, False, 100.0),
+    _round("convex-r60", 60.0, False, 180.0),
+    _round("convex-r100", 100.0, False, 110.0),
     _round("concave-r40", 40.0, True, 360.0),
     _round("concave-r60", 60.0, True, 180.0),
     _round("concave-r100", 100.0, True, 110.0),

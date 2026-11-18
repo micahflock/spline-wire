@@ -50,14 +50,14 @@ Each phase isolates one more source of error than the one before it. A failure i
    - **Estimating the focal length fails on gentle curves**: the concave R100 photos come out 4.6 mm off and their radius 47 mm off. The estimate needs a strongly bent chain, which is what the existing warning says ("unreliable for nearly straight chains"). In the tests, a photo without EXIF on R60–R100 is not a measurement of the chain; the test page should show the focal source with every score.
    - The radius of a short arc is harder to pin down than its points: 0.06 mm on R100 with points within 0.01 mm.
 3. **A fixed-chain plaque generator**: the real link from its STEP file (`experiments/snap_link/`), copies placed in a known pose and fused into one rigid print (pins grown into their sleeves so the joints fuse), at the real height, so the rims, the heads and the relief look as they do on the real chain. One filament change at the rim's foot (z = 12.65 mm): black then white, or white then orange. A 50 mm caliper bar on the same print checks the printer's scale. Poses: an **S** (both bend directions, joints up to about 60°) and a **tight** pose (joints at 95–102°, near the bend limit). The link count is a parameter. Truth file: the designed pin positions.
-4. **A contact gauge generator**: flat blocks 6 mm tall (below the sleeves' tops, so the target touches the sleeves as a real object does), each with its radius embossed and a 50 mm caliper bar. A gauge covers the arc a 13-pin chain wraps on it plus a margin, so the whole chain is in contact:
+4. **A contact gauge generator**. *Done:* `splinewire test-gauges` (`splinewire/gauges.py`, `tests/test_gauges.py`): STLs, `gauges.json` and `PRINTING.txt` in `out/test-gauges/`; discs printed as rings to save plastic; the bottom 0.6 mm set in 0.4 mm against elephant's foot; no embossed labels (write the name on each). As planned: flat blocks 6 mm tall (the sleeves are widest 0.45–2.15 mm above the table, so the edge meets them there, as a low object would); the printer's edge offset is read from the discs' and the hole's diameters with calipers. A gauge covers the arc a 13-pin chain wraps on it plus a margin, so the whole chain is in contact:
 
    | Gauge | Shape | Joint turn | Chain covers |
    |---|---|---|---|
    | Convex R25 | full disc, 50 mm | 25.6° | 307° |
    | Convex R40 | full disc, 80 mm | 16.8° | 202° |
-   | Convex R60 | 160° arc segment | 11.6° | 139° |
-   | Convex R100 | 100° arc segment | 7.1° | 86° |
+   | Convex R60 | half disc (180°) | 11.6° | 139° |
+   | Convex R100 | 110° arc segment | 7.1° | 86° |
    | Concave R40 | block with an 80 mm hole | 21.0° | 252° |
    | Concave R60 | 180° hollow | 13.4° | 161° |
    | Concave R100 | 110° hollow | 7.8° | 94° |
