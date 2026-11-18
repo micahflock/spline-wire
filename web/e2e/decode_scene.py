@@ -4,10 +4,10 @@ from EXIF) and measures in it, for the browser's decoder to be compared with.
 
     uv run python web/e2e/decode_scene.py OUT_DIR    -> OUT_DIR/decode.json, *.jpg, *.gray
 
-Photos (4000x3000 unless said): a gray JPEG; a colour one (chroma subsampled
-4:2:0, Pillow's default, as phones write them); the colour one stored on its
-side with EXIF orientation 6, as a phone held upright stores it; and the
-"shadow" scene (4032x3024, uneven light).
+Photos of the default chain, the snap-fit one (4000x3000): a gray JPEG; a
+colour one (chroma subsampled 4:2:0, Pillow's default, as phones write them);
+the colour one stored on its side with EXIF orientation 6, as a phone held
+upright stores it; and the chain on a black table at 40 degrees' tilt.
 """
 from __future__ import annotations
 
@@ -24,8 +24,7 @@ from splinewire.camera import EXIF_IFD, TAG_FOCAL_LENGTH_35MM, focal_px_from_35m
 from splinewire.chain import default_chain_path, load_chain_spec
 from splinewire.detect import detect_fiducials
 from splinewire.pipeline import load_photo_bytes, measure
-from splinewire.scene import PRESETS, render_scene
-from splinewire.synthetic import circle_wrap_pins, render_photo
+from splinewire.synthetic import circle_wrap_pins, render_snap_photo, s_curve_pins
 
 ORIENTATION = 0x0112
 
@@ -57,17 +56,20 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     spec = load_chain_spec(default_chain_path())
     size = (4000, 3000)
-    pins = circle_wrap_pins(spec, 30.0)
+    pins = circle_wrap_pins(spec, 40.0)
     cam = look_at_plane(focal_px_from_35mm(26, size), size, 200.0, tilt_deg=25.0, tilt_direction_deg=35.0,
                         roll_deg=10.0, target_mm=tuple(pins.mean(axis=0)))
-    gray = render_photo(pins, spec, cam, rng=np.random.default_rng(1))
+    gray = render_snap_photo(pins, spec, cam, rng=np.random.default_rng(1))
     color = tinted(gray, 2)
-    scene = render_scene(pins, spec, PRESETS["shadow"], seed=3)
+    s_pins = s_curve_pins(spec)
+    steep = look_at_plane(focal_px_from_35mm(26, size), size, 260.0, tilt_deg=40.0, tilt_direction_deg=120.0,
+                          roll_deg=-20.0, target_mm=tuple(s_pins.mean(axis=0)))
+    black = render_snap_photo(s_pins, spec, steep, rng=np.random.default_rng(3), table_gray=40)
     photos = {
         "gray": jpeg(Image.fromarray(gray), exif=exif(26)),
         "color": jpeg(Image.fromarray(color), exif=exif(26)),
         "rotated": jpeg(Image.fromarray(color).transpose(Image.Transpose.ROTATE_90), exif=exif(26, 6)),
-        "shadow": jpeg(Image.fromarray(tinted(scene.image, 4)), exif=exif(round(scene.focal_px * 43.2666 / np.hypot(*scene.image.shape)))),
+        "black-table": jpeg(Image.fromarray(tinted(black, 4)), exif=exif(26)),
     }
     doc = {"chain": asdict(spec), "photos": {}}
     for name, data in photos.items():

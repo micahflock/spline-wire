@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from splinewire.chain import default_chain_path, load_chain_spec
+from splinewire.chain import load_chain_spec, oring_chain_path
 
 # cv_benchmark.py keeps one cache per fiducial: out/cv-benchmark/dot, .../ring.
 CACHE = Path(__file__).resolve().parent.parent / "out" / "cv-benchmark"
@@ -22,7 +22,7 @@ SCENES = ["daylight-0", "shadow-1", "glare-0", "glare-matte-0", "black-table-1",
 
 
 def main(out: Path, fiducial: str | None = None, tile=(360, 270), cols=4) -> None:
-    cache = CACHE / (fiducial or load_chain_spec(default_chain_path()).fiducial)
+    cache = CACHE / (fiducial or load_chain_spec(oring_chain_path()).fiducial)
     missing = [sid for sid in SCENES if not (cache / f"{sid}.json").is_file()]
     if missing:
         raise SystemExit(f"{cache} lacks {', '.join(missing)}: run experiments/cv_benchmark.py first")

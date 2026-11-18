@@ -65,8 +65,10 @@ const recordStreams = () => {
 };
 
 /** Settings as the phone page keeps them (settings.ts): the scene's focal length saved. */
+/** The phone page's saved settings for these tests: the O-ring dot chain, which
+ * this file's camera scene draws (the snap-fit chain, the default, has camera-snap.spec.ts). */
 function settings(extra: Record<string, unknown> = {}): string {
-  return JSON.stringify({ savedFocal35: 24, ...extra });
+  return JSON.stringify({ chain: "oring", savedFocal35: 24, ...extra });
 }
 
 test.beforeAll(async () => {
@@ -133,7 +135,7 @@ test("the overlay coaches: no chain, pins missing", async () => {
   await closeCamera();
 
   // Two pins more than the chain has: the coach asks for the rest, and never shoots.
-  await setChain("default", 15);
+  await setChain("oring", 15);
   await openCamera();
   await expect(page.locator("#cam-say-title")).toHaveText("Part of the chain is out of view", { timeout: 30_000 });
   await expect(page.locator("#cam-count")).toHaveText("13 of 15 pins");
@@ -190,7 +192,7 @@ test("the overlay coaches: no chain, pins missing", async () => {
 });
 
 test("with the right pin count it holds steady, takes the still, and measures it as native Python does", async () => {
-  await setChain("default", 13);
+  await setChain("oring", 13);
   await openCamera();
   // Catch the hold while the ring fills (700 ms of good readings).
   await expect(page.locator("#cam-shutter")).toHaveAttribute("data-phase", "steady", { timeout: 30_000 });
@@ -262,10 +264,14 @@ test("without ImageCapture (Firefox) the still is the video frame, measured with
   const before = await page.locator("#photos li").count();
   await openCamera();
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });
-  await expect(page.locator("#photos li")).toHaveCount(before + 1);
+  // The photo joins the list once its preview is encoded. Chromium encodes a
+  // canvas's toBlob in idle time: it waits up to 1 s for an idle period, then
+  // up to 5 s more before it forces the encode, so in a busy headless run the
+  // photo can arrive 7-8 s after the camera closes (measured 2026-11-18).
+  await expect(page.locator("#photos li")).toHaveCount(before + 1, { timeout: 30_000 });
   const item = page.locator("#photos li").first();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
-  await expect(page.locator("#overlay circle[data-k]")).toHaveCount(13);
+  await expect(page.locator("#overlay circle[data-k]")).toHaveCount(13, { timeout: 30_000 });
   await expect(page.locator("#r-meta")).toContainText("page camera, video frame");
   await expect(page.locator("#numbers")).toContainText("your saved focal length (a video frame has no camera data)");
   await expect(page.locator("#numbers")).toContainText("24.0 mm");

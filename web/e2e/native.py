@@ -18,9 +18,10 @@ from splinewire.chain import default_chain_path, load_chain_spec
 from splinewire.cli import main as cli
 from splinewire.session import PhotoSession
 
-# name -> synth arguments: a clean 12-megapixel photo of the pipe shape, and the
-# printed plaque in the "shadow" scene (4032x3024, uneven light, JPEG).
-PHOTOS = {"pipe": ["--shape", "pipe"], "shadow": ["--env", "shadow"]}
+# name -> synth arguments, for the default chain (the snap-fit chain, drawn with
+# its relief): 12-megapixel photos of the pipe shape at 25 degrees' tilt, and
+# of the S-curve at 35.
+PHOTOS = {"pipe": ["--shape", "pipe"], "tilted": ["--shape", "s-curve", "--tilt", "35", "--seed", "3"]}
 
 
 def main() -> None:

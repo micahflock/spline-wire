@@ -11,7 +11,7 @@ desktop:
 2. **How fast is the TypeScript engine on this phone?** It measures the test photo and a photo the
    person picks, and shows the times.
 
-The test photo (`photo.jpg`, 2000x1500, colour, 4:2:0, stored on its side with EXIF orientation 6),
+The test photo (`photo.jpg`: the snap-fit chain, the default; 2000x1500, colour, 4:2:0, stored on its side with EXIF orientation 6),
 Pillow's gray image of it (`pillow-gray.png`) and Python's pins (`python.json`) are written by
 `uv run python web/spikes/decode-check/make.py`. `e2e/decode-check.spec.ts` checks the page in
 Chromium.
@@ -21,6 +21,6 @@ Chromium.
 On the iPhone (Safari) and an Android phone (Chrome), open `spikes/decode-check/` on the site:
 
 1. Tap **Run the check**. It takes a few seconds.
-2. Tap **Choose a photo** and pick a photo of the chain taken with the phone's camera app (a normal
-   12-megapixel photo). Measuring it can take several seconds; the page does not respond meanwhile.
+2. Tap **Choose a photo** and pick a photo of the **snap-fit chain** taken with the phone's camera app
+   (a normal 12-megapixel photo; the page measures with the snap-fit chain). Measuring it can take several seconds; the page does not respond meanwhile.
 3. Tap **Copy the report** and paste it into a message.

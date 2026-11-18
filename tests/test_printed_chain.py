@@ -23,9 +23,9 @@ from splinewire.printed_chain import (
 
 @pytest.fixture(scope="module")
 def chain(request):
-    from splinewire.chain import default_chain_path, load_chain_spec
+    from splinewire.chain import load_chain_spec, oring_chain_path
 
-    spec = load_chain_spec(default_chain_path())
+    spec = load_chain_spec(oring_chain_path())
     return spec, joint_geometry(spec), chain_bodies(spec)
 
 

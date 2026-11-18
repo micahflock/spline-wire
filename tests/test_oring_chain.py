@@ -31,9 +31,9 @@ TOUCH = 0.01        # mm³: facets of two revolved parts turned to different ang
 
 @pytest.fixture(scope="module")
 def chain():
-    from splinewire.chain import default_chain_path, load_chain_spec
+    from splinewire.chain import load_chain_spec, oring_chain_path
 
-    spec = load_chain_spec(default_chain_path())
+    spec = load_chain_spec(oring_chain_path())
     j = joint_geometry(spec)
     return spec, j, chain_parts(spec, n_pins=4)
 
@@ -160,7 +160,7 @@ def test_countersink_outholds_the_washer():
     """The O-ring stores at most the washer's friction as twist; the
     countersink must hold more than that or the joint springs back."""
     j = joint_geometry(__import__("splinewire.chain", fromlist=["x"]).load_chain_spec(
-        __import__("splinewire.chain", fromlist=["x"]).default_chain_path()))
+        __import__("splinewire.chain", fromlist=["x"]).oring_chain_path()))
     f = friction_estimate(j)
     assert f["hold_ratio"] > 1.3
     assert 5.0 < f["torque_Nmm"] < 30.0

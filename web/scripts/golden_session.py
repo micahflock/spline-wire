@@ -24,9 +24,9 @@ DIR = REPO / "web" / "src" / "pipeline" / "golden"
 
 
 def main() -> None:
-    dot = asdict(load_chain_spec(chain_presets()["default"]))
+    dot = asdict(load_chain_spec(chain_presets()["oring"]))
     snap = asdict(load_chain_spec(chain_presets()["snap"]))
-    truth = {"name": "s-curve.json", "pin_points": s_curve_pins(load_chain_spec(chain_presets()["default"])).tolist()}
+    truth = {"name": "s-curve.json", "pin_points": s_curve_pins(load_chain_spec(chain_presets()["oring"])).tolist()}
     base = {"chain": dot, "focal_override_35mm": 26}
     cases = {
         "photo-edits.png": [

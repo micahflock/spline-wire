@@ -77,16 +77,16 @@ DOWNLOADS = {"dxf": "dxf", "csv": "csv", "svg": "svg", "json": "json", "fusion_c
 
 def _migrate_chain(saved: dict) -> dict:
     """Saved chain settings from before fiducials had a type (all rings).
-    Left at the old default ring, they follow today's default instead; a
-    ring someone set up on purpose stays a ring."""
+    Left at the old default ring, they follow today's default chain instead,
+    all of it (it is another chain now: the snap-fit one); a ring someone set
+    up on purpose stays a ring."""
     saved = dict(saved)
     if "ring_outer_mm" in saved and "fiducial_mm" not in saved:
         outer = saved.pop("ring_outer_mm")
         if {"ring_outer_mm": float(outer), "ring_inner_mm": float(saved.get("ring_inner_mm", 0))} \
                 == OLD_DEFAULT_CHAIN:
-            saved.pop("ring_inner_mm", None)
-        else:
-            saved.update(fiducial="ring", fiducial_mm=float(outer))
+            return {}
+        saved.update(fiducial="ring", fiducial_mm=float(outer))
     return saved
 
 

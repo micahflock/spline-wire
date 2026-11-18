@@ -7,8 +7,8 @@ import {
 } from "./settings";
 
 const chains: Record<string, ChainSpec> = {
-  default: { pitch_mm: 10, half_width_mm: 4, fiducial_mm: 5, n_pins: 13 },
   snap: { pitch_mm: 13, half_width_mm: 4.68, fiducial_mm: 7.2, n_pins: 11, fiducial: "ring" },
+  oring: { pitch_mm: 10, half_width_mm: 4, fiducial_mm: 5, n_pins: 13 },
 };
 
 describe("settings", () => {
@@ -43,12 +43,15 @@ describe("settings", () => {
 
   it("measure with the preset and the photo's pin count", () => {
     expect(chainSpec(chains, "snap", 7)).toEqual({ ...chains.snap, n_pins: 7 });
-    expect(chainSpec(chains, "gone", 7).pitch_mm).toBe(10);          // a preset this build lacks: the first
-    expect(presetKey(chains, "gone")).toBe("default");
-    expect(defaultPins(DEFAULT_SETTINGS, chains)).toBe(13);
-    expect(defaultPins({ ...DEFAULT_SETTINGS, chain: "snap" }, chains)).toBe(11);
+    expect(chainSpec(chains, "gone", 7).pitch_mm).toBe(13);          // a preset this build lacks: the first, the default
+    expect(presetKey(chains, "gone")).toBe("snap");
+    expect(presetKey(chains, "default")).toBe("snap");                // saved before the rename: the default now
+    expect(DEFAULT_SETTINGS.chain).toBe("snap");
+    expect(defaultPins(DEFAULT_SETTINGS, chains)).toBe(11);
+    expect(defaultPins({ ...DEFAULT_SETTINGS, chain: "oring" }, chains)).toBe(13);
     expect(defaultPins({ ...DEFAULT_SETTINGS, pins: 20 }, chains)).toBe(20);
-    expect(chainLabel("default")).toBe("O-ring chain");
+    expect(chainLabel("snap")).toBe("Snap-fit chain");
+    expect(chainLabel("oring")).toBe("O-ring chain");
     expect(chainLabel("mine")).toBe("mine");
   });
 });

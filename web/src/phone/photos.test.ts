@@ -4,7 +4,7 @@ import { PhotoStore, newPhotoId, type PhotoRecord } from "./photos";
 
 function record(id: string, added: number): PhotoRecord {
   return {
-    id, name: `${id}.jpg`, type: "image/jpeg", size: 3, added, via: "take", chain: "default", pins: 13, side: "inside",
+    id, name: `${id}.jpg`, type: "image/jpeg", size: 3, added, via: "take", chain: "snap", pins: 13, side: "inside",
     edits: { add: [], remove: [] }, status: "queued", doc: null, failure: null, pixels: { width: 40, height: 30 },
     preview: { width: 40, height: 30 }, sent: [], measuredWith: null,
   };

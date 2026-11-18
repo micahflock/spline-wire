@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from splinewire.chain import default_chain_path, load_chain_spec
 from splinewire.cli import main
 from splinewire.synthetic import s_curve_pins, write_synthetic_photo
 from tests.conftest import REPO
@@ -56,11 +57,11 @@ def test_pins_sets_the_chain_length_for_one_photo(tmp_path, capsys):
     capsys.readouterr()
     assert main(["measure", str(tmp_path / "s-curve.jpg"), "--pins", "11", "--out", str(tmp_path / "res")]) == 0
     doc = json.loads((tmp_path / "res" / "s-curve.json").read_text())
-    assert len(doc["pin_points"]) == 11                      # the chain.yaml default is 13
+    assert len(doc["pin_points"]) == 11                      # the snap-fit chain's file says 13
     assert capsys.readouterr().out.startswith("11 pins found")
 
 
-def test_what_goes_wrong_is_said_in_a_line(tmp_path, capsys, dot_spec):
+def test_what_goes_wrong_is_said_in_a_line(tmp_path, capsys):
     """The program's own messages (no chain in the photo, a setting out of
     range) and files it cannot read: one line each and exit code 1."""
     from PIL import Image
@@ -69,7 +70,8 @@ def test_what_goes_wrong_is_said_in_a_line(tmp_path, capsys, dot_spec):
     (tmp_path / "notes.jpg").write_text("not a photo")
     (tmp_path / "bad.yaml").write_text("pitch_mm: 10\nhalf_width_mm: 4\n")
     (tmp_path / "worse.yaml").write_text("- just\n- a list\n")
-    write_synthetic_photo(tmp_path / "chain.jpg", s_curve_pins(dot_spec), dot_spec, (2000, 1500))
+    spec = load_chain_spec(default_chain_path())           # measure's default: the snap-fit chain
+    write_synthetic_photo(tmp_path / "chain.jpg", s_curve_pins(spec), spec, (2000, 1500))
     runs = {
         "found 0 fiducials": ["measure", str(tmp_path / "blank.jpg")],
         "is not a photo this program can read": ["measure", str(tmp_path / "notes.jpg")],
@@ -84,6 +86,18 @@ def test_what_goes_wrong_is_said_in_a_line(tmp_path, capsys, dot_spec):
         err = capsys.readouterr().err
         assert err.startswith("error: ") and message in err and "Traceback" not in err, (argv, err)
         assert len(err.strip().splitlines()) == 1
+
+
+def test_defaults_snap_for_measuring_oring_for_hardware(tmp_path, capsys):
+    """measure and synth start with the snap-fit chain; synth's realistic
+    scenes and the hardware commands with the O-ring dot chain they draw."""
+    from splinewire.cli import DEFAULT_CHAIN, ORING_CHAIN
+    assert DEFAULT_CHAIN.name == "chain-snap.yaml" and ORING_CHAIN.name == "chain.yaml"
+    assert main(["test-part", "--out", str(tmp_path / "part")]) == 0
+    truth = json.loads((tmp_path / "part" / "s-curve-truth.json").read_text())
+    assert truth["pin_points"][1][0] == pytest.approx(10.0)    # the O-ring chain's 10 mm pitch
+    assert main(["synth", "--env", "shadow", "--chain", str(DEFAULT_CHAIN), "--out", str(tmp_path / "s")]) == 1
+    assert "the realistic scenes (--env) draw the O-ring dot chain" in capsys.readouterr().err
 
 
 def test_generator_commands_write_their_files(tmp_path, capsys):

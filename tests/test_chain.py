@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from splinewire.chain import ChainSpec, link_lengths, pins_from_turns, spec_from_dict
+from splinewire.chain import ChainSpec, link_lengths, load_chain_spec, pins_from_turns, spec_from_dict
 
 
 def test_spec_file_loads():
@@ -47,3 +47,15 @@ def test_pins_from_turns_keeps_pitch_and_turns():
     d = np.diff(pins, axis=0)
     headings = np.unwrap(np.arctan2(d[:, 1], d[:, 0]))
     np.testing.assert_allclose(np.diff(headings), turns, atol=1e-12)
+
+
+def test_the_snap_fit_chain_is_the_default_preset():
+    """The snap-fit chain is what everything starts with (the owner's choice,
+    2026-11-18); data/chain.yaml stays the O-ring dot chain, under "oring"."""
+    from splinewire.chain import DEFAULT_PRESET, chain_presets, default_chain_path, oring_chain_path
+    presets = chain_presets()
+    assert DEFAULT_PRESET == "snap" and next(iter(presets)) == "snap"
+    assert default_chain_path() == presets["snap"] and default_chain_path().name == "chain-snap.yaml"
+    assert presets["oring"] == oring_chain_path() and oring_chain_path().name == "chain.yaml"
+    assert load_chain_spec(default_chain_path()).contact == "round"
+    assert load_chain_spec(oring_chain_path()).fiducial == "dot"

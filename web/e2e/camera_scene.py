@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from splinewire.camera import focal_35mm_from_px, focal_px_from_35mm, look_at_plane
-from splinewire.chain import default_chain_path, load_chain_spec
+from splinewire.chain import default_chain_path, load_chain_spec, oring_chain_path
 from splinewire.scene import PRESETS, render_scene
 from splinewire.synthetic import render_snap_photo, s_curve_pins, save_photo
 
@@ -35,7 +35,7 @@ def main() -> None:
     w, h = (int(v) for v in (sys.argv[2] if len(sys.argv) > 2 else "3024x4032").split("x"))
     if len(sys.argv) > 3 and sys.argv[3] == "snap":
         return snap(out, w, h)
-    spec = load_chain_spec(default_chain_path())
+    spec = load_chain_spec(oring_chain_path())
     pins = s_curve_pins(spec)
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
     env = replace(PRESETS["daylight"], image_size=(w, h), focal_35mm=FOCAL_35MM, px_per_mm=SPAN * min(w, h) / extent,
@@ -48,7 +48,7 @@ def snap(out: Path, w: int, h: int) -> None:
     """The snap-fit chain (data/chain-snap.yaml: thin white rims on round
     sleeves, 13 mm pitch), drawn with its relief by synthetic.render_snap_photo,
     framed and tilted as the dot chain's scene is."""
-    spec = load_chain_spec(default_chain_path().with_name("chain-snap.yaml"))
+    spec = load_chain_spec(default_chain_path())
     pins = s_curve_pins(spec)
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
     focal = focal_px_from_35mm(FOCAL_35MM, (w, h))
