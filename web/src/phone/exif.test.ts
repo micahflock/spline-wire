@@ -49,16 +49,17 @@ export const PIXEL_LIBRARY = tiff([[0x010f, 2, "Google"], [0x0110, 2, "Pixel 7 P
 describe("EXIF in the page", () => {
   it("reads make, model, lens and both focal lengths, either byte order", () => {
     for (const le of [true, false]) {
-      const t = tiff([[0x010f, 2, "Apple"], [0x0110, 2, "iPhone 16 Pro"]],
+      const t = tiff([[0x010f, 2, "Apple"], [0x0110, 2, "iPhone 16 Pro"], [0x0112, 3, 6]],
         [[0x920a, 5, 6.765], [0xa405, 3, 24], [0xa434, 2, "iPhone 16 Pro back triple camera 6.765mm f/1.78"]], le);
       expect(readExif(jpegWith(t))).toEqual({
         make: "Apple", model: "iPhone 16 Pro", lens: "iPhone 16 Pro back triple camera 6.765mm f/1.78", focalMm: 6.77, focal35: 24,
+        orientation: 6,
       });
     }
   });
 
   it("takes a 35 mm focal length of 0 as missing (the Pixel's takePhoto)", () => {
-    expect(readExif(jpegWith(PIXEL_TAKEPHOTO))).toEqual({ make: "Google", model: "Pixel 7 Pro", lens: null, focalMm: 6.81, focal35: null });
+    expect(readExif(jpegWith(PIXEL_TAKEPHOTO))).toEqual({ make: "Google", model: "Pixel 7 Pro", lens: null, focalMm: 6.81, focal35: null, orientation: null });
   });
 
   it("finds EXIF inside a HEIF file, and says nothing for a file without", async () => {

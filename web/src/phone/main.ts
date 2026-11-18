@@ -9,6 +9,7 @@ import "../photo/photo.css";
 import type { CameraInfo } from "../camera/choose";
 import { fovRatio } from "../camera/focal";
 import { CoreClient, type PhotoSource } from "../core/client";
+import { engineKind, makeCoreWorker } from "../core/make-worker";
 import { CoreError, type Commands, type Progress } from "../core/protocol";
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind, Side } from "../core/types";
 import { LiveAnalyser } from "../pipeline/live-client";
@@ -51,7 +52,8 @@ const store = new LocalStore("splinewire-phone:");
 let settings: Settings = loadSettings(store);
 let chains: Record<string, ChainSpec> = {};
 
-const core = new CoreClient(() => new Worker(new URL("../core/worker.ts", import.meta.url), { type: "module" }));
+const engine = engineKind();
+const core = new CoreClient(() => makeCoreWorker(engine));
 const live = new LiveAnalyser(() => new Worker(new URL("../pipeline/live-worker.ts", import.meta.url), { type: "module" }));
 const timings: { id: string; status: string; ms: number }[] = [];
 // For the end-to-end test, and for looking at a phone's timings and memory
@@ -242,15 +244,18 @@ async function startEngine(): Promise<void> {
   box.hidden = false;
   box.classList.remove("bad");
   $("engine-retry").hidden = true;
-  $("engine-note").textContent = navigator.serviceWorker?.controller
-    ? "Loading from this phone, about 10 s. You can take the photo meanwhile."
-    : "The first visit downloads about 40 MB, once. You can take the photo meanwhile.";
+  $("engine-note").textContent = engine === "typescript" ? ""
+    : navigator.serviceWorker?.controller
+      ? "Loading from this phone, about 10 s. You can take the photo meanwhile."
+      : "The first visit downloads about 40 MB, once. You can take the photo meanwhile.";
   try {
     const [loaded] = await Promise.all([core.preload(), chainsLoaded]);
     debug.engine = { readyAt: performance.now(), ms: loaded.ms };
     box.hidden = true;
     const v = loaded.versions;
-    footer(`core ${v.splinewire ?? "?"} · Pyodide ${v.pyodide ?? "?"} · OpenCV ${v.opencv ?? "?"} · ready in ${(loaded.ms / 1000).toFixed(1)} s`);
+    footer(v.engine === "typescript"
+      ? `engine ${v.splinewire ?? "?"} (TypeScript)`
+      : `core ${v.splinewire ?? "?"} · Pyodide ${v.pyodide ?? "?"} · OpenCV ${v.opencv ?? "?"} · ready in ${(loaded.ms / 1000).toFixed(1)} s`);
     measurer.coreReady();
   } catch (e) {
     box.classList.add("bad");

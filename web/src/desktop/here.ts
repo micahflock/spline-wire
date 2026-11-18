@@ -16,6 +16,7 @@
 import "../photo/photo.css";
 import "./here.css";
 import { CoreClient } from "../core/client";
+import { makeCoreWorker } from "../core/make-worker";
 import { CoreError, type Commands, type Failure, type Progress } from "../core/protocol";
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, Side } from "../core/types";
 import { EditHistory, editsAfterTap } from "../editor/edits";
@@ -39,7 +40,7 @@ export interface Engine {
   /** Every progress event since the engine was made, with its time (ms since the page opened). */
   progress: (Progress & { t: number })[];
   chains: Promise<Record<string, ChainSpec>>;
-  /** Load Pyodide and the presets; the same promise until a load fails or the worker dies. */
+  /** Load the engine and the presets; the same promise until a load fails or the worker dies. */
   load(): Promise<Commands["load"]["result"]>;
   /** The worker died: the next load() starts a new one. */
   lost(): void;
@@ -50,7 +51,7 @@ let shared: Engine | null = null;
 
 export function engine(siteRoot: string): Engine {
   if (shared) return shared;
-  const core = new CoreClient(() => new Worker(new URL("../core/worker.ts", import.meta.url), { type: "module" }));
+  const core = new CoreClient(() => makeCoreWorker());
   const progress: Engine["progress"] = [];
   const listeners = new Set<(p: Progress) => void>();
   core.onProgress = (p) => {
