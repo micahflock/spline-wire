@@ -61,8 +61,8 @@ DEFAULT_PORT = 8765
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 STATIC = Path(__file__).resolve().parent / "static"
 CHAIN_KEYS = ("pitch_mm", "half_width_mm", "fiducial", "fiducial_mm", "ring_inner_mm", "n_pins", "max_bend_deg",
-              "contact")
-CHAIN_TEXT_KEYS = ("fiducial", "contact")
+              "contact", "fiducial_shade")
+CHAIN_TEXT_KEYS = ("fiducial", "contact", "fiducial_shade")
 # The chain every earlier version shipped (rings); saved unchanged, it follows the new default.
 OLD_DEFAULT_CHAIN = {"ring_outer_mm": 5.0, "ring_inner_mm": 2.0}
 MAX_PINS = 999
@@ -92,14 +92,15 @@ def _migrate_chain(saved: dict) -> dict:
 
 def _chain_presets() -> dict[str, dict]:
     """The chains that ship with the app, for the settings page to fill in:
-    every chain setting but the pin count, which belongs to each photo."""
+    every chain setting but the pin count, which belongs to each photo, and
+    the colours, which are the person's choice whichever chain it is."""
     out = {}
     for name, path in chain_presets().items():
         try:
             spec = load_chain_spec(path)
         except (OSError, KeyError, ValueError):
             continue
-        out[name] = {k: getattr(spec, k) for k in CHAIN_KEYS if k != "n_pins"}
+        out[name] = {k: getattr(spec, k) for k in CHAIN_KEYS if k not in ("n_pins", "fiducial_shade")}
     return out
 
 
@@ -167,7 +168,8 @@ class AppState:
             chain = {k: getattr(base, k) for k in CHAIN_KEYS}
         except (OSError, KeyError, ValueError):
             chain = {"pitch_mm": 10.0, "half_width_mm": 4.0, "fiducial": "dot", "fiducial_mm": 5.0,
-                     "ring_inner_mm": 0.0, "n_pins": 13, "max_bend_deg": 80.0, "contact": "edge"}
+                     "ring_inner_mm": 0.0, "n_pins": 13, "max_bend_deg": 80.0, "contact": "edge",
+                     "fiducial_shade": "light"}
         try:
             merged = {**chain, **_migrate_chain(s.get("chain") or {})}
             merged["n_pins"] = _pin_count(merged["n_pins"])
@@ -213,6 +215,7 @@ class AppState:
                 new["chain"]["n_pins"] = _pin_count(new["chain"]["n_pins"])
                 new["chain"]["fiducial"] = str(c.get("fiducial", "dot"))
                 new["chain"]["contact"] = str(c.get("contact") or self.settings["chain"]["contact"])
+                new["chain"]["fiducial_shade"] = str(c.get("fiducial_shade") or self.settings["chain"]["fiducial_shade"])
             if "side" in changes:
                 if changes["side"] not in SIDES:
                     raise ValueError("side must be inside or outside")

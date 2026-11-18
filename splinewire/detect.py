@@ -72,8 +72,20 @@ _MAX_SCALE = 8          # coarsest level: 1/8 resolution
 THIN_RING = 0.6
 
 
+def shaded(image: np.ndarray, spec: ChainSpec) -> np.ndarray:
+    """The photo as the detectors want it: light fiducials on dark links. A
+    chain with dark fiducials on light links (fiducial_shade "dark") is read
+    from the inverted gray image, where it looks like any other chain (only
+    the table's shade is turned round, and every shade of table is handled)."""
+    if spec.fiducial_shade == "light":
+        return image
+    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return 255 - gray
+
+
 def detect_fiducials(image: np.ndarray, spec: ChainSpec) -> list[Fiducial]:
     """The fiducials a ChainSpec describes: dots, rings or thin rims."""
+    image = shaded(image, spec)
     if spec.fiducial == "dot":
         return detect_dots(image)
     ratio = spec.ring_inner_mm / spec.fiducial_mm
@@ -679,6 +691,7 @@ def snap_fiducial(
     than a poor fit: a wrong snap looks as confident as a right one and is
     worse than the click.
     """
+    image = shaded(image, spec)
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     ring = spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0
     grayf = gray.astype(np.float32)

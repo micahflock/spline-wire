@@ -24,7 +24,8 @@ import type { Pt } from "../editor/viewport";
 import { curveFrom } from "../phone/curve";
 import { Measurer, type Update } from "../phone/measurer";
 import type { Status } from "../phone/photos";
-import { chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings, type Settings } from "../phone/settings";
+import { SHADE_TEXT, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings, type Settings,
+  type Shade } from "../phone/settings";
 import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "../phone/wording";
 import { previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
@@ -215,7 +216,7 @@ export class Draft {
 
   private options(): MeasureOptions {
     return {
-      chain: chainSpec(this.chains, this.chain, this.pins), side: this.side, edits: this.edits,
+      chain: chainSpec(this.chains, this.chain, this.pins, this.settings.shade), side: this.side, edits: this.edits,
       saved_focal_35mm: this.settings.savedFocal35,
     };
   }
@@ -288,7 +289,7 @@ export class Draft {
     this.render();
     try {
       const out = await this.outputs();
-      const spec = chainSpec(this.chains, this.chain, this.pins);
+      const spec = chainSpec(this.chains, this.chain, this.pins, this.settings.shade);
       const curve = curveFrom(doc, { chainName: chainLabel(this.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm,
         n_pins: this.pins }, await pack(out.files));
       if (!curve) return;
@@ -367,6 +368,10 @@ export class Draft {
       this.chain = (ev.target as HTMLSelectElement).value;
       this.pins = this.chains[this.chain]?.n_pins ?? this.pins;           // a new chain brings its own pin count
       this.saveSettings({ chain: this.chain, pins: null });
+      this.remeasure();
+    });
+    this.q<HTMLSelectElement>("[data-field=shade]").addEventListener("change", (ev) => {
+      this.saveSettings({ shade: (ev.target as HTMLSelectElement).value as Shade });
       this.remeasure();
     });
     this.q<HTMLInputElement>("[data-field=pins]").addEventListener("change", (ev) => this.setPins(Number((ev.target as HTMLInputElement).value)));
@@ -462,6 +467,7 @@ export class Draft {
       chainSel.replaceChildren(...Object.keys(this.chains).map((k) => new Option(chainLabel(k), k)));
     }
     chainSel.value = this.chain;
+    this.q<HTMLSelectElement>("[data-field=shade]").value = this.settings.shade;
     const pinsInput = this.q<HTMLInputElement>("[data-field=pins]");
     if (document.activeElement !== pinsInput) pinsInput.value = String(this.pins);
     const focal = this.q<HTMLInputElement>("[data-field=focal]");
@@ -516,6 +522,8 @@ function layout(name: string): string {
         </div>
       </div>
       <label class="field"><span>Chain</span><select data-field="chain"></select></label>
+      <label class="field"><span>Colours</span><select data-field="shade">
+        <option value="light">${SHADE_TEXT.light}</option><option value="dark">${SHADE_TEXT.dark}</option></select></label>
       <div class="field"><span>Pins in the chain</span>
         <span class="stepper"><button type="button" data-here="fewer" aria-label="One pin fewer">−</button><input type="number"
           data-field="pins" min="3" max="999" aria-label="Pins in the chain"><button type="button" data-here="more" aria-label="One pin more">+</button></span></div>

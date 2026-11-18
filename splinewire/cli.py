@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pins", type=int, help="number of pins on the chain in this photo "
                                             "(default: n_pins from the chain file)")
     p.add_argument("--truth", type=Path, help="truth JSON from synth/test-part; reports error")
+    _add_shade_arg(p)
 
     p = sub.add_parser("synth", help="render a synthetic chain photo with known geometry")
     p.add_argument("--chain", type=Path, help=f"chain file (default: {DEFAULT_CHAIN.name}, the snap-fit "
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="realistic photo instead: a printed plaque in one of the simulated "
                         "environments (e.g. shadow, glare, clutter; see splinewire/scene.py). "
                         "Sets camera, light and print itself; --tilt/--distance/--size are ignored")
+    _add_shade_arg(p)
 
     p = sub.add_parser("test-part", help="write a printable chain drawing with known geometry")
     p.add_argument("--chain", type=Path, default=ORING_CHAIN)
@@ -110,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
     # chain in it, a setting out of range): show the message, not a traceback.
     try:
         spec = load_chain_spec(args.chain)
+        if getattr(args, "dark_fiducials", False):
+            spec = replace(spec, fiducial_shade="dark")
         return commands[args.command](args, spec)
     except KeyError as err:
         print(f"error: {args.chain} has no {err.args[0]}", file=sys.stderr)
@@ -121,6 +125,12 @@ def main(argv: list[str] | None = None) -> int:
 def _presets() -> dict:
     from splinewire.scene import PRESETS
     return PRESETS
+
+
+def _add_shade_arg(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--dark-fiducials", action="store_true",
+                   help="the chain's fiducials are darker than its links (black on white links); "
+                        "the default is the chain file's fiducial_shade, normally light on dark")
 
 
 def _add_shape_args(p: argparse.ArgumentParser) -> None:
@@ -165,6 +175,9 @@ def _synth(args, spec: ChainSpec) -> int:
         if spec.contact == "round" or (spec.fiducial == "ring" and spec.ring_inner_mm / spec.fiducial_mm >= 0.6):
             raise ValueError("the realistic scenes (--env) draw the O-ring dot chain; "
                              f"leave out --chain or give {ORING_CHAIN.name}")
+        if spec.fiducial_shade == "dark":
+            raise ValueError("the realistic scenes (--env) draw the printed plaque, white on black; "
+                             "leave out --dark-fiducials")
         from splinewire.scene import render_scene
         env = _presets()[args.env]
         scene = render_scene(pins, spec, env, seed=args.seed)

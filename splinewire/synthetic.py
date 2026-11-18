@@ -25,6 +25,12 @@ LINK_GRAY = 45
 RING_GRAY = 235
 
 
+def _shades(spec: ChainSpec) -> tuple[int, int]:
+    """(link gray, fiducial gray): dark links with light fiducials, or the
+    other way round for a chain with fiducial_shade "dark"."""
+    return (LINK_GRAY, RING_GRAY) if spec.fiducial_shade == "light" else (RING_GRAY, LINK_GRAY)
+
+
 def s_curve_pins(spec: ChainSpec, bend_deg: float = 14.0) -> np.ndarray:
     """Chain bent one way for its first half and the other way for the rest."""
     n_turns = spec.n_pins - 2
@@ -148,8 +154,9 @@ def render_snap_photo(
 
     tex = np.full((tex_h, tex_w), float(table_gray), np.float32)
     depths = np.r_[np.arange(SNAP_TABLE_MM, SNAP_HEAD_FOOT_MM, -0.5), np.arange(SNAP_HEAD_FOOT_MM, SNAP_RIM_MM - 1e-9, -0.25)]
-    slices = [(link_slice(float(d)), float(d), LINK_GRAY) for d in depths]
-    slices += [(rim, d, RING_GRAY) for d in (SNAP_RIM_MM, SNAP_RIM_MM / 2, 0.0)]
+    link_gray, rim_gray = _shades(spec)
+    slices = [(link_slice(float(d)), float(d), link_gray) for d in depths]
+    slices += [(rim, d, rim_gray) for d in (SNAP_RIM_MM, SNAP_RIM_MM / 2, 0.0)]
     for mask, depth, gray in slices:
         a = lowered(mask, float(depth)).astype(np.float32) / 255.0
         tex = tex * (1 - a) + gray * a
@@ -189,6 +196,7 @@ def render_photo(
     x0, y0 = pins_mm.min(axis=0) - margin
     x1, y1 = pins_mm.max(axis=0) + margin
     tex_w, tex_h = int(math.ceil((x1 - x0) * tau)) + 1, int(math.ceil((y1 - y0) * tau)) + 1
+    link_gray, fid_gray = _shades(spec)
     tex = np.full((tex_h, tex_w), TABLE_GRAY, np.uint8)
 
     shift = 4
@@ -199,12 +207,12 @@ def render_photo(
 
     link_thickness = max(1, int(round(2 * spec.half_width_mm * tau)))
     for a, b in zip(pins_mm[:-1], pins_mm[1:]):
-        cv2.line(tex, to_tex(a), to_tex(b), LINK_GRAY, link_thickness, cv2.LINE_AA, shift)
+        cv2.line(tex, to_tex(a), to_tex(b), link_gray, link_thickness, cv2.LINE_AA, shift)
     for p in pins_mm:
         c = to_tex(p)
-        cv2.circle(tex, c, int(round(spec.fiducial_mm / 2 * tau * scale)), RING_GRAY, -1, cv2.LINE_AA, shift)
+        cv2.circle(tex, c, int(round(spec.fiducial_mm / 2 * tau * scale)), fid_gray, -1, cv2.LINE_AA, shift)
         if spec.fiducial == "ring":
-            cv2.circle(tex, c, int(round(spec.ring_inner_mm / 2 * tau * scale)), LINK_GRAY, -1, cv2.LINE_AA, shift)
+            cv2.circle(tex, c, int(round(spec.ring_inner_mm / 2 * tau * scale)), link_gray, -1, cv2.LINE_AA, shift)
 
     # texture pixel -> plane mm -> image pixel (supersampled grid)
     T = np.array([[1 / tau, 0, x0], [0, -1 / tau, y1], [0, 0, 1]])

@@ -36,8 +36,18 @@ interface Candidate {
   polarity: number;
 }
 
+/** The photo as the detectors want it, light fiducials on dark links
+ * (detect.shaded): a chain with dark fiducials on light links is read inverted. */
+export function shaded(gray: Gray, spec: ChainSpec): Gray {
+  if (spec.fiducial_shade !== "dark") return gray;
+  const data = new Uint8Array(gray.data.length);
+  for (let i = 0; i < data.length; i++) data[i] = 255 - gray.data[i]!;
+  return { width: gray.width, height: gray.height, data };
+}
+
 /** The fiducials a ChainSpec describes (detect_fiducials). */
 export function detectFiducials(image: Gray, spec: ChainSpec): Fiducial[] {
+  image = shaded(image, spec);
   if (spec.fiducial === "dot") return detectDots(image);
   const ratio = spec.ring_inner_mm / spec.fiducial_mm;
   if (ratio >= THIN_RING) return detectRims(image, ratio);
@@ -100,6 +110,10 @@ export function detectRims(gray: Gray, innerOuterRatio: number, minDiameterPx = 
  * the caller keeps one (it is made otherwise). */
 export function snapFiducial(gray: Gray, point: readonly [number, number], spec: ChainSpec, like: Fiducial,
   grayf: GrayF = toFloat(gray)): Fiducial | null {
+  if (spec.fiducial_shade === "dark") {
+    gray = shaded(gray, spec);
+    grayf = invertF(grayf);
+  }
   const ring = spec.fiducial === "ring" ? spec.ring_inner_mm / spec.fiducial_mm : 0;
   let found: Fiducial | null;
   if (ring >= THIN_RING) {

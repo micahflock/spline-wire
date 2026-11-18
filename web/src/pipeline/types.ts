@@ -13,6 +13,7 @@ export interface ChainSpec {
   ring_inner_mm: number;
   max_bend_deg: number;
   contact: "edge" | "round";
+  fiducial_shade: "light" | "dark";
 }
 
 /** splinewire.detect.Fiducial */

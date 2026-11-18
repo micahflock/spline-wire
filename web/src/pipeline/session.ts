@@ -142,7 +142,7 @@ export class PhotoSession {
 
   /** The photo's fiducials, found once per kind of fiducial. */
   detections(spec: ChainSpec): Fiducial[] {
-    const key = `${spec.fiducial}:${spec.fiducial === "ring" ? spec.ring_inner_mm / spec.fiducial_mm : 0}`;
+    const key = `${spec.fiducial}:${spec.fiducial === "ring" ? spec.ring_inner_mm / spec.fiducial_mm : 0}:${spec.fiducial_shade}`;
     if (this.detected === null || (this.detectedFor !== null && this.detectedFor !== key)) {
       this.detected = detectFiducials(this.image, spec);
     }

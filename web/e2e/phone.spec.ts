@@ -38,6 +38,7 @@ let pipe: NativePhoto;
 let broken: string;               // a crop with too few pins and no EXIF
 let lensPhoto: string;            // a back-camera photo with full EXIF, no chain
 let selfie: string;
+let darkRims: string;
 let context: BrowserContext;
 let page: Page;
 let photoId: string;
@@ -60,6 +61,10 @@ test.beforeAll(async ({ browser }) => {
   ].join("\n"), pipe.photo, broken], { cwd: ROOT, stdio: "inherit" });
   // Two small photos as a phone's camera app writes them (D17): one from the
   // back camera, to teach the focal length, and a selfie, which must not.
+  // The snap-fit chain printed the other way round: dark rims on light links.
+  execFileSync("uv", ["run", "splinewire", "synth", "--shape", "pipe", "--dark-fiducials", "--size", "2000x1500",
+    "--out", path.join(out, "dark")], { cwd: ROOT, stdio: "inherit" });
+  darkRims = path.join(out, "dark", "pipe.jpg");
   lensPhoto = path.join(out, "lens.jpg");
   selfie = path.join(out, "selfie.jpg");
   execFileSync("uv", ["run", "python", "-c", [
@@ -286,6 +291,23 @@ test("an error is shown as is, and the photo can still be fixed by hand", async 
   await page.emulateMedia({ colorScheme: "light" });
   // Nothing wider than the phone.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.viewport.width);
+});
+
+test("dark rims on light links are found once Colours says so", async () => {
+  await page.setInputFiles("#choose", darkRims);
+  const item = page.locator("#photos li").first();
+  await expect(item).toHaveAttribute("data-status", "error", { timeout: 120_000 });
+  await expect(page.locator("#r-problem")).toContainText("No chain found");
+  await expect(page.locator("#r-problem")).toContainText("choose that under Colours in Settings");
+  await page.locator("#settings summary").tap();
+  await page.locator("#s-shade").selectOption("dark");
+  await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
+  await expect(page.locator("#numbers")).toContainText("13 of 13");
+  // Back to the light chain for what follows, with the light photo open (so it is not measured again).
+  await page.locator(`#photos li[data-id="${photoId}"] button.open`).tap();
+  await page.locator("#s-shade").selectOption("light");
+  await page.locator("#settings summary").tap();
+  await expect(page.locator(`#photos li[data-id="${photoId}"]`)).toHaveAttribute("data-status", "done");
 });
 
 test.describe("paired with a computer", () => {

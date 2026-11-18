@@ -12,7 +12,7 @@ Primary CAD target: **Autodesk Fusion**. Minimize user interaction between "meas
 
 ## How it works
 
-- **Hardware:** a chain of rigid links of fixed pitch (pin-to-pin distance, ~10 mm), with enough joint friction to hold a pose. One unlabeled fiducial, a light dot (a ring is also supported), sits on every pin, on one face only.
+- **Hardware:** a chain of rigid links of fixed pitch (pin-to-pin distance, ~10 mm), with enough joint friction to hold a pose. One unlabeled fiducial, a light dot (a ring is also supported), sits on every pin, on one face only. A chain printed the other way round (dark fiducials on light links) is a setting, `fiducial_shade: dark` (Colours in the apps, `--dark-fiducials` on the CLI): detection reads its photo inverted.
 - **Detection:** classical CV (OpenCV) finds dot centers to ~0.1–0.2 px. No LLM, no labels.
 - **Ordering:** pins are put in chain order geometrically (walk ~one pitch at a time, turning as little as possible).
 - **Deskew:** all pins lie on one plane and consecutive pins are exactly one pitch apart. With the camera focal length from EXIF, that fixes the plane's tilt and distance, so perspective is removed without any reference object in the photo.

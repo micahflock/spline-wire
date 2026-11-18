@@ -85,17 +85,30 @@ export function workSize(width: number, height: number, shape: Shape = { inner: 
 /** Dots in a gray work frame. `scale` multiplies positions and sizes back
  * into the pixels of the frame the work frame was drawn from. */
 /** What the fiducials look like: `inner` is a ring's hole diameter over its
- * outer diameter (ChainSpec ring_inner_mm / fiducial_mm), 0 for a solid dot. */
+ * outer diameter (ChainSpec ring_inner_mm / fiducial_mm), 0 for a solid dot;
+ * `dark`, that they are darker than the links (ChainSpec fiducial_shade
+ * "dark"): the frame is then read inverted, as detect.py reads such a photo. */
 export interface Shape {
   inner: number;
+  dark?: boolean;
 }
 
 /** The fiducial shape of a chain preset. */
-export function shapeOf(chain: { fiducial?: string; fiducial_mm: number; ring_inner_mm?: number }): Shape {
-  return chain.fiducial === "ring" && chain.ring_inner_mm ? { inner: chain.ring_inner_mm / chain.fiducial_mm } : { inner: 0 };
+export function shapeOf(chain: { fiducial?: string; fiducial_mm: number; ring_inner_mm?: number; fiducial_shade?: string }): Shape {
+  const shape: Shape = chain.fiducial === "ring" && chain.ring_inner_mm ? { inner: chain.ring_inner_mm / chain.fiducial_mm } : { inner: 0 };
+  if (chain.fiducial_shade === "dark") shape.dark = true;
+  return shape;
+}
+
+/** The frame with its gray levels turned round. */
+function inverted(frame: GrayFrame): GrayFrame {
+  const data = new Uint8Array(frame.data.length);
+  for (let i = 0; i < data.length; i++) data[i] = 255 - frame.data[i]!;
+  return { width: frame.width, height: frame.height, data };
 }
 
 export function detectBlobs(frame: GrayFrame, scale = 1, shape: Shape = { inner: 0 }): Blob[] {
+  if (shape.dark) frame = inverted(frame);
   const { width: w, height: h } = frame;
   if (w < BLOBS.block || h < BLOBS.block) return [];
   const found: Blob[] = [];

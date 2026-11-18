@@ -57,14 +57,14 @@ function chain(pins: [number, number][], dotR: number, linkR: number, dot = 230,
  * the dark link shows outside the rim only where the arms (half-width armR,
  * 0.57 ring radii) leave it. */
 function ringChain(pins: [number, number][], outerR: number, inner: number, linkR: number, armR = linkR,
-  rim = 225, link = 40) {
+  rim = 225, link = 40, hole = 20) {
   const x0 = Math.min(...pins.map((p) => p[0])) - linkR - 1, x1 = Math.max(...pins.map((p) => p[0])) + linkR + 1;
   const y0 = Math.min(...pins.map((p) => p[1])) - linkR - 1, y1 = Math.max(...pins.map((p) => p[1])) + linkR + 1;
   return (x: number, y: number): number | null => {
     if (x < x0 || x > x1 || y < y0 || y > y1) return null;
     for (const [px, py] of pins) {
       const r = Math.hypot(x - px, y - py);
-      if (r <= inner * outerR) return 20;                 // the hole
+      if (r <= inner * outerR) return hole;
       if (r <= outerR) return rim;
     }
     for (let k = 0; k + 1 < pins.length; k++) {
@@ -161,6 +161,19 @@ describe("detectBlobs", { timeout: 60_000 }, () => {
       expect(detectBlobs(frame, 1)).toEqual([]);                          // as dots: none
     });
   }
+
+  it("finds dark rims on light links when the chain says so (fiducial_shade dark), and only then", () => {
+    const dark = shapeOf({ ...SNAP, fiducial_shade: "dark" });
+    expect(dark).toEqual({ inner: shapeOf(SNAP).inner, dark: true });
+    for (const table of [60, 200]) {
+      const frame = scene(640, 360, table, ringChain(SNAP_PINS, 8, dark.inner, 8, 4.55, 30, 215, 235));
+      const rings = detectBlobs(frame, 1, dark);
+      expect(rings.length).toBe(13);
+      expect(matched(rings, SNAP_PINS)).toBeLessThan(0.4);
+      const asLight = detectBlobs(frame, 1, shapeOf(SNAP));                 // read as light rims: none on the pins
+      expect(asLight.filter((b) => SNAP_PINS.some(([x, y]) => Math.hypot(b.x - x, b.y - y) < 2)).length).toBe(0);
+    }
+  });
 
   it("does not take dots, or dark specks on a light table, for the snap-fit chain's rims", () => {
     const shape = shapeOf(SNAP);
