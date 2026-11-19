@@ -45,6 +45,16 @@ From [web-build.md](web-build.md) (Status, Open decisions, Work queue).
 - **Fusion add-in install path (O5).** Try the desktop page's three steps (download the zip, add it in Scripts and Add-Ins, Run on Startup) in a current Fusion; the menu names are unchecked.
 - **One DXF imported in Fusion** (D19's simpler DXF).
 - **The coach.** Recalibrate `web/src/overlay/coach.ts` with recorded phone video (its limits come from simulated renders).
+- **Live view resolution.** The live detector works on frames scaled to 800 px on the long side (`WORK_LONG_SIDE_RINGS`, `web/src/overlay/blobs.ts`), and that, not the still, limits how far the phone can be: it needs a rim about 1.4 work px across. Measured 2026-11-18 on synthetic frames of the 13-pin snap-fit chain (`experiments/live_view/`; span = the chain's extent over the frame's short side; Node on a machine about 2× the docs' reference):
+
+  | Work size | Pins found at span 0.40 / 0.30 / 0.22 | Live detector per frame (two thresholds + components) |
+  |---|---|---|
+  | 800 px (today) | 12 / 0 / 0 of 13 | 11 ms |
+  | 1200 px | 13 / 13 / 1 | 24 ms |
+  | 1600 px | 13 / 13 / 13 | 43 ms |
+  | 12 MP still | 13 at 0.22 | 350–410 ms |
+
+  The coach's `minSpan` (0.40) sits at the 800 px edge, and a longer chain halves the rims. Plan (CPU, no GPU; future-work.md, WebGPU detection): compute both thresholds in one pass from one summed-area table with reused buffers (prototype: same masks, 2.3× faster: 1600 px 27 → 12 ms) and preallocate the components stack; raise the work size to ~1200 px, or track the chain's bounding box and draw only that at 1600–2016 px equivalent (`drawImage`'s source rect), falling back to the full frame when lost; optionally move the frame grab into the worker. Then recalibrate `minSpan` for the snap-fit chain. The real-phone figure that is missing: the camera view's "frame X+Y ms" on the iPhone, Pixel and Galaxy.
 - **A staging path** for deploying branches before `main`.
 
 ## 5. End to end
