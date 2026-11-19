@@ -3,6 +3,11 @@
 // the page (or picked with its button) is measured here instead (D9), by
 // here.ts, which is loaded only then: it brings the measuring engine.
 //
+// With ?fusion in its address it is the page inside the Spline Wire add-in's
+// palette in Fusion (fusion.ts; docs/fusion-palette.md): one narrow column, its
+// own pairing, no clipboard, downloads or measuring here, and each curve that
+// arrives goes into the sketch being edited (or waits for Insert).
+//
 // The logic lives in the modules beside this one and in src/relay/; this file
 // wires them to the page and draws. Everything drawn from a curve passes
 // through esc(): curves come from the paired phone, which may run another build.
@@ -16,6 +21,10 @@ import { RelayLink, type LinkStatus } from "../relay/link";
 import { pointsTsv, type Curve, type Message } from "../relay/messages";
 import { desktopSecret, forgetPairing, pairingUrl, storedSecret } from "../relay/pairing";
 import { LocalStore, MemoryStore, readJson, type KeyValueStore } from "../relay/store";
+import {
+  AUTO_KEY, FusionBridge, InsertLog, autoInsert, fusionMode, markText, waitForSend,
+  type FusionStatus, type How, type Inserted,
+} from "./fusion";
 import { DOWNLOADS, downloadName, type DownloadKind } from "./names";
 import { plotSvg } from "./plot";
 import { qrSvg } from "./qr";
@@ -40,7 +49,7 @@ const ADDIN_HELP = `<details class="addin"><summary>No Paste points button in Fu
   <ol>
     <li><a href="SplineWire-fusion-addin.zip" download>Download the add-in</a> and unzip it anywhere you will keep it.</li>
     <li>In Fusion: <b>Utilities</b> → <b>Add-Ins</b> → <b>Scripts and Add-Ins</b>, the <b>Add-Ins</b> tab, then <b>+</b> and pick the unzipped <b>SplineWire</b> folder.</li>
-    <li>Select <b>SplineWire</b>, tick <b>Run on Startup</b> and click <b>Run</b>. <b>Paste points</b> appears in the sketch toolbar.</li>
+    <li>Select <b>SplineWire</b>, tick <b>Run on Startup</b> and click <b>Run</b>. <b>Paste points</b> and <b>Add from phone</b> appear in the sketch toolbar.</li>
   </ol>
 </details>`;
 
@@ -49,10 +58,16 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 /** Where "a phone has paired" is remembered, so the big QR code does not come back on every visit. */
 const PHONE_KEY = "phone";
 
+/** In Fusion's palette (?fusion). */
+const FUSION = fusionMode(location.search);
+const UNDO = IS_MAC ? "⌘Z" : "Ctrl+Z";
+
 // Its own prefix: a phone page open in the same browser (testing on one
-// computer) keeps its own pairing apart from this one.
+// computer) keeps its own pairing apart from this one, and so does the Fusion
+// mode (its palette is a pairing of its own).
+const PREFIX = FUSION ? "splinewire-fusion:" : "splinewire-desktop:";
 const persistent = storageWorks();
-const store: KeyValueStore = persistent ? new LocalStore("splinewire-desktop:") : new MemoryStore();
+const store: KeyValueStore = persistent ? new LocalStore(PREFIX) : new MemoryStore();
 const relayUrl = relayAddress(pageRelaySetting());
 const selection = new Selection();
 const unseen = new UnseenTitle("Spline Wire");
@@ -71,6 +86,12 @@ let blobUrls: string[] = [];
 let draft: Draft | null = null;
 /** Whether the draft, rather than a curve, is on show. */
 let showingDraft = false;
+/** The add-in, once adsk has appeared (Fusion mode). */
+let bridge: FusionBridge | null = null;
+let fusionStatus: FusionStatus | null = null;
+/** Why the page can't insert, for the person; null when it can. */
+let fusionProblem: string | null = null;
+const marks = new InsertLog(store);
 
 /** here.ts and what it imports (the core client, the editor): loaded on the first photo. */
 const here = () => import("./here");
@@ -84,6 +105,12 @@ Object.assign(window, {
   },
 });
 
+if (FUSION) {
+  document.body.classList.add("fusion");
+  $("pick-label").hidden = true;
+  // The add-in pushes how each insert ended (palette.sendInfoToHTML). Fusion wants a string back.
+  Object.assign(window, { fusionJavaScriptHandler: { handle: (a: string, d: string) => bridge?.handle(a, d) ?? "OK" } });
+}
 $("storage-note").hidden = persistent;
 $("relay-note").hidden = relayUrl !== null;
 $("build").textContent = `${APP} · build ${BUILD}`;
@@ -92,6 +119,7 @@ $("relay-name").textContent = relayUrl ? `relay ${new URL(relayUrl).host}` : "no
 await connect();
 selection.keepIn(ids());
 renderAll();
+if (FUSION) void startFusion();
 
 // ---- the relay ------------------------------------------------------------
 
@@ -125,7 +153,7 @@ function onStatus(s: LinkStatus): void {
   if (s.state === "waiting") retryAt = Date.now() + (s.retryInMs ?? 0);
   // Say hello whenever a phone may have appeared: its outbox sends what it holds on hearing it.
   if (s.state === "open" && (before.state !== "open" || s.peers > before.peers)) {
-    void link?.send({ type: "hello", role: "desktop", device: deviceName(navigator.userAgent), app: `${APP} (${BUILD})` });
+    void link?.send({ type: "hello", role: "desktop", device: FUSION ? "Fusion" : deviceName(navigator.userAgent), app: `${APP} (${BUILD})` });
   }
   renderStatus();
 }
@@ -151,7 +179,111 @@ function arrived(curve: Curve): void {
   renderPairing();
   if (shown) renderMain();
   renderStatus();
+  marks.keepOnly(ids());
+  if (FUSION && bridge && autoInsert(store)) {
+    void insertCurve(curve, "auto");
+    return;
+  }
   toast(shown ? `New curve: ${curve.photo}` : `New curve: ${curve.photo}, at the top of the list`);
+}
+
+// ---- Fusion (?fusion) -----------------------------------------------------
+
+/** Wait for adsk, then keep the add-in's status (the sketch being edited) fresh. */
+async function startFusion(): Promise<void> {
+  const send = await waitForSend(window as { adsk?: { fusionSendData?: unknown } }, 5000);
+  if (!send) {
+    fusionProblem = "This is the page for Fusion's Spline Wire palette. Open it there: Add from phone, in the sketch toolbar.";
+    renderFusion();
+    return;
+  }
+  bridge = new FusionBridge(send, onInserted);
+  await refreshStatus();
+  renderMain();
+  setInterval(() => void (!document.hidden && refreshStatus()), 2000);
+}
+
+async function refreshStatus(): Promise<void> {
+  if (!bridge) return;
+  try {
+    const s = await bridge.status();
+    const changed = s.sketch !== fusionStatus?.sketch || fusionProblem !== null;
+    fusionStatus = s;
+    fusionProblem = null;
+    if (changed) renderFusion();
+  } catch (e) {
+    fusionStatus = null;
+    fusionProblem = (e as Error).message;
+    renderFusion();
+  }
+}
+
+async function insertCurve(c: Curve, how: How): Promise<void> {
+  if (!bridge) {
+    toast(fusionProblem ?? "Fusion isn't answering.");
+    return;
+  }
+  marks.set(c.id, { state: "inserting" });
+  renderMark(c.id);
+  try {
+    if (await bridge.insert(c, how) === "no-sketch") {
+      marks.set(c.id, { state: "waiting" });
+      toast(`New curve: ${c.photo}. Open a sketch and press Insert to put it there.`, 5000);
+    }
+  } catch (e) {
+    const error = (e as Error).message;
+    marks.set(c.id, { state: "failed", error, cancelled: false });
+    toast(`Not inserted: ${error}`, 6000);
+  }
+  renderMark(c.id);
+}
+
+function onInserted(r: Inserted): void {
+  marks.set(r.id, r.ok ? { state: "inserted", sketch: r.sketch, at: new Date().toISOString() }
+    : { state: "failed", error: r.error, cancelled: r.cancelled });
+  renderMark(r.id);
+  if (r.ok) toast(`${plural(r.points, "point")} into ${r.sketch}. ${UNDO} undoes it.`, 5000);
+  else if (!r.cancelled) toast(`Not inserted: ${r.error}`, 6000);
+  void refreshStatus();
+}
+
+function renderMark(id: string): void {
+  renderList();
+  if (current()?.id === id) renderMain();
+}
+
+function renderFusion(): void {
+  if (!FUSION) return;
+  $("fusion-note").hidden = !fusionProblem;
+  $("fusion-note").textContent = fusionProblem ?? "";
+  $("fusion-bar").hidden = !bridge;
+  const sketch = fusionStatus?.sketch ?? null;
+  $("fusion-sketch").textContent = sketch ? `Editing ${sketch}` : "No sketch open: new curves wait here";
+  $<HTMLInputElement>("auto-insert").checked = autoInsert(store);
+  const button = document.querySelector<HTMLButtonElement>('[data-act="insert"]');
+  if (button) {
+    button.disabled = !bridge;
+    button.querySelector("span")!.textContent = insertLabel();
+  }
+  const hint = $("insert-hint");
+  if (hint && !markText(marks.get(current()?.id ?? ""))) hint.textContent = insertHint();
+  $("addin-name").textContent = fusionStatus ? `add-in ${fusionStatus.addin}` : "";
+}
+
+function insertLabel(): string {
+  return fusionStatus?.sketch ? `Insert into ${fusionStatus.sketch}` : "Insert into a new sketch…";
+}
+
+function insertHint(): string {
+  return fusionStatus?.sketch ? `One undo step (${UNDO}).` : "Fusion asks for a plane or face (XY if you pick none).";
+}
+
+function fusionOutHtml(c: Curve): string {
+  const said = markText(marks.get(c.id));
+  return `<div class="out">
+      <button type="button" class="copy" data-act="insert"${bridge ? "" : " disabled"}><span>${esc(insertLabel())}</span></button>
+      <div class="then" id="insert-hint">${esc(said || insertHint())}</div>
+    </div>`;
 }
 
 function rememberPhone(device: string): void {
@@ -217,7 +349,7 @@ function renderList(): void {
     const mine = inbox.isLocal(c.id);
     return `<li><button type="button" class="item${c.id === flashId ? " flash" : ""}" data-id="${esc(c.id)}"
       aria-current="${!showingDraft && c.id === selection.id}">
-      <span class="row1"><span class="name">${esc(c.photo)}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
+      <span class="row1"><span class="name">${esc(c.photo)}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
       <span class="sub"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, now))}</time>
         <span>· ${esc(c.chain.name)}</span><span>· ${c.chain.n_pins} pins</span></span>
     </button></li>`;
@@ -230,6 +362,16 @@ function renderList(): void {
   $("count").textContent = inbox.curves.length ? String(inbox.curves.length) : "";
   $("none").hidden = inbox.curves.length > 0 || !!draft;
   if (focused) list.querySelector<HTMLElement>(`[data-id="${CSS.escape(focused)}"]`)?.focus();
+}
+
+/** In Fusion: where the curve went, in a word or two. */
+function markTag(id: string): string {
+  const m = marks.get(id);
+  if (!m) return "";
+  const [cls, text] = m.state === "inserted" ? ["tag-in", m.sketch]
+    : m.state === "inserting" ? ["tag-in", "inserting…"]
+    : ["tag-wait", m.state === "waiting" ? "waiting" : "not inserted"];
+  return `<span class="${cls}" title="${esc(markText(m))}">${esc(text)}</span>`;
 }
 
 function renderPairing(): void {
@@ -251,7 +393,7 @@ function renderPairing(): void {
       ${qrSvg(url, "QR code: the phone page, paired with this computer")}
       <p>Scan it with the phone's Camera app. Any number of phones can pair with this computer.</p>
       <div class="url" data-pair-link>${esc(url)}</div>
-      <div class="row"><button type="button" class="btn small" data-act="copy-link">Copy link</button>
+      <div class="row">${FUSION ? "" : `<button type="button" class="btn small" data-act="copy-link">Copy link</button>`}
         ${paired() ? `<button type="button" class="btn small plain" data-act="unpair">Unpair…</button>` : ""}</div>
     </div>
   </details>`;
@@ -274,11 +416,23 @@ function renderMain(): void {
     return;
   }
   main.innerHTML = curveHtml(c);
-  void fillDownloads(c);
+  if (!FUSION) void fillDownloads(c);
 }
 
 function welcomeHtml(): string {
   const link = pairingUrl(phonePageUrl(SITE_ROOT, location.search), secret);
+  if (FUSION) {
+    return `<section class="welcome" aria-labelledby="welcome-title">
+    ${qrSvg(link, "QR code: the phone page, paired with Fusion")}
+    <div><h2 id="welcome-title">Pair your phone</h2>
+      <ol><li>Scan this code with the phone's Camera app and open the page.</li>
+        <li>Open a sketch here, and photograph the chain on the phone.</li>
+        <li>The curve goes straight into the sketch, as one undo step.</li></ol>
+      <p class="then">Done once per phone. A phone pairs with one place at a time: pairing it here replaces its pairing with the Spline Wire website on a computer.</p>
+      <div class="url" data-pair-link>${esc(link)}</div>
+    </div>
+  </section>`;
+  }
   return `<section class="welcome" aria-labelledby="welcome-title">
     ${qrSvg(link, "QR code: the phone page, paired with this computer")}
     <div><h2 id="welcome-title">Pair your phone</h2>
@@ -294,6 +448,13 @@ function welcomeHtml(): string {
 }
 
 function waitingHtml(): string {
+  if (FUSION) {
+    return `<section class="welcome waiting" aria-labelledby="welcome-title">
+    <div><h2 id="welcome-title">Waiting for a curve</h2>
+      <p>Open a sketch, then measure the chain on the paired phone: the curve goes straight into the sketch.</p>
+      <p class="then">With no sketch open, curves wait here for Insert. If the phone measures while Fusion is closed, it keeps the curve and sends it when the palette is open again.</p></div>
+  </section>`;
+  }
   return `<section class="welcome waiting" aria-labelledby="welcome-title">
     <div><h2 id="welcome-title">Waiting for a curve</h2>
       <p>Measure the chain on the paired phone. Each curve shows up here within seconds, and stays on this computer until you delete it.</p>
@@ -357,12 +518,12 @@ function curveHtml(c: Curve): string {
         <div class="kv"><span>Id</span><span>${esc(c.id)}</span></div>
       </details>
     </div>
-    <div class="out">
+    ${FUSION ? fusionOutHtml(c) : `<div class="out">
       <button type="button" class="copy" data-act="copy"><span>Copy points</span><kbd>${IS_MAC ? "⌘ C" : "Ctrl C"}</kbd></button>
       <div class="then">then <b>Paste points</b> in a Fusion sketch</div>
       ${ADDIN_HELP}
       <div class="exp" id="exp">Save as …</div>
-    </div>
+    </div>`}
   </aside>`;
 }
 
@@ -493,6 +654,7 @@ async function remove(): Promise<void> {
   if (!sure) return;
   const at = ids().indexOf(c.id);
   inbox.remove(c.id);
+  marks.keepOnly(ids());
   selection.keepIn(ids(), at);
   renderList();
   renderPairing();
@@ -558,6 +720,7 @@ document.addEventListener("click", (ev) => {
   else if (act === "delete") void remove();
   else if (act === "unpair") void unpair();
   else if (act === "pick") $("pick").click();
+  else if (act === "insert" && current()) void insertCurve(current()!, "ask");
 });
 
 $<HTMLInputElement>("pick").addEventListener("change", (ev) => {
@@ -572,7 +735,7 @@ $<HTMLInputElement>("pick").addEventListener("change", (ev) => {
 let dragDepth = 0;
 const carriesFiles = (ev: DragEvent) => !!ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
 document.addEventListener("dragenter", (ev) => {
-  if (!carriesFiles(ev)) return;
+  if (!carriesFiles(ev) || FUSION) return;
   ev.preventDefault();
   dragDepth++;
   $("drop-hint").hidden = false;
@@ -580,10 +743,10 @@ document.addEventListener("dragenter", (ev) => {
 document.addEventListener("dragover", (ev) => {
   if (!carriesFiles(ev)) return;
   ev.preventDefault();
-  ev.dataTransfer!.dropEffect = "copy";
+  ev.dataTransfer!.dropEffect = FUSION ? "none" : "copy";
 });
 document.addEventListener("dragleave", (ev) => {
-  if (!carriesFiles(ev)) return;
+  if (!carriesFiles(ev) || FUSION) return;
   if (--dragDepth <= 0) {
     dragDepth = 0;
     $("drop-hint").hidden = true;
@@ -594,11 +757,16 @@ document.addEventListener("drop", (ev) => {
   ev.preventDefault();
   dragDepth = 0;
   $("drop-hint").hidden = true;
-  void measureHere([...ev.dataTransfer!.files]);
+  if (FUSION) toast("Measure photos on the phone; the Spline Wire website measures them on a computer.");
+  else void measureHere([...ev.dataTransfer!.files]);
 });
 window.addEventListener("resize", () => draft?.refit());
 
 $("retry").addEventListener("click", () => link?.retryNow());
+$<HTMLInputElement>("auto-insert").addEventListener("change", (ev) => {
+  store.set(AUTO_KEY, (ev.target as HTMLInputElement).checked ? "on" : "off");
+  renderFusion();
+});
 
 // Arrow keys move through the list, as in a file list; Delete deletes.
 $("list").addEventListener("keydown", (ev) => {
@@ -623,7 +791,7 @@ function nothingSelected(): boolean {
   return !typing && !String(getSelection() ?? "") && !$<HTMLDialogElement>("confirm").open;
 }
 document.addEventListener("keydown", (ev) => {
-  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && ev.key.toLowerCase() === "c" && nothingSelected() && current()) {
+  if (!FUSION && (ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && ev.key.toLowerCase() === "c" && nothingSelected() && current()) {
     ev.preventDefault();
     void copyPoints();
   }
@@ -660,7 +828,8 @@ setInterval(() => {
 // Another tab of this page unpaired, received or deleted: follow it, so the
 // two never disagree and neither writes back a list the other has changed.
 window.addEventListener("storage", (ev) => {
-  const key = ev.key?.replace(/^splinewire-desktop:/, "");
+  if (!ev.key?.startsWith(PREFIX)) return;
+  const key = ev.key.slice(PREFIX.length);
   if (key === "pairing") {
     // Only a new secret: between the other tab's forget and its new one there is none,
     // and making one here would start a second pairing.

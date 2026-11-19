@@ -7,7 +7,9 @@
 <title>Spline Wire</title>
 <!-- The desktop page of the hosted site, at its root (web-build.md, step 3):
      curves arrive here from a paired phone, and a photo dropped here is
-     measured on this computer (D9). -->
+     measured on this computer (D9). With ?fusion it is the page inside the
+     Spline Wire add-in's palette in Fusion (src/desktop/fusion.ts): curves go
+     into the sketch being edited. -->
 <link rel="stylesheet" href="./src/desktop/style.css">
 <script type="module" src="./src/desktop/main.ts"></script>
 </head>
@@ -24,10 +26,15 @@
   <span class="spacer"></span>
   <div class="link-state" id="link-state"><span class="lamp" id="lamp"></span><span id="link-text" role="status">Starting…</span><span id="link-wait" class="mono"></span></div>
   <button class="btn small" id="retry" type="button" hidden>Retry now</button>
-  <label class="btn small" title="Or drop a photo anywhere on this page">Measure a photo…<input type="file" id="pick" accept="image/*,.heic,.heif" hidden></label>
+  <label class="btn small" id="pick-label" title="Or drop a photo anywhere on this page">Measure a photo…<input type="file" id="pick" accept="image/*,.heic,.heif" hidden></label>
 </header>
 <p class="banner chk" id="storage-note" hidden>This browser isn't keeping anything for this site (a private window?), so the pairing
   and the curves will be forgotten when this tab closes. Open the page in a normal window to keep them.</p>
+<div class="fusion-bar" id="fusion-bar" hidden>
+  <span id="fusion-sketch" role="status"></span>
+  <label><input type="checkbox" id="auto-insert"> Put new curves into the open sketch</label>
+</div>
+<p class="banner bad" id="fusion-note" hidden></p>
 <p class="banner bad" id="relay-note" hidden>This build of the site has no relay address, so phones can't send curves to it.</p>
 
 <div class="layout">
@@ -39,7 +46,7 @@
   </aside>
   <main id="main" tabindex="-1"></main>
 </div>
-<footer class="foot"><span id="build"></span><span class="spacer"></span><span id="relay-name"></span></footer>
+<footer class="foot"><span id="build"></span><span id="addin-name"></span><span class="spacer"></span><span id="relay-name"></span></footer>
 
 <dialog id="confirm" aria-labelledby="confirm-title">
   <form method="dialog" class="dbody">

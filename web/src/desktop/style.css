@@ -187,6 +187,28 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   padding: 10px 16px; border-radius: 3px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; }
 #toast.show { opacity: 1; }
 
+/* in Fusion's palette (?fusion, about 380 px wide): what the sketch is, where each curve went */
+.fusion-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 6px 14px; border-bottom: 1px solid var(--line);
+  background: var(--panel-2); font-size: 12.5px; }
+.fusion-bar #fusion-sketch { font-weight: 500; }
+.fusion-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.item .tag-in, .item .tag-wait { margin-left: auto; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 600 10.5px/1 var(--f-data); border: 1px solid currentColor; padding: 2px 4px; border-radius: 2px; }
+.item .tag-in { color: var(--ok); }
+.item .tag-wait { color: var(--warn); }
+.item .tag-in + .warns, .item .tag-wait + .warns { margin-left: 0; }
+.copy:disabled { opacity: .5; cursor: default; }
+body.fusion .top { gap: 8px; padding: 6px 10px; }
+body.fusion .mark h1 { font-size: 13px; }
+body.fusion .plot { flex: none; height: 240px; min-height: 0; margin: 8px 10px 0; }
+body.fusion .head { padding: 8px 10px; }
+body.fusion .head h2 { font-size: 15px; }
+body.fusion #main.empty { padding: 16px 12px; }
+body.fusion .welcome svg.qr { width: 180px; height: 180px; }
+body.fusion .welcome h2 { font-size: 18px; }
+body.fusion .read .out { order: -1; border-top: 0; border-bottom: 1px solid var(--line); }
+#addin-name:empty { display: none; }
+
 /* narrower windows: the readout under the curve, then one column */
 @media (max-width: 1100px) {
   html, body { height: auto; }
