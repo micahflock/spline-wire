@@ -14,7 +14,8 @@ const scenes = (JSON.parse(
   gunzipSync(readFileSync(new URL("./golden/scenes.json.gz", import.meta.url))).toString("utf-8"),
 ) as { scenes: { id: string; live: LiveCase[] }[] }).scenes;
 
-it("analyses frames as Python does", () => {
+// 382 frames take ~5 s on a slow machine: its own timeout, as the other golden tests have.
+it("analyses frames as Python does", { timeout: 60_000 }, () => {
   let n = 0, tilted = 0, ms = 0;
   for (const sc of scenes) {
     for (const c of sc.live) {

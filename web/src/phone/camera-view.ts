@@ -20,7 +20,7 @@
 // closed or the page is hidden: iOS keeps the camera light on otherwise.
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
-import { canTryWorker, compareGrays, FrameGrab, type GrabWorkerLike } from "../camera/grab";
+import { compareGrays, FrameGrab, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
@@ -86,6 +86,10 @@ interface WorkCanvas {
 /** Frames each work canvas is tried on before choosing. */
 const TRIAL_FRAMES = 8;
 
+/** How long a page hidden while the camera was asked for (a permission
+ * prompt) may take to show again before the camera is given back, ms. */
+const VISIBLE_AGAIN_MS = 1500;
+
 /** Time per frame the page spends on the overlay, as a share of the time between frames. */
 const BUSY_SHARE = 0.5;
 
@@ -138,6 +142,8 @@ export class CameraView {
   private trial: Record<WorkMode, number[]> = { gpu: [], cpu: [] };
   /** The gray work frame, reused from frame to frame. */
   private gray = new Uint8Array(0);
+  /** The camera is being asked for (getUserMedia): a permission prompt may be up. */
+  private requesting = false;
   /** The frame grab in a worker, when this browser can (camera/grab.ts). */
   private grab: FrameGrab | null = null;
   private shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
@@ -175,8 +181,12 @@ export class CameraView {
       if (e.key === "Escape" && this.open) this.close();
     });
     // Hidden (another app, the lock button): give the camera back now.
+    // Not while the camera is being asked for: iOS's permission prompt (asked
+    // once a visit) can report the page hidden, and closing then sent the
+    // person back to the page on the first tap. start() looks again once the
+    // camera has answered.
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" && this.open) this.close();
+      if (document.visibilityState === "hidden" && this.open && !this.requesting) this.close();
     });
     // The phone's back gesture closes the camera, not the page.
     addEventListener("popstate", () => {
@@ -222,6 +232,7 @@ export class CameraView {
     // that; Safari asks each visit): then the right camera opens first time.
     const first = labelled(devices) ? chooseCamera(devices, s.camera, avoid) : null;
     let stream: MediaStream;
+    this.requesting = true;
     try {
       stream = await request(first);
     } catch (e) {
@@ -231,6 +242,15 @@ export class CameraView {
       } catch (e2) {
         return this.fail("error", e2 as Error);
       }
+    } finally {
+      this.requesting = false;
+    }
+    // Hidden while it was asked for: a permission prompt, which gives the page
+    // back in a moment; else the person left, and the camera is given back.
+    if (gen === this.gen && !(await visibleWithin(VISIBLE_AGAIN_MS))) {
+      stop(stream);
+      this.close();
+      return;
     }
     if (gen !== this.gen) {
       stop(stream);
@@ -258,7 +278,7 @@ export class CameraView {
       minIntervalMs: () => (this.focal() ? 0 : 1000),
     });
     this.grab = new FrameGrab(() => new Worker(new URL("../camera/grab-worker.ts", import.meta.url), { type: "module" }) as unknown as GrabWorkerLike,
-      canTryWorker(location.search));
+      whyNotWorker(location.search));
     this.stats.grab = this.grabText();
     this.setShutter(true);
     this.loop(gen);
@@ -449,11 +469,11 @@ export class CameraView {
     try {
       frame = new VideoFrame(v, { timestamp: Math.round(performance.now() * 1000) });
     } catch (e) {
-      this.grabFailed(grab, `no VideoFrame of the video (${(e as Error).name}: ${(e as Error).message})`);
+      this.grabFailed(grab, `VideoFrame failed (${(e as Error).name})`);
       return null;
     }
     if (frame.displayWidth !== v.videoWidth || frame.displayHeight !== v.videoHeight) {
-      this.grabFailed(grab, `its VideoFrame is ${frame.displayWidth}×${frame.displayHeight}, the video ${v.videoWidth}×${v.videoHeight}`);
+      this.grabFailed(grab, `VideoFrame ${frame.displayWidth}×${frame.displayHeight}, video ${v.videoWidth}×${v.videoHeight}`);
       frame.close();
       return null;
     }
@@ -468,7 +488,7 @@ export class CameraView {
       grab.checked(compareGrays(page, reply.gray ?? new Uint8Array(0)));
       this.stats.grab = this.grabText();
     }, (e: Error) => {
-      if (gen === this.gen) this.grabFailed(grab, e.message);
+      if (gen === this.gen) this.grabFailed(grab, `worker: ${e.message}`);
     });
   }
 
@@ -482,7 +502,7 @@ export class CameraView {
       session.found(reply.blobs ?? [], vw, vh, now, reply.blobMs ?? 0);
       this.counted(r, reply.grabMs ?? 0, reply.blobMs ?? 0, pageMs);
     }, (e: Error) => {
-      if (gen === this.gen) this.grabFailed(grab, e.message);
+      if (gen === this.gen) this.grabFailed(grab, `worker: ${e.message}`);
     });
     pageMs = performance.now() - t0;
     this.lastWork = now;
@@ -604,7 +624,8 @@ export class CameraView {
     st.size = `${v.videoWidth}×${v.videoHeight}`;
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
     this.el["cam-info"]!.textContent = [st.camera || "camera", st.size, focal,
-      st.grabMs.length ? `frame ${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms${this.grab?.mode === "worker" ? " in a worker" : ""}` : "",
+      st.grabMs.length ? `frame ${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "",
+      this.grab?.describe() ?? "",
       st.region,
       st.analyseMs.length ? `analysis ${Math.round(median(st.analyseMs))} ms` : "", sharp !== null ? `sharpness ${sharp.toFixed(2)}` : ""]
       .filter(Boolean).join(" · ");
@@ -721,6 +742,23 @@ async function cameras(): Promise<CameraInfo[]> {
 function request(camera: CameraInfo | null): Promise<MediaStream> {
   const which = camera?.deviceId ? { deviceId: { exact: camera.deviceId } } : { facingMode: { ideal: "environment" } };
   return navigator.mediaDevices.getUserMedia({ video: { ...which, ...STREAM }, audio: false });
+}
+
+/** True once the page is visible, or false if it is still hidden after `ms`. */
+function visibleWithin(ms: number): Promise<boolean> {
+  if (document.visibilityState !== "hidden") return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const done = (v: boolean) => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", seen);
+      resolve(v);
+    };
+    const seen = () => {
+      if (document.visibilityState !== "hidden") done(true);
+    };
+    const timer = setTimeout(() => done(false), ms);
+    document.addEventListener("visibilitychange", seen);
+  });
 }
 
 function stop(stream: MediaStream): void {

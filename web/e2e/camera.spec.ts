@@ -305,6 +305,51 @@ test("Upload a photo turns the camera off, Live camera opens it again, and the c
   expect(await liveTracks()).toBe(0);
 });
 
+test("a permission prompt that hides the page does not close the camera view (iOS, the first tap of a visit)", async () => {
+  // WebKit on iOS asks for the camera once a visit, and the page can be
+  // reported hidden while it asks. The view used to close then: the person was
+  // sent back to the page and had to tap Live camera again.
+  const ctx = await browser.newContext({ ...PHONE, baseURL: BASE, permissions: ["camera"] });
+  // 15 pins for a 13-pin chain: the coach never takes the still, so the view stays open.
+  await ctx.addInitScript((s) => localStorage.setItem("splinewire-phone:phone-settings", s), settings({ pins: 15 }));
+  await ctx.addInitScript(() => {
+    let state: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => state === "hidden" });
+    const set = (v: DocumentVisibilityState) => {
+      state = v;
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+    (window as unknown as { __visibility: typeof set }).__visibility = set;
+    const md = navigator.mediaDevices;
+    const real = md.getUserMedia.bind(md);
+    let asked = 0;
+    md.getUserMedia = async (c) => {
+      if (asked++ > 0) return real(c);
+      set("hidden");                                  // the prompt is up
+      await new Promise((r) => setTimeout(r, 300));
+      const stream = await real(c);
+      setTimeout(() => set("visible"), 200);          // the camera answers just before the page is shown again
+      return stream;
+    };
+  });
+  const p = await ctx.newPage();
+  try {
+    await p.goto("phone/");
+    await p.locator("#take-camera").click();
+    await expect(p.locator("#cam-shutter")).toBeEnabled({ timeout: 20_000 });
+    await expect(p.locator("#cam")).toBeVisible();
+    await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
+    await expect(p.locator("#cam-info")).toContainText("grab in a worker", { timeout: 10_000 });
+    log(`after a prompt: ${await p.locator("#cam-info").textContent()}`);
+    // Leaving the page once the camera is open still gives it back.
+    await p.evaluate(() => (window as unknown as { __visibility: (v: string) => void }).__visibility("hidden"));
+    await expect(p.locator("#cam")).toBeHidden();
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("a camera that is not allowed falls back to the system camera", async () => {
   // Chromium's stand-in for the permission prompt, answering no: getUserMedia fails with NotAllowedError.
   const denied = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream=deny"] });
