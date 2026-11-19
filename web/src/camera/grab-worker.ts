@@ -11,7 +11,7 @@
 // is always closed here: a VideoFrame left open holds the camera's buffer.
 
 import { detectBlobs, toGray } from "../overlay/blobs";
-import { drawFor, type GrabReply, type GrabRequest } from "./grab";
+import { transformFor, type GrabReply, type GrabRequest } from "./grab";
 
 const scope = self as unknown as {
   onmessage: ((e: MessageEvent<GrabRequest>) => void) | null;
@@ -35,9 +35,9 @@ scope.onmessage = (e) => {
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = "high";            // area-like averaging, as on the page
     // Upright: the frame may be the sensor's way round, not the video's (grab.ts, Turn).
-    const d = drawFor(r, turn ?? 0, frame.displayWidth, frame.displayHeight);
-    g.setTransform(...d.m);
-    g.drawImage(frame, d.sx, d.sy, d.sw, d.sh, 0, 0, d.dw, d.dh);
+    // The whole frame under one transform, no source rectangle (grab.ts, transformFor).
+    g.setTransform(...transformFor(r, turn ?? 0, frame.displayWidth, frame.displayHeight));
+    g.drawImage(frame, 0, 0);
     g.setTransform(1, 0, 0, 1, 0, 0);
     frame.close();
     const n = r.workWidth * r.workHeight;
