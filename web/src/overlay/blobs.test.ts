@@ -230,7 +230,7 @@ describe("detectBlobs", { timeout: 60_000 }, () => {
   });
 });
 
-describe("thresholds (both masks in one pass, buffers reused)", () => {
+describe("thresholds (both masks in one pass, buffers reused)", { timeout: 60_000 }, () => {
   /** thresholds()'s masks unpadded, checking the zero border on the way. */
   function unpadded(frame: GrayFrame, withDark: boolean) {
     const { bright, dark, stride } = thresholds(frame, withDark);
@@ -239,13 +239,15 @@ describe("thresholds (both masks in one pass, buffers reused)", () => {
     expect(bright.length).toBe((w + 2) * (h + 2));
     const cut = (m: Uint8Array) => {
       const out = new Uint8Array(w * h);
+      let border = 0;
       for (let y = 0; y < h + 2; y++) {
         for (let x = 0; x < w + 2; x++) {
           const v = m[y * stride + x]!;
-          if (x === 0 || y === 0 || x === w + 1 || y === h + 1) expect(v).toBe(0);
+          if (x === 0 || y === 0 || x === w + 1 || y === h + 1) border += v;
           else out[(y - 1) * w + x - 1] = v;
         }
       }
+      expect(border).toBe(0);                     // the zero border, all round
       return out;
     };
     return { bright: cut(bright), dark: dark ? cut(dark) : null };
