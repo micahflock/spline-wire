@@ -156,7 +156,8 @@ test("the overlay coaches: no chain, pins missing", async () => {
   });
   const after = await stats();
   const frames = after.frames - before.frames, analysed = after.analysed - before.analysed;
-  log(`work canvas: ${after.work}`);
+  log(`work canvas: ${after.work}; frames grabbed: ${after.grab}; regions ${JSON.stringify(after.regions)}, last ${after.region};`,
+    `the page's own time per frame ${med(after.pageMs).toFixed(1)} ms (p95 ${p95(after.pageMs).toFixed(1)})`);
   log(`per frame over 5 s: grab+gray ${med(after.grabMs).toFixed(1)} ms (p95 ${p95(after.grabMs).toFixed(1)}),`,
     `blobs ${med(after.blobMs).toFixed(1)} ms (p95 ${p95(after.blobMs).toFixed(1)}); ${(frames / 5).toFixed(1)} frames/s worked,`,
     `${after.skipped - before.skipped} skipped; ${(analysed / 5).toFixed(1)} analyses/s, analysis ${med(after.analyseMs).toFixed(0)} ms`,

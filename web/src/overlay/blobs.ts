@@ -5,9 +5,12 @@
 // follows the same idea at one coarse scale, cheaply enough for every video
 // frame, and only has to be good enough to coach the shot:
 //
-//   1. Work on a small gray frame (toWorkFrame: long side WORK_LONG_SIDE).
+//   1. Work on a small gray frame: the region of the video round the chain
+//      (region.ts), drawn so that its fiducials are a set size, or the whole
+//      frame or a quarter of it while there is no chain.
 //   2. Threshold against the local mean, as detect._masks does (a 25 px
-//      window, the pixel at least 4 gray levels above it).
+//      window, the pixel at least 4 gray levels above it): both masks (light
+//      and dark) in one pass, into buffers kept between frames.
 //   3. Connected components; keep those of a plausible size and shape
 //      (detect._dot_candidates' limits). A dot wider than the window comes out
 //      hollow, so only the outline's bounding box is used, never its area.
@@ -22,6 +25,9 @@
 
 import type { Blob, GrayFrame } from "./types";
 
+/** The whole frame's work size until 2026-11-19, and still the scale
+ * sharpness is read at (Window.refScale), so that the coach's limits keep
+ * their meaning: the camera view now draws regions (region.ts). */
 export const WORK_LONG_SIDE = 640;
 /** Thin rims need more pixels: at 640 the snap-fit chain's rim is about one
  * pixel wide and breaks, so an end pin's hole leaks into the link; at 800 all
@@ -67,9 +73,10 @@ export const BLOBS = {
   maxCandidates: 400,
 };
 
-/** RGBA pixels (ImageData.data) to gray, by the usual luma weights. */
-export function toGray(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number): GrayFrame {
-  const data = new Uint8Array(width * height);
+/** RGBA pixels (ImageData.data) to gray, by the usual luma weights; into
+ * `into` (at least width × height long) if given, which is then reused. */
+export function toGray(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number, into?: Uint8Array): GrayFrame {
+  const data = into ? into.subarray(0, width * height) : new Uint8Array(width * height);
   for (let i = 0, j = 0; i < data.length; i++, j += 4) {
     data[i] = (rgba[j]! * 77 + rgba[j + 1]! * 150 + rgba[j + 2]! * 29) >> 8;
   }
@@ -82,8 +89,6 @@ export function workSize(width: number, height: number, shape: Shape = { inner: 
   return { width: Math.round(width / scale), height: Math.round(height / scale), scale };
 }
 
-/** Dots in a gray work frame. `scale` multiplies positions and sizes back
- * into the pixels of the frame the work frame was drawn from. */
 /** What the fiducials look like: `inner` is a ring's hole diameter over its
  * outer diameter (ChainSpec ring_inner_mm / fiducial_mm), 0 for a solid dot;
  * `dark`, that they are darker than the links (ChainSpec fiducial_shade
@@ -100,14 +105,37 @@ export function shapeOf(chain: { fiducial?: string; fiducial_mm: number; ring_in
   return shape;
 }
 
-/** The frame with its gray levels turned round. */
+/** The frame with its gray levels turned round, into a buffer kept between frames. */
 function inverted(frame: GrayFrame): GrayFrame {
-  const data = new Uint8Array(frame.data.length);
-  for (let i = 0; i < data.length; i++) data[i] = 255 - frame.data[i]!;
+  const n = frame.data.length;
+  if (scratch.inv.length < n) scratch.inv = new Uint8Array(n);
+  const data = scratch.inv.subarray(0, n);
+  for (let i = 0; i < n; i++) data[i] = 255 - frame.data[i]!;
   return { width: frame.width, height: frame.height, data };
 }
 
-export function detectBlobs(frame: GrayFrame, scale = 1, shape: Shape = { inner: 0 }): Blob[] {
+/** Where a work frame was drawn from: the top-left corner of its source
+ * rectangle in the video frame's pixels, and video pixels per work pixel
+ * across and down. `refScale`, video pixels per work pixel of the frame
+ * sharpness is read at (default: the mean of scaleX and scaleY): edge widths
+ * are converted to that frame's pixels, so that a region drawn finer than the
+ * full-frame work frame (overlay/region.ts) reads as sharp as the coach's
+ * limits expect (they were calibrated on full frames at WORK_LONG_SIDE). */
+export interface Window {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  refScale?: number;
+}
+
+/** Dots in a gray work frame. `scale` multiplies positions and sizes back
+ * into the pixels of the frame the work frame was drawn from; a Window says
+ * where in that frame a region was drawn from as well. */
+export function detectBlobs(frame: GrayFrame, scale: number | Window = 1, shape: Shape = { inner: 0 }): Blob[] {
+  const win: Window = typeof scale === "number" ? { x: 0, y: 0, scaleX: scale, scaleY: scale } : scale;
+  const mean = (win.scaleX + win.scaleY) / 2;
+  const widthScale = mean / (win.refScale ?? mean);
   if (shape.dark) frame = inverted(frame);
   const { width: w, height: h } = frame;
   if (w < BLOBS.block || h < BLOBS.block) return [];
@@ -116,21 +144,22 @@ export function detectBlobs(frame: GrayFrame, scale = 1, shape: Shape = { inner:
     // A ring can be found twice (by its hole and by its rim): keep the first.
     if (blob && !found.some((f) => Math.hypot(f.x - blob.x, f.y - blob.y) < 0.4 * Math.max(f.d, blob.d))) found.push(blob);
   };
+  const masks = thresholds(frame, shape.inner > 0);
   if (shape.inner > 0) {
     // Rings are found by their holes first, as detect.py finds rims: a hole is
     // a clean dark disc, while a thin rim often merges with a light table in
     // the mask wherever the link around it is narrow or missing (the snap-fit
     // chain's rim is as wide as its head: only the arms show outside it).
     // Closed rims are a second source.
-    for (const c of components(localThreshold(frame, true), w, h)) {
+    for (const c of components(masks.dark!, w, h)) {
       keep(ringAt(frame, c.cx, c.cy, c.rx / shape.inner, c.ry / shape.inner, shape.inner));
     }
-    for (const c of components(localThreshold(frame), w, h)) keep(ringAt(frame, c.cx, c.cy, c.rx, c.ry, shape.inner));
+    for (const c of components(masks.bright, w, h)) keep(ringAt(frame, c.cx, c.cy, c.rx, c.ry, shape.inner));
   } else {
-    for (const c of components(localThreshold(frame), w, h)) keep(dotAt(frame, c.cx, c.cy, c.rx, c.ry));
+    for (const c of components(masks.bright, w, h)) keep(dotAt(frame, c.cx, c.cy, c.rx, c.ry));
   }
-  return found.map((b) => ({ x: (b.x + 0.5) * scale - 0.5, y: (b.y + 0.5) * scale - 0.5, d: b.d * scale,
-    contrast: b.contrast, sharpness: b.sharpness }));
+  return found.map((b) => ({ x: win.x + (b.x + 0.5) * win.scaleX - 0.5, y: win.y + (b.y + 0.5) * win.scaleY - 0.5, d: b.d * mean,
+    contrast: b.contrast, sharpness: widthScale === 1 ? b.sharpness : rescaleSharpness(b.sharpness, widthScale) }));
 }
 
 interface Box {
@@ -140,50 +169,149 @@ interface Box {
   ry: number;
 }
 
+/** Buffers kept from frame to frame (detectBlobs runs on one thread, one
+ * frame at a time): the threshold's column sums, the two masks, the components'
+ * stack and an inverted frame. A frame of the same size or smaller allocates
+ * nothing. */
+const scratch = {
+  cols: new Int32Array(0),
+  bright: new Uint8Array(0),
+  dark: new Uint8Array(0),
+  stack: new Int32Array(0),
+  inv: new Uint8Array(0),
+};
+
+/** Both of localThreshold's masks in one pass: `bright` (dark = false) and,
+ * with `withDark`, `dark` (dark = true), each equal to localThreshold's pixel
+ * for pixel. The window sums are kept running instead of read from a
+ * summed-area table: a column sum per x, moved down a row at a time, and a
+ * sum of those moved along each row (integers, so the sums are the same).
+ * The masks are laid out with a border of one zero pixel all round (row
+ * stride width + 2; pixel (x, y) at (y + 1) * (width + 2) + x + 1) so that
+ * components needs no bounds checks. The arrays are scratch buffers: the next
+ * call overwrites them. */
+export function thresholds(frame: GrayFrame, withDark: boolean): { bright: Uint8Array; dark: Uint8Array | null; stride: number } {
+  const { width: w, height: h, data } = frame;
+  const W = w + 2, padded = W * (h + 2);
+  if (scratch.cols.length < w) scratch.cols = new Int32Array(w);
+  if (scratch.bright.length < padded) {
+    scratch.bright = new Uint8Array(padded);
+    scratch.dark = new Uint8Array(padded);
+  }
+  const cols = scratch.cols, mb = scratch.bright, md = scratch.dark;
+  const r = (BLOBS.block - 1) / 2, off = BLOBS.offset;
+  // Column sums over rows 0..r: the window of row 0.
+  cols.fill(0, 0, w);
+  for (let y = 0; y <= r && y < h; y++) for (let x = 0, d = y * w; x < w; x++) cols[x] = cols[x]! + data[d + x]!;
+  for (let y = 0; y < h; y++) {
+    if (y > 0) {
+      // Move the column sums down a row: row y + r comes in, row y - r - 1 goes out.
+      const enter = y + r, leave = y - r - 1;
+      if (enter < h) for (let x = 0, d = enter * w; x < w; x++) cols[x] = cols[x]! + data[d + x]!;
+      if (leave >= 0) for (let x = 0, d = leave * w; x < w; x++) cols[x] = cols[x]! - data[d + x]!;
+    }
+    const rows = (y + r + 1 > h ? h : y + r + 1) - (y - r < 0 ? 0 : y - r);
+    const m = (y + 1) * W + 1, d = y * w;
+    let sum = 0;
+    for (let x = 0; x < r && x < w; x++) sum += cols[x]!;
+    // Three stretches of the row: the window cut by the left edge, whole, cut
+    // by the right edge (a frame narrower than the window has no middle).
+    const midA = r + 1, midB = Math.max(midA, w - r);
+    for (let x = 0; x < w; x++) {
+      if (x === midA && midA < midB) {
+        // The whole window: no edges to test, one area.
+        const area = BLOBS.block * rows;
+        if (withDark) {
+          for (; x < midB; x++) {
+            sum += cols[x + r]! - cols[x - r - 1]!;
+            const v = data[d + x]!;
+            mb[m + x] = (v - off) * area > sum ? 1 : 0;
+            md[m + x] = (v + off) * area < sum ? 1 : 0;
+          }
+        } else {
+          for (; x < midB; x++) {
+            sum += cols[x + r]! - cols[x - r - 1]!;
+            mb[m + x] = (data[d + x]! - off) * area > sum ? 1 : 0;
+          }
+        }
+        if (x >= w) break;
+      }
+      if (x + r < w) sum += cols[x + r]!;
+      if (x - r - 1 >= 0) sum -= cols[x - r - 1]!;
+      const area = ((x + r + 1 > w ? w : x + r + 1) - (x - r < 0 ? 0 : x - r)) * rows, v = data[d + x]!;
+      // pixel > mean + offset (dark: pixel < mean - offset), without dividing
+      mb[m + x] = (v - off) * area > sum ? 1 : 0;
+      if (withDark) md[m + x] = (v + off) * area < sum ? 1 : 0;
+    }
+  }
+  // The zero border (the buffers may hold an earlier frame of another size).
+  for (const mask of withDark ? [mb, md] : [mb]) {
+    mask.fill(0, 0, W);
+    mask.fill(0, (h + 1) * W, padded);
+    for (let y = 1; y <= h; y++) mask[y * W] = mask[y * W + W - 1] = 0;
+  }
+  return { bright: mb.subarray(0, padded), dark: withDark ? md.subarray(0, padded) : null, stride: W };
+}
+
 /** The mask's connected components (8-connected) of a plausible size and
  * shape, as boxes: at least BLOBS.minSide across, at most a quarter of the
  * frame and BLOBS.maxAspect times longer than wide. Stops after
- * BLOBS.maxCandidates. The mask is used up (visited pixels are set to 2). */
+ * BLOBS.maxCandidates. The mask is laid out as thresholds() makes it (a zero
+ * border round a w × h frame) and is used up (visited pixels are set to 2). */
 function components(mask: Uint8Array, w: number, h: number): Box[] {
   const out: Box[] = [];
-  const stack = new Int32Array(w * h);
+  const W = w + 2;
+  if (scratch.stack.length < w * h) scratch.stack = new Int32Array(w * h);
+  const stack = scratch.stack;
   const maxSide = Math.max(w, h) / 4;
-  for (let start = 0; start < mask.length && out.length < BLOBS.maxCandidates; start++) {
-    if (mask[start] !== 1) continue;
-    let top = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
-    stack[top++] = start;
-    mask[start] = 2;
-    while (top > 0) {
-      const p = stack[--top]!;
-      const px = p % w, py = (p - px) / w;
-      if (px < x0) x0 = px;
-      if (px > x1) x1 = px;
-      if (py < y0) y0 = py;
-      if (py > y1) y1 = py;
-      for (let dy = -1; dy <= 1; dy++) {
-        const ny = py + dy;
-        if (ny < 0 || ny >= h) continue;
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = px + dx;
-          if (nx < 0 || nx >= w) continue;
-          const q = ny * w + nx;
-          if (mask[q] === 1) {
-            mask[q] = 2;
-            stack[top++] = q;
-          }
-        }
-      }
+  // Read in row order, four pixels at a time: most of a mask is 0, and the
+  // border is, so the padded buffer is read straight through.
+  const words = new Uint32Array(mask.buffer, mask.byteOffset, mask.byteOffset % 4 ? 0 : mask.length >> 2);
+  for (let i = 0, start = 0; start < mask.length; i++) {
+    if (i < words.length && words[i] === 0) {
+      start += 4;
+      continue;
     }
-    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
-    const lo = Math.min(bw, bh), hi = Math.max(bw, bh);
-    if (lo < BLOBS.minSide || hi > maxSide || hi > BLOBS.maxAspect * lo) continue;
-    out.push({ cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rx: bw / 2, ry: bh / 2 });
+    for (const end = i < words.length ? start + 4 : start + 1; start < end; start++) {
+      if (mask[start] !== 1) continue;
+      let top = 0, x0 = W, y0 = h + 2, x1 = -1, y1 = -1;
+      stack[top++] = start;
+      mask[start] = 2;
+      while (top > 0) {
+        const p = stack[--top]!;
+        const py = (p / W) | 0, px = p - py * W;
+        if (px < x0) x0 = px;
+        if (px > x1) x1 = px;
+        if (py < y0) y0 = py;
+        if (py > y1) y1 = py;
+        // The eight neighbours; the zero border stops the fill at the frame's edge.
+        let q = p - W - 1;
+        if (mask[q] === 1) { mask[q] = 2; stack[top++] = q; }
+        if (mask[++q] === 1) { mask[q] = 2; stack[top++] = q; }
+        if (mask[++q] === 1) { mask[q] = 2; stack[top++] = q; }
+        q = p - 1;
+        if (mask[q] === 1) { mask[q] = 2; stack[top++] = q; }
+        q = p + 1;
+        if (mask[q] === 1) { mask[q] = 2; stack[top++] = q; }
+        q = p + W - 1;
+        if (mask[q] === 1) { mask[q] = 2; stack[top++] = q; }
+        if (mask[++q] === 1) { mask[q] = 2; stack[top++] = q; }
+        if (mask[++q] === 1) { mask[q] = 2; stack[top++] = q; }
+      }
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+      const lo = Math.min(bw, bh), hi = Math.max(bw, bh);
+      if (lo < BLOBS.minSide || hi > maxSide || hi > BLOBS.maxAspect * lo) continue;
+      // Padded to frame pixels: one less in each direction.
+      out.push({ cx: (x0 + x1) / 2 - 1, cy: (y0 + y1) / 2 - 1, rx: bw / 2, ry: bh / 2 });
+      if (out.length >= BLOBS.maxCandidates) return out;
+    }
   }
   return out;
 }
 
 /** 1 where a pixel is above its neighbourhood's mean by BLOBS.offset (with
- * `dark`, below it by as much), else 0. */
+ * `dark`, below it by as much), else 0. The reference that thresholds() must
+ * equal; detectBlobs uses thresholds(). */
 export function localThreshold(frame: GrayFrame, dark = false): Uint8Array {
   const { width: w, height: h, data } = frame;
   // Summed-area table with a zero row and column in front.
@@ -380,6 +508,14 @@ function maxAlong(f: GrayFrame, cx: number, cy: number, ex: number, ey: number, 
 export function sharpnessOf(widths: number[]): number {
   if (widths.length === 0) return 0;
   return Math.min(1, 0.7 / Math.max(median(widths), 1e-6));
+}
+
+/** A sharpness read in one frame's pixels, read in pixels `factor` times as
+ * large (edges `factor` times narrower). sharpnessOf is 0.7 / width, capped at 1:
+ * a capped value stays 1 (its edge was at most a step), and is not made sharper. */
+export function rescaleSharpness(sharpness: number, factor: number): number {
+  if (sharpness >= 1 || sharpness <= 0) return sharpness;
+  return Math.min(1, sharpness / factor);
 }
 
 function meanAlong(f: GrayFrame, cx: number, cy: number, ex: number, ey: number, from: number, to: number, len: number): number {

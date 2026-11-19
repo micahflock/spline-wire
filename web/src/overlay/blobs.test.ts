@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detectBlobs, shapeOf, toGray, workSize } from "./blobs";
+import { detectBlobs, localThreshold, rescaleSharpness, shapeOf, thresholds, toGray, workSize } from "./blobs";
+import { analyse } from "../pipeline/live";
+import { specFromDict } from "../pipeline/chain";
+import { fullRegion, RegionTracker } from "./region";
+import { SNAP_SPEC, snapScene, VIDEO } from "./snap-frames";
 import type { GrayFrame } from "./types";
 
 /** A small scene drawn with 3×3 supersampling: discs and rounded bars on a flat table. */
@@ -191,8 +195,139 @@ describe("detectBlobs", { timeout: 60_000 }, () => {
     expect(shapeOf({ fiducial: "dot", fiducial_mm: 5 })).toEqual({ inner: 0 });
   });
 
-  it("turns RGBA into gray", () => {
-    const g = toGray(new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255, 255, 0, 0, 255]), 3, 1);
+  it("turns RGBA into gray, into a buffer it is given", () => {
+    const rgba = new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255, 255, 0, 0, 255]);
+    expect([...toGray(rgba, 3, 1).data]).toEqual([255, 0, 76]);
+    const into = new Uint8Array(8).fill(9);
+    const g = toGray(rgba, 3, 1, into);
     expect([...g.data]).toEqual([255, 0, 76]);
+    expect(g.data.buffer).toBe(into.buffer);
+  });
+
+  it("maps a region's blobs back to the video frame: its corner, and a scale across and down", () => {
+    const frame = scene(640, 360, 128, chain(PINS, 11, 18));
+    const plain = detectBlobs(frame, 1);
+    const blobs = detectBlobs(frame, { x: 1000, y: 2000, scaleX: 2, scaleY: 1.5 });
+    expect(blobs.length).toBe(plain.length);
+    blobs.forEach((b, i) => {
+      // work pixel centre c of a region from x0 at s video px per work px: x0 + (c + 0.5)·s − 0.5
+      expect(b.x).toBeCloseTo(1000 + (plain[i]!.x + 0.5) * 2 - 0.5, 9);
+      expect(b.y).toBeCloseTo(2000 + (plain[i]!.y + 0.5) * 1.5 - 0.5, 9);
+      expect(b.d).toBeCloseTo(plain[i]!.d * 1.75, 9);
+      expect(b.sharpness).toBe(plain[i]!.sharpness);
+    });
+  });
+
+  it("reads sharpness in the pixels of the frame it is told to (a region drawn finer than the full frame)", () => {
+    const frame = scene(640, 360, 128, chain(PINS, 11, 18), 4);
+    const own = detectBlobs(frame, { x: 0, y: 0, scaleX: 2, scaleY: 2 });
+    // Drawn at 2 video px per work px, read as if at 5: edges 2.5 times narrower.
+    const asFull = detectBlobs(frame, { x: 0, y: 0, scaleX: 2, scaleY: 2, refScale: 5 });
+    own.forEach((b, i) => expect(asFull[i]!.sharpness).toBeCloseTo(Math.min(1, b.sharpness * 2.5), 9));
+    expect(rescaleSharpness(1, 0.4)).toBe(1);
+    expect(rescaleSharpness(0.3, 0.4)).toBeCloseTo(0.75, 9);
+    expect(rescaleSharpness(0.3, 2)).toBeCloseTo(0.15, 9);
+  });
+});
+
+describe("thresholds (both masks in one pass, buffers reused)", { timeout: 60_000 }, () => {
+  /** thresholds()'s masks unpadded, checking the zero border on the way. */
+  function unpadded(frame: GrayFrame, withDark: boolean) {
+    const { bright, dark, stride } = thresholds(frame, withDark);
+    const { width: w, height: h } = frame;
+    expect(stride).toBe(w + 2);
+    expect(bright.length).toBe((w + 2) * (h + 2));
+    const cut = (m: Uint8Array) => {
+      const out = new Uint8Array(w * h);
+      let border = 0;
+      for (let y = 0; y < h + 2; y++) {
+        for (let x = 0; x < w + 2; x++) {
+          const v = m[y * stride + x]!;
+          if (x === 0 || y === 0 || x === w + 1 || y === h + 1) border += v;
+          else out[(y - 1) * w + x - 1] = v;
+        }
+      }
+      expect(border).toBe(0);                     // the zero border, all round
+      return out;
+    };
+    return { bright: cut(bright), dark: dark ? cut(dark) : null };
+  }
+
+  /** Noise in a few gray levels (many ties with the window's mean), on a ramp. */
+  function noise(w: number, h: number, seed: number, levels = 12): GrayFrame {
+    let s = seed;
+    const rand = () => ((s = (s * 1103515245 + 12345) >>> 0) / 2 ** 32);
+    const data = new Uint8Array(w * h);
+    for (let i = 0; i < data.length; i++) data[i] = Math.min(255, Math.floor(rand() * levels) * Math.floor(256 / levels) + (i % w) / 8);
+    return { width: w, height: h, data };
+  }
+
+  it("gives localThreshold's masks bit for bit, at every size, with the buffers reused", () => {
+    const frames: GrayFrame[] = [
+      scene(640, 360, 128, chain(PINS, 11, 18)), scene(640, 360, 235, ringChain(PINS, 8, 0.8, 8, 4.55)),
+      noise(300, 200, 1), noise(25, 25, 2), noise(26, 31, 3), noise(24, 100, 4), noise(100, 7, 5), noise(13, 13, 6),
+      noise(1, 40, 7), noise(40, 1, 8), noise(1, 1, 9), noise(700, 30, 10, 3), noise(37, 512, 11, 255),
+      // smaller after larger: the reused buffers hold the larger frame's masks
+      noise(200, 150, 12), noise(50, 40, 13),
+    ];
+    for (const frame of frames) {
+      for (const withDark of [true, false]) {
+        const got = unpadded(frame, withDark);
+        expect(got.bright).toEqual(localThreshold(frame));
+        if (withDark) expect(got.dark).toEqual(localThreshold(frame, true));
+        else expect(got.dark).toBeNull();
+      }
+    }
+  });
+
+  it("finds the same blobs as before on a frame that follows a larger one", () => {
+    const pins: [number, number][] = Array.from({ length: 13 }, (_, k) => [70.4 + 42 * k, 180.3 + 40 * Math.sin(k * 0.6)]);
+    const big = scene(640, 360, 60, ringChain(pins, 8, shapeOf(SNAP).inner, 8, 4.55));
+    const small = scene(330, 260, 60, ringChain(pins.slice(0, 6), 8, shapeOf(SNAP).inner, 8, 4.55));
+    const first = detectBlobs(small, 1, shapeOf(SNAP));
+    detectBlobs(big, 1, shapeOf(SNAP));
+    expect(detectBlobs(small, 1, shapeOf(SNAP))).toEqual(first);
+    expect(first.length).toBe(6);
+  });
+});
+
+describe("the live view's reach with the snap-fit chain (13 pins, a 3024×4032 video)", { timeout: 120_000 }, () => {
+  const shape = shapeOf(SNAP_SPEC);
+  const old = fullRegion(VIDEO.width, VIDEO.height, 800);     // what the camera view drew until 2026-11-19
+  for (const span of [0.3, 0.22]) {
+    for (const [name, table] of [["a mid-gray", 128], ["a light", 200], ["a dark", 60]] as const) {
+      it(`finds every pin at span ${span} on ${name} table, in the region round the chain`, () => {
+        const sc = snapScene(span, table);
+        const tracker = new RegionTracker(shape, SNAP_SPEC.n_pins);
+        tracker.next(VIDEO.width, VIDEO.height);
+        tracker.chainFound(sc.pins, sc.pins.map(() => sc.rim), 0);
+        const r = tracker.next(VIDEO.width, VIDEO.height);
+        expect(r.kind).toBe("track");
+        const blobs = detectBlobs(sc.draw(r), r, shape);
+        // Every pin, in video pixels, within 0.3 px of the truth.
+        for (const [x, y] of sc.pins) expect(Math.min(...blobs.map((b) => Math.hypot(b.x - x, b.y - y)))).toBeLessThan(0.3);
+        // A look-alike or two (this scene's dark gap between two rims, half a pitch
+        // from each) is left to the ordering, which takes the 13 pins and nothing else.
+        expect(blobs.length).toBeLessThanOrEqual(15);
+        const a = analyse(blobs.map((b) => [b.x, b.y]), blobs.map((b) => b.d), [VIDEO.width, VIDEO.height], specFromDict(SNAP_SPEC), null);
+        expect(a.order.length).toBe(13);
+        expect(a.gaps).toEqual([]);
+        for (const i of a.order) expect(Math.min(...sc.pins.map(([x, y]) => Math.hypot(blobs[i]!.x - x, blobs[i]!.y - y)))).toBeLessThan(0.3);
+        // The rims drawn about REGIONS.target (18) work px across, in a region far smaller than the old full frame.
+        expect(sc.rim / r.scaleX).toBeGreaterThan(17);
+        expect(r.workWidth * r.workHeight).toBeLessThan((old.workWidth * old.workHeight) / 4);
+      });
+    }
+  }
+
+  it("where the 800 px full frame lost them (the limit this replaced)", () => {
+    const at = (span: number, table: number) => {
+      const sc = snapScene(span, table);
+      const blobs = detectBlobs(sc.draw(old), old, shape);
+      return sc.pins.filter(([x, y]) => blobs.some((b) => Math.hypot(b.x - x, b.y - y) < 0.3 * b.d)).length;
+    };
+    expect(at(0.3, 128)).toBeLessThan(13);
+    expect(at(0.3, 200)).toBeLessThan(13);
+    expect(at(0.22, 128)).toBeLessThan(13);
   });
 });

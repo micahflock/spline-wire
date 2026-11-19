@@ -19,7 +19,10 @@ export interface Limits {
  * as the camera view does: each frame area-averaged to a 640 px work frame and
  * run through blobs.ts in Node. "1080p" and "4K" below are those renders; the
  * phone streams 3024×4032 (S3), which shrinks to its work frame by 6.3, like
- * the 4K renders (6). Not yet checked against a real phone's video. */
+ * the 4K renders (6). Not yet checked against a real phone's video. The
+ * live view now draws the region round the chain finer than that (region.ts);
+ * sharpness is still read in the full-frame work frame's pixels (blobs.Window
+ * refScale), so these limits keep their meaning. */
 export const COACH = {
   /** Good readings must span this long before the shot. */
   HOLD_MS: 700,
@@ -37,15 +40,21 @@ export const COACH = {
    * above 25°, and nudge toward straighter above 12°. */
   tiltDeg: { enter: 25, keep: 30 } as Limits,
   straighterDeg: 12,
-  /** The chain's extent as a fraction of the frame's shorter side. This guards
-   * the overlay's own detector more than the still: the docs' benchmark still
-   * spans 0.28 and measures 0.025 / 0.056 mm (median / p95 worst pin). Every
-   * pin was found by blobs.ts in 120 of 167 4K renders at span 0.55 (dots 12 px
-   * across in the work frame), 123 at 0.44 (10 px), 115 at 0.36 (8 px), then 84
-   * at 0.28 (6 px) and 59 at 0.22. So the shot needs 0.40, and keeps going to
-   * 0.33. (Was 0.45 / 0.38; asking for more also pushes the phone toward its
-   * closest focus: a 120 mm chain at 0.45 of a 24 mm lens's view is 25 cm away.) */
-  minSpan: { enter: 0.40, keep: 0.33 } as Limits,
+  /** The chain's extent (its pins') as a fraction of the frame's shorter side.
+   * Recalibrated 2026-11-19 for the snap-fit chain, now that the live view
+   * reads the region round the chain at its own scale (region.ts) rather than
+   * the whole frame at 800 px (open-items.md, live view resolution). With
+   * the pins' extent plus a rim as "span": the live view finds 13 of 13 rims
+   * from a cold start down to 0.22 and tracks them to ~0.18
+   * (experiments/live_view/regions.ts; the 800 px frame lost them below 0.40),
+   * and the still measures its worst pin to 0.003-0.004 mm from 0.40 to 0.26,
+   * 0.007 at 0.22, and loses a pin at 0.18 (still_by_span.py, clean renders).
+   * So the shot needs 0.26 and keeps going to 0.22. The experiments' span is
+   * the pins' greatest distance plus a rim; this one is their bounding box,
+   * never more: a chain at 0.22 here spans at least 0.23 there (more when it
+   * lies diagonally). (Was 0.40 / 0.33, the 800 px frame's edge; before that 0.45 / 0.38.) The dot chain's dots are drawn at 12 work pixels the same
+   * way, as large as at 0.55 on the old 640 px frame. */
+  minSpan: { enter: 0.26, keep: 0.22 } as Limits,
   /** Clear frame around the chain, as a fraction of the shorter side. A pin at
    * the edge may be cut off in the still, whose field of view can differ (S3). */
   minMargin: { enter: 0.04, keep: 0.025 } as Limits,

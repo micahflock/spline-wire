@@ -20,10 +20,12 @@
 // closed or the page is hidden: iOS keeps the camera light on otherwise.
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
+import { canTryWorker, compareGrays, FrameGrab, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
-import { toGray, workSize } from "../overlay/blobs";
+import { toGray } from "../overlay/blobs";
+import type { Region } from "../overlay/region";
 import { OverlaySession, type OverlayView } from "../overlay/session";
 import { followChain } from "../overlay/trace";
 import { pinsText, sayFor } from "../overlay/words";
@@ -94,6 +96,14 @@ export interface CameraStats {
   /** grab + gray (ms) and blobs (ms) of recent frames. */
   grabMs: number[];
   blobMs: number[];
+  /** Frames drawn from each kind of region (overlay/region.ts), and the last region drawn. */
+  regions: Record<Region["kind"], number>;
+  region: string;
+  /** Where frames are grabbed (camera/grab.ts): "worker", "check" (trying it), or "main: why". */
+  grab: string;
+  /** The page's own time per frame (ms): all of it when the page grabs; taking
+   * the VideoFrame and posting it when the worker does. */
+  pageMs: number[];
   frames: number;
   skipped: number;
   analysed: number;
@@ -126,6 +136,10 @@ export class CameraView {
   /** Which work canvas is cheaper here, once tried (see workCanvas). */
   private workMode: WorkMode | null = null;
   private trial: Record<WorkMode, number[]> = { gpu: [], cpu: [] };
+  /** The gray work frame, reused from frame to frame. */
+  private gray = new Uint8Array(0);
+  /** The frame grab in a worker, when this browser can (camera/grab.ts). */
+  private grab: FrameGrab | null = null;
   private shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
   private infoAt = 0;
   private readonly el: Record<string, HTMLElement>;
@@ -243,6 +257,9 @@ export class CameraView {
       // Estimating the focal length costs 400-640 ms an analysis (step 1's log): once a second is enough.
       minIntervalMs: () => (this.focal() ? 0 : 1000),
     });
+    this.grab = new FrameGrab(() => new Worker(new URL("../camera/grab-worker.ts", import.meta.url), { type: "module" }) as unknown as GrabWorkerLike,
+      canTryWorker(location.search));
+    this.stats.grab = this.grabText();
     this.setShutter(true);
     this.loop(gen);
   }
@@ -256,6 +273,8 @@ export class CameraView {
     this.stream = this.track = null;
     this.capture = null;
     this.session = null;
+    this.grab?.close();
+    this.grab = null;
     this.video.srcObject = null;
     for (const w of Object.values(this.work)) w.canvas.width = w.canvas.height = 0;
     this.work = {};
@@ -364,21 +383,36 @@ export class CameraView {
   private frame(now: number): void {
     const v = this.video;
     if (this.shooting || !this.session || v.readyState < 2 || !v.videoWidth) return;
-    // Leave the page at least half of its time: skip frames after a slow one.
-    if (now - this.lastWork < this.gap) {
+    // Leave the page at least half of its time: skip frames after a slow one;
+    // and while the worker has the last frame, wait for it.
+    if (now - this.lastWork < this.gap || this.grab?.busy) {
       this.stats.skipped++;
       return;
     }
     const t0 = performance.now();
-    const ws = workSize(v.videoWidth, v.videoHeight, this.session.shape);
-    const mode = this.workMode ?? (this.trial.gpu.length < TRIAL_FRAMES ? "gpu" : "cpu");
-    const work = this.workCanvas(mode, ws);
-    work.g.drawImage(v, 0, 0, ws.width, ws.height);
-    const gray = toGray(work.g.getImageData(0, 0, ws.width, ws.height).data, ws.width, ws.height);
+    // Only the part of the frame round the chain while it is tracked, drawn
+    // finely; else the whole frame, or a quarter of it (overlay/region.ts).
+    const r = this.session.region(v.videoWidth, v.videoHeight);
+    // In a worker when the browser can (camera/grab.ts); a check frame is
+    // grabbed here as well, and the two copies compared.
+    let check: VideoFrame | null = null;
+    if (this.grab?.wants()) {
+      const frame = this.videoFrame();
+      if (frame && this.grab.mode === "worker") return this.toWorker(frame, now, r, t0);
+      check = frame;
+    }
+    // The trial takes turns, so that both canvases see the same mix of regions.
+    const mode = this.workMode ?? (this.trial.gpu.length <= this.trial.cpu.length ? "gpu" : "cpu");
+    const work = this.workCanvas(mode, r.workWidth, r.workHeight);
+    work.g.drawImage(v, r.x, r.y, r.width, r.height, 0, 0, r.workWidth, r.workHeight);
+    const n = r.workWidth * r.workHeight;
+    if (this.gray.length < n) this.gray = new Uint8Array(n);
+    const gray = toGray(work.g.getImageData(0, 0, r.workWidth, r.workHeight).data, r.workWidth, r.workHeight, this.gray);
     const t1 = performance.now();
+    if (check) this.check(check, r, gray.data.slice());
     if (!this.workMode) {
       this.trial[mode].push(t1 - t0);
-      if (this.trial.cpu.length >= TRIAL_FRAMES) {
+      if (this.trial.cpu.length >= TRIAL_FRAMES && this.trial.gpu.length >= TRIAL_FRAMES) {
         this.workMode = median(this.trial.gpu) <= median(this.trial.cpu) ? "gpu" : "cpu";
         const other = this.work[this.workMode === "gpu" ? "cpu" : "gpu"];
         if (other) other.canvas.width = other.canvas.height = 0;
@@ -386,18 +420,84 @@ export class CameraView {
       }
     }
     const blobsBefore = this.session.stats.blobMs;
-    this.session.frame(gray, v.videoWidth, v.videoHeight, now);
+    this.session.frame(gray, v.videoWidth, v.videoHeight, now, r);
     const cost = performance.now() - t0;
     this.lastWork = now;
     this.gap = cost / BUSY_SHARE - cost;
+    this.counted(r, t1 - t0, this.session.stats.blobMs - blobsBefore, cost);
+  }
+
+  private counted(r: Region, grabMs: number, blobMs: number, pageMs: number): void {
     const st = this.stats;
     st.frames++;
-    push(st.grabMs, t1 - t0);
-    push(st.blobMs, this.session.stats.blobMs - blobsBefore);
-    if (this.session.stats.analysed !== st.analysed) {
+    st.regions[r.kind]++;
+    st.region = `${r.kind} ${r.workWidth}×${r.workHeight}`;
+    push(st.grabMs, grabMs);
+    push(st.blobMs, blobMs);
+    push(st.pageMs, pageMs);
+    if (this.session && this.session.stats.analysed !== st.analysed) {
       st.analysed = this.session.stats.analysed;
       push(st.analyseMs, this.session.stats.lastAnalyseMs);
     }
+  }
+
+  /** The video's current frame as a VideoFrame of the video's own size, or null
+   * (and the page grabs from now on) if the browser cannot make one. */
+  private videoFrame(): VideoFrame | null {
+    const v = this.video, grab = this.grab!;
+    let frame: VideoFrame;
+    try {
+      frame = new VideoFrame(v, { timestamp: Math.round(performance.now() * 1000) });
+    } catch (e) {
+      this.grabFailed(grab, `no VideoFrame of the video (${(e as Error).name}: ${(e as Error).message})`);
+      return null;
+    }
+    if (frame.displayWidth !== v.videoWidth || frame.displayHeight !== v.videoHeight) {
+      this.grabFailed(grab, `its VideoFrame is ${frame.displayWidth}×${frame.displayHeight}, the video ${v.videoWidth}×${v.videoHeight}`);
+      frame.close();
+      return null;
+    }
+    return frame;
+  }
+
+  /** The worker draws `frame` from `r` too: is its copy the page's (`page`)? */
+  private check(frame: VideoFrame, r: Region, page: Uint8Array): void {
+    const grab = this.grab!, gen = this.gen;
+    grab.run(frame, r, this.session!.shape, true).then((reply) => {
+      if (gen !== this.gen || this.grab !== grab) return;
+      grab.checked(compareGrays(page, reply.gray ?? new Uint8Array(0)));
+      this.stats.grab = this.grabText();
+    }, (e: Error) => {
+      if (gen === this.gen) this.grabFailed(grab, e.message);
+    });
+  }
+
+  /** Hand this frame to the grab worker, which draws `r` and finds its blobs. */
+  private toWorker(frame: VideoFrame, now: number, r: Region, t0: number): void {
+    const grab = this.grab!, session = this.session!, v = this.video, gen = this.gen;
+    const vw = v.videoWidth, vh = v.videoHeight;
+    let pageMs = 0;
+    grab.run(frame, r, session.shape).then((reply) => {
+      if (gen !== this.gen || this.session !== session || this.shooting) return;
+      session.found(reply.blobs ?? [], vw, vh, now, reply.blobMs ?? 0);
+      this.counted(r, reply.grabMs ?? 0, reply.blobMs ?? 0, pageMs);
+    }, (e: Error) => {
+      if (gen === this.gen) this.grabFailed(grab, e.message);
+    });
+    pageMs = performance.now() - t0;
+    this.lastWork = now;
+    this.gap = 0;                                // the page's share is the VideoFrame and the post: next frame at once
+  }
+
+  private grabFailed(grab: FrameGrab, why: string): void {
+    if (this.grab !== grab) return;
+    grab.fallBack(why);
+    this.stats.grab = this.grabText();
+  }
+
+  private grabText(): string {
+    const g = this.grab;
+    return !g ? "" : g.mode === "main" ? `main: ${g.why}` : g.mode;
   }
 
   /** The small canvas a frame is drawn into and read back from. Which kind is
@@ -407,16 +507,18 @@ export class CameraView {
    * headless Chromium (no GPU) a 3024×4032 frame took 34 ms into a GPU canvas
    * and 21 ms into a CPU one; a phone has a GPU. So the first frames try each,
    * and the rest use the faster. */
-  private workCanvas(mode: WorkMode, size: { width: number; height: number }): WorkCanvas {
+  private workCanvas(mode: WorkMode, width: number, height: number): WorkCanvas {
     let w = this.work[mode];
     if (!w) {
-      const canvas = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(size.width, size.height) : document.createElement("canvas");
+      const canvas = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(width, height) : document.createElement("canvas");
       const g = canvas.getContext("2d", { willReadFrequently: mode === "cpu" }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
       w = this.work[mode] = { canvas, g };
     }
-    if (w.canvas.width !== size.width || w.canvas.height !== size.height) {
-      w.canvas.width = size.width;
-      w.canvas.height = size.height;
+    // The regions change size from frame to frame: the canvas only grows, and
+    // each frame is drawn into its top-left corner (resizing reallocates it).
+    if (w.canvas.width < width || w.canvas.height < height) {
+      w.canvas.width = Math.max(w.canvas.width, width);
+      w.canvas.height = Math.max(w.canvas.height, height);
     }
     w.g.imageSmoothingEnabled = true;
     w.g.imageSmoothingQuality = "high";          // area-like averaging, as the coach was calibrated with
@@ -502,7 +604,8 @@ export class CameraView {
     st.size = `${v.videoWidth}×${v.videoHeight}`;
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
     this.el["cam-info"]!.textContent = [st.camera || "camera", st.size, focal,
-      st.grabMs.length ? `frame ${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "",
+      st.grabMs.length ? `frame ${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms${this.grab?.mode === "worker" ? " in a worker" : ""}` : "",
+      st.region,
       st.analyseMs.length ? `analysis ${Math.round(median(st.analyseMs))} ms` : "", sharp !== null ? `sharpness ${sharp.toFixed(2)}` : ""]
       .filter(Boolean).join(" · ");
     this.el["cam-teach"]!.hidden = !!f;
@@ -640,6 +743,6 @@ function median(v: number[]): number {
 }
 
 function blankStats(): CameraStats {
-  return { camera: "", size: "", grabMs: [], blobMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
+  return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
     imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null };
 }
