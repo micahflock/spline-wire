@@ -24,11 +24,18 @@ import type { Shape } from "../overlay/blobs";
 import type { Region } from "../overlay/region";
 import type { Blob } from "../overlay/types";
 
+/** How far the video, as shown, is turned from the VideoFrame of it, clockwise
+ * in degrees. Safari on iPhone gives a portrait video's frames in the sensor's
+ * landscape (VideoFrame 4032×3024 for a 3024×4032 video, owner's iPhone,
+ * 2026-11-19), with no rotation said: 90 or 270, the check tells which. */
+export type Turn = 0 | 90 | 180 | 270;
+
 export interface GrabRequest {
   id: number;
   frame: VideoFrame;
   region: Region;
   shape: Shape;
+  turn: Turn;
   /** Reply with the gray work frame instead of its blobs (the check). */
   gray?: boolean;
 }
@@ -73,8 +80,42 @@ export function whyNotWorker(search: string, g: object = globalThis): string | n
   return null;
 }
 
+/** The turns that could take a frame of frameW × frameH to a video of videoW ×
+ * videoH, likeliest first (the frame's own `rotation`, where the browser gives
+ * one, before the rest); null if none can. The same size could also be the
+ * frame upside down; a frame across could be turned either way, or (a browser
+ * that turns it when drawing) not at all. */
+export function turnsFor(frameW: number, frameH: number, videoW: number, videoH: number, hint?: unknown): Turn[] | null {
+  let turns: Turn[];
+  if (frameW === videoW && frameH === videoH) turns = [0, 180];
+  else if (frameW === videoH && frameH === videoW) turns = [90, 270, 0];
+  else return null;
+  if (typeof hint === "number" && (turns as number[]).includes(hint)) turns = [hint as Turn, ...turns.filter((t) => t !== hint)];
+  return turns;
+}
+
+/** How to draw `r` (a region of the video as shown) from a frame of frameW ×
+ * frameH turned by `turn`: drawImage(frame, sx, sy, sw, sh, 0, 0, dw, dh) with
+ * the context's transform set to `m` (setTransform's a, b, c, d, e, f) puts the
+ * region upright into r.workWidth × r.workHeight. */
+export function drawFor(r: Region, turn: Turn, frameW: number, frameH: number): {
+  sx: number; sy: number; sw: number; sh: number; dw: number; dh: number; m: [number, number, number, number, number, number];
+} {
+  const { x, y, width: w, height: h, workWidth: W, workHeight: H } = r;
+  switch (turn) {
+    case 0: return { sx: x, sy: y, sw: w, sh: h, dw: W, dh: H, m: [1, 0, 0, 1, 0, 0] };
+    // Shown (x, y) is frame (y, frameH - x): the frame's top-left shows top-right.
+    case 90: return { sx: y, sy: frameH - x - w, sw: h, sh: w, dw: H, dh: W, m: [0, 1, -1, 0, W, 0] };
+    case 180: return { sx: frameW - x - w, sy: frameH - y - h, sw: w, sh: h, dw: W, dh: H, m: [-1, 0, 0, -1, W, H] };
+    // Shown (x, y) is frame (frameW - y, x): the frame's top-left shows bottom-left.
+    case 270: return { sx: frameW - y - h, sy: x, sw: h, sh: w, dw: H, dh: W, m: [0, -1, 1, 0, 0, H] };
+  }
+}
+
 export class FrameGrab {
   mode: GrabMode;
+  /** The turns still to check, the one in use first (turnsFor). */
+  private turns: Turn[] = [];
   /** Why the page grabs, when it does. */
   why: string;
   private worker: GrabWorkerLike | null = null;
@@ -91,7 +132,7 @@ export class FrameGrab {
 
   /** Where frames are grabbed, for the camera view's info line. */
   describe(): string {
-    return this.mode === "worker" ? "grab in a worker"
+    return this.mode === "worker" ? `grab in a worker${this.turn ? ` (frames turned ${this.turn}°)` : ""}`
       : this.mode === "check" ? "grab on the page (checking the worker)"
         : `grab on the page: ${this.why}`;
   }
@@ -114,7 +155,7 @@ export class FrameGrab {
       }, this.timeoutMs);
       this.pending = { id, resolve, reject, timer };
       try {
-        w.postMessage({ id, frame, region, shape, gray }, [frame as unknown as Transferable]);
+        w.postMessage({ id, frame, region, shape, gray, turn: this.turn }, [frame as unknown as Transferable]);
       } catch (e) {
         clearTimeout(timer);
         this.pending = null;
@@ -129,6 +170,20 @@ export class FrameGrab {
       if (reply.error !== undefined) throw new Error(reply.error);
       return reply;
     });
+  }
+
+  /** The turn frames are drawn with. */
+  get turn(): Turn {
+    return this.turns[0] ?? 0;
+  }
+
+  /** The turns a frame could need (turnsFor), told once, by the first frame. */
+  turnsKnown(): boolean {
+    return this.turns.length > 0;
+  }
+
+  setTurns(turns: Turn[]): void {
+    if (!this.turns.length) this.turns = [...turns];
   }
 
   /** Should this frame go to the worker (as a check, or to be searched)? While
@@ -148,8 +203,9 @@ export class FrameGrab {
   checked(verdict: "same" | "different" | "unsure"): void {
     if (this.mode !== "check") return;
     if (verdict === "same") this.mode = "worker";
-    else if (verdict === "different") this.fallBack("the worker's copy of a frame differs");
-    else this.wait = GRAB.recheckFrames;
+    else if (verdict === "unsure") this.wait = GRAB.recheckFrames;
+    else if (this.turns.length > 1) this.turns.shift();      // try the frame turned the next way
+    else this.fallBack("the worker's copy of a frame differs");
   }
 
   /** From now on the page grabs. */
