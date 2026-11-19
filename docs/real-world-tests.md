@@ -150,6 +150,26 @@ Scored: for round gauges, the fitted radius against the gauge's and each contact
 
 **Pass** (the old targets): radius within 0.5 mm; worst contact point within 0.5 mm, end pins excluded until the end links exist.
 
+**Results, session 2 (2026-11-19; iPhone 16 Pro; the black chain at 12.98 mm; focal override 24.61 mm; on the dotted mousepad).** Worst contact point without the ends, and the fitted circle:
+
+| Photo | Gauge | Tilt | Worst | Radius error (print offset: −0.1 convex, +0.1 concave) | Circle-fit residual | Notes |
+|---|---|---|---|---|---|---|
+| 032 | convex R25 | 21° | **0.26** | +0.13 | 0.09 | passes |
+| 033 | convex R25 | 23° | 0.97 | −0.21 | 0.30 | a finger in the frame; 12 pins, one missed |
+| 034 | concave R60 | 22° | 0.63 | −0.36 | 0.23 | a 1080×1920 still (see below) |
+| 035 | concave R60 | 18° | 1.10 | **+2.13** | 0.07 | a clean arc of the wrong radius |
+| 036 | concave R100 | 14° | **0.43** | +0.63 | 0.17 | passes on the points |
+| 037 | concave R100 | 21° | 0.55 | **−3.10** | 0.05 | a clean arc of the wrong radius |
+
+What it says:
+- **The measurement is not the problem on 035 and 037: the chain is.** Both read as near-perfect circles (residual 0.05–0.07 mm), just of the wrong radius, so the chain held a smooth arc that was not the gauge's. A focal length error cannot do it: simulated, at 20° tilt a ±5% focal error moves the R100 radius by ±0.19 mm and the R60 by ±0.09 mm, and at 5° by nothing to speak of. (Fitting the focal length to a gauge, as `--fit-focal` does, "corrects" 037 at 19.6 mm: on a gently curved chain the fit bends the curve to the gauge, so it is not a measure of the focal length.) Likely causes, to separate: the joints do not each settle when the chain is pressed into a hollow (the chain turns as a whole); the soft mousepad lets links lean (the rims are 13 mm above the contact; a 5° lean moves a rim 1.1 mm).
+- **Convex R25 passes** (0.26 mm), and concave R100 once on its points (0.43 mm).
+- Two stills (025, 034) came out 1080×1920 instead of 3024×4032, with the EXIF's 35 mm figure at 25: the page asked takePhoto for the size its capabilities gave, and when those did not arrive in time took the default. To fix in the page.
+
+**Focal calibration (session 2, plaque photos 024–031, and session 1 re-run):** the best-fit focal length on 16 centred, whole-chain photos tilted 20° or more is 24.2–26.7 mm, median 25.0. Placement does not explain the spread among centred photos (session 1's edge-of-frame shots fit 27–28 mm, which is distortion). Some fits are flat (027: 24.0 and 24.2 give the same 0.106 mm), others sharp (024: 0.49 mm at 24, 0.085 at 26.75), so part of the spread is real. A fixed override of ~25.0 mm is the best single value; at 20° tilt or less a few percent hardly matters (above), so **gauge and object photos should be taken near straight on**.
+
+Next (session 3): the gauges again on a hard, flat surface, pressing every link against the wall and looking for light between sleeve and wall, at ≤10° tilt (focal-proof), two each; then one each at 20° on the same surface.
+
 ## Phase 3: wrap, lift, lay flat (handling)
 
 The real workflow: wrap the chain, lift it off, lay it flat somewhere else and photograph it. Convex R40, concave R60 and the S, both chains, three repeats each: 18 photos. Then creep: leave one chain posed off the R40 gauge and photograph it at 0, 1 h and 24 h.
@@ -175,8 +195,9 @@ A session is what fits one message: at most 16 photos attached, plus the page's 
 |---|---|---|
 | 1 (done, 2026-11-19) | 20 | Phase 1, white-rim plaques |
 | 2 | 12 | **Focal calibration** (1–6): `plaque-s`, centred, 30–40°, one from each of 6 sides; then **Use it as the override**. **Phase 2** (7–12): the chain on `convex-r25`, `concave-r60`, `concave-r100`, not lifted, 20°, re-wrapped between 2 shots each |
-| 3 | 12 | **Phase 3** (1–9): wrap, lift, lay flat elsewhere, on `convex-r25`, `concave-r60` and `concave-r100`, 3 lifts each. **Phase 1, the rest** (10–11): `plaque-s` at 20° on a dark surface, and with a lamp reflected in the tops. **Creep** (12): the chain posed off `convex-r25`, lifted, first photo; then leave it untouched |
-| 4 | 8 | **Creep** (1–2): the same pose at 1 h and 24 h. **Lens distortion** (3–8): `plaque-s` at 20°, once in each corner of the frame and twice centred, all with the override, to measure what is left at the edges (corner shots set "Place in the frame" to corner) |
+| 3 | 11 | **Phase 2 again** (1–9): on a hard, flat surface (desk, board), every link pressed against the wall, no light between sleeve and wall: `convex-r25`, `concave-r60`, `concave-r100` at ≤10° tilt, 2 each (6), then once each at 20° (3). **Phase 1, the rest** (10–11): `plaque-s` at 20° on a dark surface, and with a lamp reflected in the tops. Override 25.0 |
+| 4 | 13 | **Phase 3** (1–9): wrap, lift, lay flat elsewhere, on the three gauges, 3 lifts each. **Creep** (10–11): posed off `convex-r25`, at once and at 1 h. **Lens distortion** (12–13): `plaque-s` at 20° in two corners (more if it matters) |
+| 5 | 1 | Creep at 24 h |
 
 Phase 4 (end to end) runs through the phone and desktop pages, not the test page.
 
