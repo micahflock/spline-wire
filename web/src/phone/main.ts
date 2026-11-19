@@ -24,6 +24,7 @@ import { pack } from "../relay/files";
 import { RelayLink, type LinkStatus } from "../relay/link";
 import { pointsTsv } from "../relay/messages";
 import { Outbox } from "../relay/outbox";
+import { codeMeaning } from "../camera/qr";
 import { forgetPairing, phoneSecret, secretFromHash } from "../relay/pairing";
 import { LocalStore } from "../relay/store";
 import { CameraView, type Still } from "./camera-view";
@@ -679,9 +680,11 @@ const paired = () => outbox !== null;
 /** Bumped by each start, so a start overtaken by a newer one (two quick scans) leaves no link behind. */
 let pairingRun = 0;
 
-async function startPairing(): Promise<void> {
+/** Pair from `hash` (#pair=<secret>): the page's address, or a code the camera saw (which is not in the address). */
+async function startPairing(hash = location.hash): Promise<void> {
   const run = ++pairingRun;
-  secret = phoneSecret(store, location.hash, () => history_.replaceState(null, "", location.pathname + location.search));
+  const fromAddress = hash === location.hash;
+  secret = phoneSecret(store, hash, () => { if (fromAddress) history_.replaceState(null, "", location.pathname + location.search); });
   if (!secret || !relayUrl) {
     renderPairing();
     return;
@@ -782,7 +785,7 @@ function renderPairing(): void {
   if (!secret) {
     lamp.className = "lamp";
     chip.textContent = "Not paired";
-    text.textContent = "Not paired. To send curves to a computer, open the Spline Wire site on the computer and scan the code it shows with this phone's camera. Copy points, Share and the downloads work without it.";
+    text.textContent = "Not paired. To send curves to a computer, open the Spline Wire site on the computer and point Take photo's live camera (or the phone's Camera app) at the code it shows. Copy points, Share and the downloads work without it.";
   } else if (!relayUrl) {
     lamp.className = "lamp bad";
     chip.textContent = "No relay";
@@ -845,16 +848,33 @@ $("unpair").onclick = () => {
 // differs from the open one only in its #fragment, so the browser does not load
 // the page again, it only changes location.hash. Pair here instead.
 addEventListener("hashchange", () => {
-  if (!secretFromHash(location.hash)) return;
+  if (secretFromHash(location.hash)) pairAgain(location.hash);
+});
+
+/** Pair with the computer whose code this is, in place of the current pairing. */
+function pairAgain(hash: string): void {
   const before = secret;
+  if (secretFromHash(hash) === before && link) {
+    toast("Already paired with this computer.");
+    if (hash === location.hash) history_.replaceState(history_.state, "", location.pathname + location.search);
+    return;
+  }
   link?.stop();
   link = null;
   outbox = null;
   linkStatus = { state: "off", peers: 0 };
-  void startPairing()
+  void startPairing(hash)
     .then(() => { if (secret && secret !== before) toast("Paired with the computer."); })
     .catch((e: Error) => toast(`Pairing: ${e.message}`));
-});
+}
+
+/** A QR code the live camera saw: the desktop page's pairing code pairs here,
+ * without leaving the camera (the address is not changed: that would close it). */
+function cameraCode(text: string): void {
+  const m = codeMeaning(text, location.href);
+  if (m.kind === "pair") pairAgain(`#pair=${m.secret}`);
+  else if (m.kind === "elsewhere") toast(`That pairing code is for another copy of the site (${m.where}). Open the site at ${location.host} on the computer.`, 6000);
+}
 
 addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") link?.retryNow();
@@ -1007,6 +1027,7 @@ const cameraView = new CameraView({
   },
   // Said, so that a camera view that closes unexpectedly tells the person (and us) why.
   closedBy: (why) => toast(`The camera closed: ${why}.`, 6000),
+  code: cameraCode,
 });
 debug.cameraView = cameraView;
 debug.camera = cameraView.stats;

@@ -166,6 +166,8 @@ select { max-width: 55%; }
   background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 3px; font-size: 15px; opacity: 0; pointer-events: none;
   transition: opacity .2s; z-index: 10; }
 #toast.on { opacity: 1; }
+/* Over the camera view (a pairing code it saw), above the shutter. */
+html.cam-on #toast { z-index: 30; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 160px); }
 
 /* The camera view: full screen, black, the video shown whole (what the still holds), the chain traced
    over it on a canvas, the coach's words at the top, the shutter with its hold ring at the bottom. */
