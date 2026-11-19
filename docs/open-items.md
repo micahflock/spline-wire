@@ -72,5 +72,7 @@ From [web-build.md](web-build.md) (Status, Open decisions, Work queue).
 
 ## 6. Workflow and CAD
 
+- **Add from phone in Fusion** (built 2026-11-19, [fusion-palette.md](fusion-palette.md), "Trying it in Fusion"): on Windows, then on a Mac (D25: the Mac is assumed to behave as Windows did in S6). Does a curve land in the open sketch within seconds, is one Ctrl+Z enough, and does the palette survive hiding, workspace switches and a restart?
+
 - **Hand-placed pins.** When no dot is visible to snap to (a lamp's reflection), a pin is its tap fitted to the pitch of its links. Simulated, from a tap up to 3 px off, the median error is 0.03 mm for one hidden pin and 0.1 mm for two in a row (worst of 12 trials: 0.23 and 0.19 mm). How well do people place them on real glare-damaged photos, and is "zoom in and tap the middle of where the rim should be" enough guidance?
 - **Fit points in Fusion.** Does `sketchFittedSplines.add` take the pasted sketch points as its fit points, or does the add-in fall back to plain coordinates and leave a second point at each spot ([fusion-import.md](fusion-import.md))? Paste points works either way.

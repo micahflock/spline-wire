@@ -1,9 +1,13 @@
-"""Spline Wire add-in for Autodesk Fusion: paste measured points into a sketch.
+"""Spline Wire add-in for Autodesk Fusion: measured curves into a sketch.
 
-Adds a "Paste points" button to the sketch Create panel and to the Insert
-panel. It reads the point table that the Spline Wire desktop page's "Copy points"
-puts on the clipboard (or any pasted x/y table in mm) and adds, in the sketch being
-edited (or a new sketch on the XY plane):
+Adds two buttons to the sketch Create panel and to the Insert panel:
+
+- Add from phone (palette.py) shows a palette with the Spline Wire page: pair a phone once, and
+  each curve measured on it goes into the sketch being edited.
+- Paste points reads the table the desktop page's Copy points puts on the clipboard.
+
+Paste points reads that table (or any pasted x/y table in mm) and adds, in the sketch
+being edited (or a new sketch on the XY plane), as Add from phone does (sketch.py):
 
 - a sketch point at every curve point, and
 - a fitted spline through those points (delete it to keep only points).
@@ -16,7 +20,7 @@ import traceback
 import adsk.core
 import adsk.fusion
 
-from . import curvedata
+from . import curvedata, palette, sketch
 
 CMD_ID = "SplineWirePastePoints"
 CMD_NAME = "Paste points"
@@ -40,12 +44,15 @@ def run(context):
             if panel and not panel.controls.itemById(CMD_ID):
                 control = panel.controls.addCommand(cmd_def)
                 control.isPromoted = True   # show on the panel, not only in its dropdown
+        palette.start(adsk.core.Application.get(), PANELS)
     except Exception:
         ui.messageBox("Spline Wire add-in failed to start:\n" + traceback.format_exc())
 
 
 def stop(context):
-    ui = adsk.core.Application.get().userInterface
+    app = adsk.core.Application.get()
+    palette.stop(app, PANELS)
+    ui = app.userInterface
     for panel_id in PANELS:
         panel = ui.allToolbarPanels.itemById(panel_id)
         control = panel.controls.itemById(CMD_ID) if panel else None
@@ -78,28 +85,6 @@ class _Execute(adsk.core.CommandEventHandler):
 def paste_points(app, clipboard_text):
     """Add the clipboard's points (mm) and a spline through them to a sketch."""
     points_mm = curvedata.parse_points(clipboard_text)
-    design = adsk.fusion.Design.cast(app.activeProduct)
-    if not design:
-        raise ValueError("Open a design (not a drawing or CAM setup) before pasting points.")
-
-    sketch = adsk.fusion.Sketch.cast(app.activeEditObject)
-    if not sketch:
-        root = design.rootComponent
-        sketch = root.sketches.add(root.xYConstructionPlane)
-        sketch.name = "Spline Wire"
-
-    sketch_points = adsk.core.ObjectCollection.create()
-    coordinates = adsk.core.ObjectCollection.create()
-    for x_mm, y_mm in points_mm:
-        xyz = adsk.core.Point3D.create(x_mm / 10.0, y_mm / 10.0, 0.0)
-        sketch_points.add(sketch.sketchPoints.add(xyz))
-        coordinates.add(xyz)
-    # The pasted points stay even if the spline is deleted. Preferably they
-    # are also the spline's own fit points; the documented form takes plain
-    # coordinates, which leaves a second, coincident point at each spot.
-    splines = sketch.sketchCurves.sketchFittedSplines
-    try:
-        splines.add(sketch_points)
-    except Exception:
-        splines.add(coordinates)
-    return sketch
+    sketch.design_of(app)
+    target = sketch.active_sketch(app) or sketch.new_sketch(app)
+    return sketch.add_curve(target, points_mm)

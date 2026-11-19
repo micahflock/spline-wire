@@ -14,7 +14,7 @@ What might be done, in no particular order. Nothing here is needed for the measu
 
 ## CAD
 
-- **A Fusion add-in that pairs with the phone directly** (was O7): the add-in receives curves from the relay in an HTML palette, with no desktop page and no clipboard. Researched 2026-11-18: a palette loading the hosted desktop page in a `?fusion` mode, after a spike in real Fusion. Design, options and the spike: [fusion-palette.md](fusion-palette.md).
+- ~~**A Fusion add-in that pairs with the phone directly**~~ (was O7): built 2026-11-19 as the add-in's **Add from phone** and the desktop page's `?fusion` mode ([fusion-palette.md](fusion-palette.md)); trying it in Fusion is [open-items.md](open-items.md) item 6. Still here: the palette opening by itself at Fusion's start, and placing the curve by a point and a line.
 - **Setting the CAD sketch origin and orientation.** Today the origin is the first pin and the axes follow the photo. Let the person pick them, or align them to something in the photo or the sketch.
 - **CAD packages beyond Fusion.** The DXF (mm) and the 1:1 SVG are a partial fallback for them today.
 
