@@ -28,7 +28,7 @@ export const COLOURWAYS: Record<Colourway, string> = {
   dark: "Orange rims on white links",
 };
 
-export type FocalSource = "exif" | "remembered" | "saved" | "estimated";
+export type FocalSource = "override" | "exif" | "remembered" | "saved" | "estimated" | "fitted";
 
 export interface FocalRun {
   source: FocalSource;
@@ -41,7 +41,7 @@ export interface Results {
   pins_found: number;
   tilt_deg: number;
   warnings: string[];
-  focal: { main: FocalRun; estimated?: FocalRun };
+  focal: { main: FocalRun; estimated?: FocalRun; fitted?: FocalRun };
   ms: number;
 }
 
@@ -61,6 +61,8 @@ export interface TestRecord {
   conditions: { tilt: string; surface: string; light: string; frame: string };
   exif: { make: string | null; model: string | null; focal_mm: number | null; focal_35mm: number | null };
   saved_focal_35mm: number | null;
+  /** The override set on the page, used instead of the EXIF; null if none. */
+  focal_override_35mm?: number | null;
   size: [number, number];
   results?: Results;
   error?: string;
@@ -87,9 +89,13 @@ export function specFor(base: ChainSpec, target: string, links: number, shade: C
   return { ...base, n_pins: links, fiducial_shade: shade, pitch_mm: pitch };
 }
 
-/** The focal length a photo is measured with: its EXIF, else the lens the
+/** The focal length a photo is measured with: an override set on the page
+ * (for a camera whose EXIF is off, as the iPhone's in-page still was by ~5%
+ * in phase 1), else its EXIF, else the lens the
  * phone page remembered for it, else the saved setting, else none. */
-export function chooseFocal(exif35: number | null, remembered35: number | null, saved35: number | null): { source: FocalSource; f35: number | null } {
+export function chooseFocal(exif35: number | null, remembered35: number | null, saved35: number | null,
+  override35: number | null = null): { source: FocalSource; f35: number | null } {
+  if (override35) return { source: "override", f35: override35 };
   if (exif35) return { source: "exif", f35: exif35 };
   if (remembered35) return { source: "remembered", f35: remembered35 };
   if (saved35) return { source: "saved", f35: saved35 };
@@ -97,7 +103,8 @@ export function chooseFocal(exif35: number | null, remembered35: number | null, 
 }
 
 /** Measure the photo and score it: with the focal length chooseFocal gives,
- * and (when that is known) also with it estimated from the chain, to show
+ * for a plaque also with the focal length that fits it best (fitFocal), and
+ * (when the focal length is known) with it estimated from the chain, to show
  * what an estimate costs. Detection runs once. */
 export function measureAndScore(gray: Gray, spec: ChainSpec, target: string,
   focal: { source: FocalSource; f35: number | null }, now: () => number = () => Date.now()): Results {
@@ -130,8 +137,59 @@ export function measureAndScore(gray: Gray, spec: ChainSpec, target: string,
     ms: 0,
   };
   if (focal.f35) results.focal.estimated = run("estimated", null)[0];
+  if (isPlaque(target)) {
+    const start = focal.f35 ?? main.focal_35mm ?? 26;
+    const best = fitFocal((f35) => {
+      const r = run("fitted", f35)[0];
+      return r.score?.kind === "plaque" ? r.score.rms_error_mm : Infinity;
+    }, 0.6 * start, 1.6 * start);
+    results.focal.fitted = run("fitted", best)[0];
+  }
   results.ms = now() - t0;
   return results;
+}
+
+/** The focal length (35 mm equivalent) that minimises cost(f35) between lo
+ * and hi, to 0.01 mm: a coarse scan (the cost can have several dips when a
+ * focal length is far off), then golden-section search around the best. As
+ * scoring._fit_focal, which uses SciPy's bounded Brent search instead. */
+export function fitFocal(cost: (f35: number) => number, lo: number, hi: number): number {
+  const steps = 24;
+  let bestI = 0, bestC = Infinity;
+  const xs = Array.from({ length: steps + 1 }, (_, i) => lo + (hi - lo) * i / steps);
+  xs.forEach((x, i) => {
+    const c = cost(x);
+    if (c < bestC) {
+      bestC = c;
+      bestI = i;
+    }
+  });
+  let a = xs[Math.max(0, bestI - 1)]!, b = xs[Math.min(steps, bestI + 1)]!;
+  const g = (Math.sqrt(5) - 1) / 2;
+  let c = b - g * (b - a), d = a + g * (b - a);
+  let fc = cost(c), fd = cost(d);
+  while (b - a > 0.01) {
+    if (fc < fd) {
+      b = d; d = c; fd = fc; c = b - g * (b - a); fc = cost(c);
+    } else {
+      a = c; c = d; fc = fd; d = a + g * (b - a); fd = cost(d);
+    }
+  }
+  return Math.round(((a + b) / 2) * 100) / 100;
+}
+
+/** The plaque photos' best-fit focal lengths, for the page's summary: only
+ * photos tilted 20° or more (straight on, the focal length hardly changes the
+ * result, so the fit says nothing) that read the whole chain. */
+export function focalSummary(tests: readonly TestRecord[]): { n: number; median: number; min: number; max: number } | null {
+  const fs = tests.filter((t) => t.results && t.results.tilt_deg >= 20 && t.results.pins_found === t.pins)
+    .map((t) => t.results!.focal.fitted?.focal_35mm)
+    .filter((f): f is number => typeof f === "number")
+    .sort((a, b) => a - b);
+  if (!fs.length) return null;
+  const mid = fs.length >> 1;
+  const median = fs.length % 2 ? fs[mid]! : (fs[mid - 1]! + fs[mid]!) / 2;
+  return { n: fs.length, median: Math.round(median * 100) / 100, min: fs[0]!, max: fs[fs.length - 1]! };
 }
 
 export interface Verdict {
@@ -196,11 +254,12 @@ export function reportText(r: Report): string {
       lines.push(`${t.id} ${t.target}: ${t.error ?? "not measured"}`);
       continue;
     }
-    const main = res.focal.main, est = res.focal.estimated;
+    const main = res.focal.main, est = res.focal.estimated, fit = res.focal.fitted;
     const head = (run: FocalRun | undefined) => (!run ? "-" : run.error ? "failed" : run.score ? headline(run.score).toFixed(3) : "ok");
     lines.push(`${t.id} ${t.target} ${COLOURWAYS[t.shade]}, ${t.pins} links at ${t.pitch_mm} mm, tilt ${res.tilt_deg}° (planned ${t.conditions.tilt}), `
       + `${t.conditions.surface}, ${t.conditions.light}, ${t.route}: ${res.pins_found} pins; `
       + `${main.source} ${main.focal_35mm ?? "?"} mm -> ${head(main)} mm; estimated -> ${head(est)} mm`
+      + (fit ? `; best fit ${fit.focal_35mm ?? "?"} mm -> ${head(fit)} mm` : "")
       + (res.warnings.length ? ` [${res.warnings.length} warning(s)]` : ""));
   }
   return `${lines.join("\n")}\n\n${JSON.stringify(r)}\n`;

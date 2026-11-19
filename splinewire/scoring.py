@@ -192,10 +192,12 @@ def target_side(target: str) -> str | None:
 
 
 def score_photo(data: bytes, name: str, target: str, spec: ChainSpec, *,
-                saved_focal_35mm: float | None = None, fit_focal: bool = False) -> dict:
+                saved_focal_35mm: float | None = None, focal_override_35mm: float | None = None,
+                fit_focal: bool = False) -> dict:
     """Measure a test photo and score it against its target, with the focal
-    length the page would use (EXIF, else the saved setting), estimated from
-    the chain, and (fit_focal) the one that fits the target best.
+    length the page would use (the override, else EXIF, else the saved
+    setting), estimated from the chain, and (fit_focal) the one that fits the
+    target best.
 
     {"photo", "target", "pins_found", "tilt_deg", "warnings",
      "focal": {"exif": {...}, "estimated": {...}, "fitted": {...}}}
@@ -221,7 +223,7 @@ def score_photo(data: bytes, name: str, target: str, spec: ChainSpec, *,
 
     out: dict = {"photo": name, "target": target, "focal": {}}
     try:
-        entry, r = run(None, True)
+        entry, r = run(focal_override_35mm, True)
     except ValueError as err:
         return {**out, "error": str(err)}
     m = r.measurement

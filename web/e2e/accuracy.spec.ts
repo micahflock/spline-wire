@@ -19,6 +19,12 @@ test("the accuracy page scores a plaque photo and writes the report", async ({ p
   expect(now).toContain("testphone-001");
   await expect(page.locator("#tests")).toContainText("exif focal 26 mm: worst pin");
   await expect(page.locator("#tests")).toContainText("estimated focal");
+  await expect(page.locator("#tests")).toContainText("best-fit focal 2");       // the render's 26 mm
+  await expect(page.locator("#fit-text")).toContainText("over 1 plaque photo(s)");
+  await page.getByRole("button", { name: "Use it as the override" }).click();
+  const fitted = Number(await page.locator("#override").inputValue());
+  expect(fitted).toBeGreaterThan(25.5);
+  expect(fitted).toBeLessThan(26.5);
 
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download the report (JSON)" }).click()]);
   const report = JSON.parse(readFileSync((await download.path())!, "utf-8"));
@@ -29,6 +35,8 @@ test("the accuracy page scores a plaque photo and writes the report", async ({ p
   expect(t.exif.focal_35mm).toBe(26);
   expect(t.results.focal.main.source).toBe("exif");
   expect(t.results.focal.main.score.max_error_mm).toBeLessThan(0.05);
+  expect(t.results.focal.fitted.source).toBe("fitted");
+  expect(t.focal_override_35mm).toBeNull();
 
   // A reload keeps the test (IndexedDB) and the settings.
   await page.reload();

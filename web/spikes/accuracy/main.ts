@@ -11,7 +11,7 @@ import { GAUGES, PLAQUES } from "../../src/pipeline/targets";
 import type { ChainSpec } from "../../src/pipeline/types";
 import { LocalStore } from "../../src/relay/store";
 import {
-  chooseFocal, COLOURWAYS, measureAndScore, specFor, photoName, report, reportText, testId, verdict,
+  chooseFocal, COLOURWAYS, focalSummary, measureAndScore, specFor, photoName, report, reportText, testId, verdict,
   type Colourway, type TestRecord,
 } from "../../src/testbench/bench";
 import { Camera } from "./camera";
@@ -25,7 +25,7 @@ $("version").textContent = `Version ${version}.`;
 
 const store = new LocalStore("splinewire-bench:");
 const phoneSettings = () => loadSettings(new LocalStore("splinewire-phone:"));
-const fields = ["phone", "shade", "links", "focal", "pitch", "target", "tilt", "frame", "surface", "light"] as const;
+const fields = ["phone", "shade", "links", "focal", "override", "pitch", "target", "tilt", "frame", "surface", "light"] as const;
 type Field = (typeof fields)[number];
 const input = (f: Field) => $<HTMLInputElement | HTMLSelectElement>(f);
 
@@ -59,6 +59,11 @@ function savedFocal(): number | null {
   const f = Number(input("focal").value);
   if (f >= 5 && f <= 500) return f;
   return phoneSettings().savedFocal35;
+}
+
+function override(): number | null {
+  const f = Number(input("override").value);
+  return f >= 5 && f <= 500 ? f : null;
 }
 
 function showFocalNote(): void {
@@ -149,7 +154,7 @@ async function run(photo: Blob, route: TestRecord["route"]): Promise<void> {
     shade: input("shade").value as Colourway, pins: links(), pitch_mm: 0, target, route,
     conditions: { tilt: input("tilt").value, surface: input("surface").value, light: input("light").value, frame: input("frame").value },
     exif: { make: exif.make, model: exif.model, focal_mm: exif.focalMm, focal_35mm: exif.focal35 },
-    saved_focal_35mm: savedFocal(), size: [0, 0],
+    saved_focal_35mm: savedFocal(), focal_override_35mm: override(), size: [0, 0],
   };
   try {
     const gray = await decodeToGray(photo);
@@ -159,7 +164,7 @@ async function run(photo: Blob, route: TestRecord["route"]): Promise<void> {
     const remembered = lensFocal(phoneSettings(), exif)?.focal35 ?? null;
     const spec = await chain(target);
     record.pitch_mm = spec.pitch_mm;
-    record.results = measureAndScore(gray, spec, target, chooseFocal(exif.focal35, remembered, record.saved_focal_35mm));
+    record.results = measureAndScore(gray, spec, target, chooseFocal(exif.focal35, remembered, record.saved_focal_35mm, record.focal_override_35mm ?? null));
     const v = verdict(record.results.focal.main, record.results.pins_found, record.pins);
     now(`${id}: ${v.ok ? "PASS" : "CHECK"} — ${v.text}`);
   } catch (e) {
@@ -174,6 +179,7 @@ async function run(photo: Blob, route: TestRecord["route"]): Promise<void> {
 
 async function list(): Promise<void> {
   const tests = (await allTests()).reverse();
+  showFitSummary(tests);
   const box = $("tests");
   box.replaceChildren();
   if (!tests.length) box.innerHTML = '<p class="muted">None yet.</p>';
@@ -187,10 +193,11 @@ async function list(): Promise<void> {
     if (!r) {
       row.append(line(t.error ?? "not measured", false));
     } else {
-      for (const run of [r.focal.main, r.focal.estimated]) {
+      for (const run of [r.focal.main, r.focal.estimated, r.focal.fitted]) {
         if (!run) continue;
         const v = verdict(run, r.pins_found, t.pins);
-        row.append(line(`${run.source} focal ${run.focal_35mm ?? "?"} mm: ${v.text}`, v.ok));
+        const name = run.source === "fitted" ? "best-fit" : run.source;
+        row.append(line(`${name} focal ${run.focal_35mm ?? "?"} mm: ${v.text}`, v.ok));
       }
       const info = document.createElement("div");
       info.className = "muted";
@@ -212,6 +219,20 @@ async function list(): Promise<void> {
     row.append(actions);
     box.append(row);
   }
+}
+
+/** The plaque photos' best-fit focal lengths so far, and a button to use their median. */
+function showFitSummary(tests: TestRecord[]): void {
+  const sum = focalSummary(tests);
+  $("fit-summary").hidden = !sum;
+  if (!sum) return;
+  $("fit-text").textContent = `Best-fit focal length over ${sum.n} plaque photo(s) tilted 20° or more: median ${sum.median} mm `
+    + `(${sum.min}–${sum.max}). A few photos from different directions, centred, at 30–40°, pin it down.`;
+  $("use-fit").onclick = () => {
+    input("override").value = String(sum.median);
+    store.set("override", String(sum.median));
+    $("fit-text").textContent += ` Now the override: new photos are measured at ${sum.median} mm.`;
+  };
 }
 
 function line(text: string, ok: boolean): HTMLElement {

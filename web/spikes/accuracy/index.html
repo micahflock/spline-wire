@@ -55,6 +55,12 @@
     <label class="field">Chain pitch, as measured with calipers (mm)<input id="pitch" type="number" inputmode="decimal" step="0.001" placeholder="13.000"></label>
     <p class="muted">Used for the chain on a gauge or an object. A plaque is always measured at the pitch it was printed at (13.000 mm). Leave it empty for the chain's design pitch.</p>
     <p class="muted" id="focal-note"></p>
+    <label class="field">Focal length override (35 mm equiv., optional)<input id="override" type="number" inputmode="decimal" step="0.01" placeholder="e.g. 25.2"></label>
+    <p class="muted">Used for every photo instead of its EXIF, for a camera whose EXIF is off (phase 1: the iPhone's ~5%). Leave it empty to use the EXIF.</p>
+    <div id="fit-summary" hidden>
+      <p id="fit-text"></p>
+      <button id="use-fit" class="quiet">Use it as the override</button>
+    </div>
   </section>
 
   <section>

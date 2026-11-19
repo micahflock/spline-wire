@@ -9,7 +9,7 @@ import { readGrayPng } from "../pipeline/golden/png";
 import type { PlaqueScore } from "../pipeline/scoring";
 import type { ChainSpec } from "../pipeline/types";
 import {
-  chooseFocal, isTarget, specFor, measureAndScore, photoName, phoneSlug, report, REPORT_SCHEMA, reportText, targetSide,
+  chooseFocal, fitFocal, focalSummary, isTarget, specFor, measureAndScore, photoName, phoneSlug, report, REPORT_SCHEMA, reportText, targetSide,
   testId, verdict, type TestRecord,
 } from "./bench";
 
@@ -30,6 +30,11 @@ describe("measureAndScore", () => {
     expect(main.max_error_mm).toBeCloseTo(golden.photo.runs.exif!.score.max_error_mm, 4);
     expect(est.max_error_mm).toBeCloseTo(golden.photo.runs.estimated!.score.max_error_mm, 3);
     expect(r.focal.main.focal_35mm).toBeCloseTo(26, 1);
+    // The best fit lands on the render's true focal length, from a 24 mm start (as the iPhone's tag).
+    const off = measureAndScore(gray, spec, "plaque-s", { source: "exif", f35: 24 });
+    expect(off.focal.fitted!.focal_35mm!).toBeGreaterThan(25.5);
+    expect(off.focal.fitted!.focal_35mm!).toBeLessThan(26.5);
+    expect((off.focal.fitted!.score as PlaqueScore).max_error_mm).toBeLessThanOrEqual((off.focal.main.score as PlaqueScore).max_error_mm + 1e-9);
     expect(verdict(r.focal.main, r.pins_found, 13).ok).toBe(true);
   });
 
@@ -37,6 +42,7 @@ describe("measureAndScore", () => {
     const r = measureAndScore(gray, spec, "object", { source: "estimated", f35: null });
     expect(r.focal.main.score).toBeUndefined();
     expect(r.focal.estimated).toBeUndefined();
+    expect(r.focal.fitted).toBeUndefined();
     const blank = { width: 400, height: 300, data: new Uint8Array(400 * 300).fill(200) };
     expect(() => measureAndScore(blank, spec, "plaque-s", { source: "exif", f35: 26 })).toThrow(/fiducials/);
   });
@@ -44,6 +50,7 @@ describe("measureAndScore", () => {
 
 describe("the rest", () => {
   it("chooses the focal length as the phone page does", () => {
+    expect(chooseFocal(24, 25, 26, 25.2)).toEqual({ source: "override", f35: 25.2 });
     expect(chooseFocal(24, 25, 26)).toEqual({ source: "exif", f35: 24 });
     expect(chooseFocal(null, 25, 26)).toEqual({ source: "remembered", f35: 25 });
     expect(chooseFocal(null, null, 26)).toEqual({ source: "saved", f35: 26 });
@@ -55,6 +62,16 @@ describe("the rest", () => {
     expect(specFor(spec, "convex-r25", 11, "dark", 12.98)).toMatchObject({ pitch_mm: 12.98, n_pins: 11, fiducial_shade: "dark" });
     expect(specFor(spec, "object", 13, "light", null).pitch_mm).toBe(spec.pitch_mm);
     expect(specFor(spec, "concave-r60", 13, "light", 1.298).pitch_mm).toBe(spec.pitch_mm);   // a slip: ignored
+  });
+
+  it("fits a focal length and sums up the fits", () => {
+    expect(fitFocal((f) => (f - 25.2) ** 2, 14, 38)).toBeCloseTo(25.2, 1);
+    expect(fitFocal((f) => Math.abs(f - 30) < 1 ? (f - 30) ** 2 : 5, 14, 38)).toBeCloseTo(30, 1);   // a narrow dip
+    const rec = (tilt: number, fitted: number | undefined, found = 13) => ({ pins: 13, results: { tilt_deg: tilt, pins_found: found,
+      focal: { main: { source: "exif", focal_35mm: 24 }, ...(fitted ? { fitted: { source: "fitted", focal_35mm: fitted } } : {}) } } }) as unknown as TestRecord;
+    expect(focalSummary([rec(5, 28.4), rec(25, 25.0), rec(30, 25.4), rec(40, 26.0), rec(35, 30, 7), rec(30, undefined)]))
+      .toEqual({ n: 3, median: 25.4, min: 25.0, max: 26.0 });
+    expect(focalSummary([rec(5, 28)])).toBeNull();
   });
 
   it("knows each target's side", () => {

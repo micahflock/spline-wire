@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pitch", type=float, help="the chain's pitch as measured with calipers, mm (not used for a plaque, "
                                                "which is measured at the pitch it was printed at)")
     p.add_argument("--saved-focal-35mm", type=float, help="the phone's focal length, for photos without EXIF")
+    p.add_argument("--focal-35mm", type=float, help="35 mm-equivalent focal length used instead of EXIF (an override)")
     p.add_argument("--fit-focal", action="store_true",
                    help="also find the focal length that fits the target best (slower)")
     p.add_argument("--json", type=Path, help="write every score to this JSON file")
@@ -274,7 +275,8 @@ def _score(args, spec: ChainSpec) -> int:
             s = replace(s, n_pins=int(t["pins"]), fiducial_shade=t.get("shade") or s.fiducial_shade)
             if t.get("pitch_mm") and t["target"] not in PLAQUE_POSES:
                 s = replace(s, pitch_mm=float(t["pitch_mm"]))
-            jobs.append((t["id"], folder / t["photo"], t["target"], s, t.get("saved_focal_35mm")))
+            jobs.append((t["id"], folder / t["photo"], t["target"], s, t.get("saved_focal_35mm"),
+                         t.get("focal_override_35mm")))
     else:
         if not args.photos or not args.target:
             raise ValueError("give photos and --target, or --report")
@@ -284,13 +286,14 @@ def _score(args, spec: ChainSpec) -> int:
             spec = replace(spec, n_pins=args.pins)
         if args.pitch is not None and args.target not in PLAQUE_POSES:
             spec = replace(spec, pitch_mm=args.pitch)
-        jobs = [(p.stem, p, args.target, spec, args.saved_focal_35mm) for p in args.photos]
+        jobs = [(p.stem, p, args.target, spec, args.saved_focal_35mm, args.focal_35mm) for p in args.photos]
 
     results = []
     print(f"{'test':14} {'target':13} {'pins':>4} {'tilt':>5}  {'EXIF/saved':>16}  {'estimated':>16}"
           + (f"  {'best fit':>16}" if args.fit_focal else "") + "  worst mm (focal mm)")
-    for label, path, target, s, saved in jobs:
-        r = score_photo(path.read_bytes(), path.name, target, s, saved_focal_35mm=saved, fit_focal=args.fit_focal)
+    for label, path, target, s, saved, override in jobs:
+        r = score_photo(path.read_bytes(), path.name, target, s, saved_focal_35mm=saved,
+                        focal_override_35mm=override, fit_focal=args.fit_focal)
         r["id"] = label
         results.append(r)
         if "error" in r:

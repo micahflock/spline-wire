@@ -127,7 +127,7 @@ What it says:
 - **The bend-limit pose reads whole up to 42° in some directions, cut at 24° in one, and wrongly at 45–51°**: there the walk joined 7 pins into a chain of the wrong shape (scale 1.26–1.54). The warnings ("found 7 pins … set to have 13") flag it; nothing is silently wrong, but past ~40° the tight bends are not usable.
 - Measuring takes 0.23–0.38 s per photo on the iPhone (12 MP).
 
-Next: confirm the focal length on full-size photos (the uploads are half size), then measure with it (see open-items.md item 1).
+Next: confirm the focal length on full-size photos (the uploads are half size), then measure with it (see open-items.md item 1). For that the test page now shows each plaque photo's best-fit focal length (found on the phone, on the full-size photo, as `--fit-focal` does), sums them up over the photos tilted 20° or more, and has a focal length override that its button fills with their median; the report carries the override to `splinewire score`. Calibration set: 4–6 photos of the S plaque, centred, at 30–40°, from different sides; then phase 2 with the override.
 
 | Set | Photos | Varies |
 |---|---|---|

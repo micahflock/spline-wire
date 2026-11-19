@@ -154,6 +154,28 @@ def test_score_command_measures_the_chain_at_its_own_pitch_and_a_plaque_at_its_p
     assert radius[None] == pytest.approx(0.02 / 12.98 * (100 - snap.half_width_mm), abs=0.05)
 
 
+def test_a_focal_override_beats_the_exif(snap, tmp_path, capsys):
+    """A photo whose EXIF says 24 mm but was taken at 26 mm (as the iPhone's
+    in-page still, phase 1): the override measures it as the truth; the
+    report's focal_override_35mm does the same."""
+    photo = tmp_path / "P.jpg"
+    from splinewire.camera import focal_px_from_35mm, look_at_plane
+    from splinewire.synthetic import render_snap_photo, save_photo
+    pins = plaque_pins("plaque-s", snap)
+    cam = look_at_plane(focal_px_from_35mm(26.0, (3000, 2250)), (3000, 2250), 220.0, tilt_deg=38.0,
+                        tilt_direction_deg=30.0, target_mm=tuple(pins.mean(axis=0)))
+    save_photo(photo, render_snap_photo(pins, snap, cam), 24.0)
+    r24 = score_photo(photo.read_bytes(), photo.name, "plaque-s", snap)
+    r26 = score_photo(photo.read_bytes(), photo.name, "plaque-s", snap, focal_override_35mm=26.0)
+    assert r26["focal"]["exif"]["source"] == "override"
+    assert r26["focal"]["exif"]["score"]["max_error_mm"] < 0.03 < r24["focal"]["exif"]["score"]["max_error_mm"]
+    doc = {"schema": REPORT_SCHEMA, "tests": [{"id": "P", "photo": "P.jpg", "chain": "snap", "pins": 13,
+                                                "target": "plaque-s", "focal_override_35mm": 26.0}]}
+    (tmp_path / "r.json").write_text(json.dumps(doc))
+    assert main(["score", "--report", str(tmp_path / "r.json"), "--json", str(tmp_path / "s.json")]) == 0
+    assert json.loads((tmp_path / "s.json").read_text())[0]["focal"]["exif"]["focal_35mm"] == pytest.approx(26.0, abs=0.01)
+
+
 def test_score_command_needs_a_target(tmp_path, capsys):
     assert main(["score", str(tmp_path / "x.jpg")]) == 1
     assert "--target" in capsys.readouterr().err
