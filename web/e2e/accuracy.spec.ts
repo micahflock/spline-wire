@@ -3,7 +3,7 @@
 // kept in the list, and the downloaded report is what splinewire score reads.
 
 import { readFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
 
 test("the accuracy page scores a plaque photo and writes the report", async ({ page }) => {
   test.setTimeout(3 * 60_000);
@@ -44,3 +44,27 @@ test("the accuracy page scores a plaque photo and writes the report", async ({ p
   await expect(page.locator("#phone")).toHaveValue("Test Phone");
   await expect(page.locator("#pitch")).toHaveValue("12.98");
 });
+
+test("the camera opens again after a photo, and the shutter waits for it", async ({ baseURL }) => {
+  test.setTimeout(3 * 60_000);
+  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+  try {
+    const ctx = await browser.newContext({ baseURL, permissions: ["camera"] });
+    const page = await ctx.newPage();
+    await page.goto("spikes/accuracy/");
+    for (const round of [1, 2]) {
+      await page.getByRole("button", { name: "Open the camera" }).click();
+      await expect(page.locator("#video")).toBeVisible();
+      await expect(page.locator("#now")).toContainText("Frame the whole chain", { timeout: 15_000 });
+      await expect(page.locator("#shoot")).toBeEnabled();
+      await page.getByRole("button", { name: "Take the photo" }).click();
+      // The fake camera shows no chain: the photo is taken and measured, and says so.
+      await expect(page.locator("#now")).toContainText(`-00${round}:`, { timeout: 60_000 });
+      await expect(page.locator("#now")).not.toContainText("measuring", { timeout: 60_000 });
+      await expect(page.locator("#video")).toBeHidden();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+

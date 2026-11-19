@@ -106,17 +106,31 @@ function showCamera(open: boolean): void {
 
 $("open").onclick = async () => {
   now("Starting the camera…");
+  // The video is shown before the camera starts: iOS Safari does not play a
+  // hidden video, and waited on it until the page was hidden and shown again.
+  showCamera(true);
+  const shutter = $("shoot") as HTMLButtonElement;
+  shutter.disabled = true;
   try {
     const s = phoneSettings();
     const label = await camera.start(s.camera, ultraWides(s));
-    showCamera(true);
+    shutter.disabled = false;
     now(`Camera: ${label || "rear camera"}. Frame the whole chain, then take the photo.`);
   } catch (e) {
     camera.stop();
     showCamera(false);
-    now(`The camera did not open: ${(e as Error).message}. Choose a photo from the library instead.`);
+    shutter.disabled = false;
+    now(`The camera did not open: ${(e as Error).message}. Tap Open the camera again, or choose a photo from the library.`);
   }
 };
+// Let the camera go when the page is hidden (iOS keeps its light on otherwise).
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && camera.open) {
+    camera.stop();
+    showCamera(false);
+    now("The camera was closed when the page was hidden: tap Open the camera again.");
+  }
+});
 $("close").onclick = () => {
   camera.stop();
   showCamera(false);
