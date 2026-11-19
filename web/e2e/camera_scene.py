@@ -1,7 +1,7 @@
 """A chain for Chromium's fake camera: the camera view's end-to-end test
 (e2e/camera.spec.ts) streams it as if it were a phone's rear camera.
 
-    uv run python web/e2e/camera_scene.py OUT_DIR [WIDTHxHEIGHT] [snap [SPAN]]
+    uv run python web/e2e/camera_scene.py OUT_DIR [WIDTHxHEIGHT] [snap [SPAN [dark]]]
         -> OUT_DIR/camera.y4m   two identical frames (Chromium loops the file)
            OUT_DIR/camera.json  pins in frame pixels, the focal length, the chain
            OUT_DIR/camera.jpg   the same frame as a phone's JPEG with its EXIF focal
@@ -35,7 +35,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     w, h = (int(v) for v in (sys.argv[2] if len(sys.argv) > 2 else "3024x4032").split("x"))
     if len(sys.argv) > 3 and sys.argv[3] == "snap":
-        return snap(out, w, h, float(sys.argv[4]) if len(sys.argv) > 4 else SPAN)
+        return snap(out, w, h, float(sys.argv[4]) if len(sys.argv) > 4 else SPAN, len(sys.argv) > 5 and sys.argv[5] == "dark")
     spec = load_chain_spec(oring_chain_path())
     pins = s_curve_pins(spec)
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
@@ -45,11 +45,14 @@ def main() -> None:
     write(out, sc.image.astype(np.uint8), sc.pins_px, sc.focal_px, spec)
 
 
-def snap(out: Path, w: int, h: int, span: float = SPAN) -> None:
+def snap(out: Path, w: int, h: int, span: float = SPAN, dark: bool = False) -> None:
     """The snap-fit chain (data/chain-snap.yaml: thin white rims on round
     sleeves, 13 mm pitch), drawn with its relief by synthetic.render_snap_photo,
-    framed and tilted as the dot chain's scene is."""
+    framed and tilted as the dot chain's scene is. With `dark`, printed the other
+    way round: dark rims on light links (fiducial_shade "dark")."""
     spec = load_chain_spec(default_chain_path())
+    if dark:
+        spec = replace(spec, fiducial_shade="dark")
     pins = s_curve_pins(spec)
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
     focal = focal_px_from_35mm(FOCAL_35MM, (w, h))
