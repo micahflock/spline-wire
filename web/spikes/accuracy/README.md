@@ -23,7 +23,15 @@ Open `spikes/accuracy/` on the site, on the iPhone and on the Android phone.
    Leave the focal length empty unless a photo comes out with "estimated" as its focal source: on a
    Pixel, the page's camera gives no 35 mm focal length, so either open the phone page once and let it
    learn the lens from a library photo, or type the phone's main camera here (24 mm on recent
-   iPhones and Pixels).
+   iPhones and Pixels). **Chain pitch:** the pitch measured with calipers in phase 0 (12.98 mm
+   for the first chain measured), used for the chain on a gauge or an object; a plaque is always
+   measured at the 13.000 mm it was printed at. Leave it empty for the design pitch.
+   **Focal length override:** for a camera whose EXIF focal length is off (phase 1 found the
+   iPhone's in-page still about 5% off: 24 mm in EXIF, about 25.2 mm in fact). Every plaque photo
+   also shows its **best-fit** focal length (the one that fits the plaque best, found on the
+   full-size photo), and section 1 sums them up over the plaque photos tilted 20° or more, with
+   **Use it as the override**. To calibrate: 4–6 photos of the S plaque, centred, at 30–40°, from
+   different sides, then use the median.
 2. **The test.** Pick the target and what you are about to do: the tilt you aim for, where in the
    frame the chain is, the surface and the light. These go into the report as they are.
 3. **Take the photo**, with the page's camera (the main route) or from the photo library (a

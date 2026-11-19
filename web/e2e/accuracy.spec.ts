@@ -11,6 +11,7 @@ test("the accuracy page scores a plaque photo and writes the report", async ({ p
   await page.locator("#phone").fill("Test Phone");
   await page.locator("#target").selectOption("plaque-s");
   await page.locator("#surface").selectOption("white paper");
+  await page.locator("#pitch").fill("12.98");          // the chain's: a plaque keeps its printed 13.00
   await page.locator("#pick").setInputFiles("spikes/accuracy/test-photo.jpg");
   await expect(page.locator("#now")).toContainText("PASS", { timeout: 120_000 });
   const now = (await page.locator("#now").textContent())!;
@@ -18,19 +19,28 @@ test("the accuracy page scores a plaque photo and writes the report", async ({ p
   expect(now).toContain("testphone-001");
   await expect(page.locator("#tests")).toContainText("exif focal 26 mm: worst pin");
   await expect(page.locator("#tests")).toContainText("estimated focal");
+  await expect(page.locator("#tests")).toContainText("best-fit focal 2");       // the render's 26 mm
+  await expect(page.locator("#fit-text")).toContainText("over 1 plaque photo(s)");
+  await page.getByRole("button", { name: "Use it as the override" }).click();
+  const fitted = Number(await page.locator("#override").inputValue());
+  expect(fitted).toBeGreaterThan(25.5);
+  expect(fitted).toBeLessThan(26.5);
 
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download the report (JSON)" }).click()]);
   const report = JSON.parse(readFileSync((await download.path())!, "utf-8"));
   expect(report.schema).toBe("spline-wire/test-report@1");
   const t = report.tests[0];
-  expect(t).toMatchObject({ id: "testphone-001", photo: "testphone-001-plaque-s.jpg", target: "plaque-s", pins: 13,
+  expect(t).toMatchObject({ id: "testphone-001", photo: "testphone-001-plaque-s.jpg", target: "plaque-s", pins: 13, pitch_mm: 13,
     shade: "light", chain: "snap", route: "library", conditions: { surface: "white paper" } });
   expect(t.exif.focal_35mm).toBe(26);
   expect(t.results.focal.main.source).toBe("exif");
   expect(t.results.focal.main.score.max_error_mm).toBeLessThan(0.05);
+  expect(t.results.focal.fitted.source).toBe("fitted");
+  expect(t.focal_override_35mm).toBeNull();
 
   // A reload keeps the test (IndexedDB) and the settings.
   await page.reload();
   await expect(page.locator("#tests")).toContainText("testphone-001");
   await expect(page.locator("#phone")).toHaveValue("Test Phone");
+  await expect(page.locator("#pitch")).toHaveValue("12.98");
 });

@@ -81,6 +81,24 @@ The owner is starting with a subset; the other gauges follow if the data leaves 
 
 ## Phase 0: calibrate (no photos)
 
+**Results (2026-11-19, the owner's calipers; testing is iPhone only for now):**
+
+| Check | Measured | Design | Reading |
+|---|---|---|---|
+| Scale bar | 49.995 mm | 50.00 | Printer scale −0.01%: fine |
+| `convex-r25` outside diameter | ~49.8 | 50.00 | Outside edges ~0.1 mm in |
+| `concave-r60` gap between the inner tips | ~120.2 (hard to measure) | 120.00 | Inside edges ~0.1 mm out: the same ~0.1 mm per edge shrink |
+| Plaque, neighbouring rims, outside to outside | 21.5–21.6 ± 0.05 | 21.79 | The rims print ~8.55 mm across, not 8.79 (the same shrink); the plaque's pitch is exact by construction |
+| Chain, neighbouring rims, outside to outside | 21.65 | 21.79 | 0.1 mm more than the plaque: a pitch ~0.1 mm long (0.8%), or rims printed larger. Not yet resolved |
+| Chain straight, first rim to last | — | 164.79 | Too long for the calipers |
+| Chain straight, outside of rim 1 to outside of rim 11 (10 links) | 138.35 | 138.55 at 13.00 mm | Pitch (138.35 − 8.55) / 10 = **12.98 mm** (−0.15%); 12.97 if this chain's rims are as wide as its single pair suggests (8.67), so ±0.01 mm. The single pair's 21.65 was too coarse to show it. Only one chain measured so far |
+
+What follows:
+- Read the gauges' radius errors against the printed sizes: about −0.10 mm on convex R25, +0.10 mm on concave R60, and (assumed) +0.10 mm on concave R100. The rims' centres, and so the plaques' truth, do not move.
+- **The chain's pitch is 12.98 mm**, not 13.00: uncorrected, every measurement of the chain comes out 0.15% small (0.05 mm on the R25 radius, 0.15 mm on R100, 0.15 mm per 100 mm of curve). The test page now has a chain pitch setting (and the report carries it to `splinewire score`); the plaques stay at the 13.00 mm they were printed at. Measure the other chain the same way. The phone page has no pitch setting yet: phase 4 needs one, or `data/chain-snap.yaml` set to the measured pitch.
+- How it was measured: a span the calipers reach, each chain straight, outside of rim 1 to outside of rim 11 (10 links), pitch = (L − 8.55) / 10, using the rim size the plaque gives; 138.55 mm for a 13.00 mm pitch, 139.55 mm for 13.10. More than ~0.15 mm off 138.55 and that chain gets a pitch setting of its own before phase 2: a uniformly long pitch only rescales the measurement, so no photo can show it.
+
+
 - **Plaques and gauges:** measure each 50 mm bar. A bar off by more than 0.1 mm means the printer's scale needs fixing, or every score from that print is read after the scale fit. Check the convex discs' diameters and the concave hole's.
 - **Each chain's pitch:** lay it straight and measure L across the outsides of the first and last rims (8.79 mm across each): pitch = (L − 8.79) / (links − 1). If either chain is more than 0.1% (0.013 mm) from 13.0 mm, give it a preset of its own. Pitch error scales the whole curve.
 - **Rims:** look at the white and the orange rims' print quality (two perimeters) and note any gaps or blobs per link.
@@ -88,6 +106,28 @@ The owner is starting with a subset; the other gauges follow if the data leaves 
 ## Phase 1: fixed-chain plaques (camera and detection)
 
 Truth is exact and nothing moves, so this measures the phones, the light and the software alone.
+
+**Results, first session (2026-11-19; iPhone 16 Pro, iOS 18.7, Safari; the page's camera; the white-rim plaques).** 20 photos on the test page (build 10-9d7529e). 16 of them were also sent at half size (1512×2016, EXIF stripped by the upload) and re-scored in Python with `splinewire score --report … --fit-focal`, the 24 mm focal length set by hand. Python's numbers match the page's to about 0.01 mm. Worst pin, mm:
+
+| Photos | Tilt | EXIF focal (24 mm) | Best-fit focal (Python) |
+|---|---|---|---|
+| S plaque, centred: 002–006, 008–011 (mousepad, white paper, cutting board, cluttered desk) | 7–37° | 0.12–0.24, all 13 pins found | 0.08–0.20 |
+| Tight plaque, centred, ≤ 27°: 015, 016, 019, 020 | 6–27° | 0.12–0.24 | 0.12–0.14 |
+| Tight plaque, steep: 017, 018 | 39°, 42° | **0.66, 0.90** | 0.19, 0.12 |
+| S plaque near the edge of the frame: 013, 014 | 36°, 33° | **0.60, 0.88** | 0.33, 0.64 |
+| Tight plaque, cut: 021 | 24° | 11 of 13 pins, 0.37 (warning) | 0.09 |
+| Tight plaque, steepest: 022, 023 | 45°, 51° | 7 of 13 pins, 18–21 mm off (warnings) | — |
+
+(015–018 carry the frame setting "corner" left over from 013–014; in the photos they are near the centre. 019 is labelled 40° and measured at 5.8°.)
+
+What it says:
+- **Centred, up to 37° tilt, the S plaque passes** (worst pin under 0.3 mm on every photo; mark 0.3 mm), on every surface tried. Real photos are about 0.1–0.2 mm, against 0.004 mm for clean renders.
+- **The EXIF focal length is about 5% short for the page's camera.** The focal length that fits the plaque best, on the photos tilted enough to fix it (20°+), is 24.5–26.0 mm (median 25.2), not the EXIF's 24. The page's estimates from the chain agree (24.9–26.9 on the S plaque). It is what makes steep photos fail: the tight plaque at 39–42° goes from 0.66–0.90 mm with 24 mm to 0.12–0.19 mm with its best-fit focal length. In simulation a 5% focal error costs ≤ 0.27 mm at 40°; with real noise it costs more. Why the tag is off is not known: S2 found that takePhoto stills of two sizes give focal lengths 4.4% apart, so the 35 mm tag may describe the sensor rather than the still.
+- **Near the edge of the frame the error stays after the focal fit** (0.33 and 0.64 mm): most likely lens distortion the camera does not remove from takePhoto stills (simulated residual distortion predicted at most 0.14 mm). Until it is measured, keep the chain near the middle of the frame.
+- **The bend-limit pose reads whole up to 42° in some directions, cut at 24° in one, and wrongly at 45–51°**: there the walk joined 7 pins into a chain of the wrong shape (scale 1.26–1.54). The warnings ("found 7 pins … set to have 13") flag it; nothing is silently wrong, but past ~40° the tight bends are not usable.
+- Measuring takes 0.23–0.38 s per photo on the iPhone (12 MP).
+
+Next: confirm the focal length on full-size photos (the uploads are half size), then measure with it (see open-items.md item 1). For that the test page now shows each plaque photo's best-fit focal length (found on the phone, on the full-size photo, as `--fit-focal` does), sums them up over the photos tilted 20° or more, and has a focal length override that its button fills with their median; the report carries the override to `splinewire score`. Calibration set: 4–6 photos of the S plaque, centred, at 30–40°, from different sides; then phase 2 with the override.
 
 | Set | Photos | Varies |
 |---|---|---|
