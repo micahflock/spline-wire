@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion",
+  "type": "addin",
+  "id": "71ac75cc-fe33-4890-8491-ccd803ab9d3e",
+  "author": "Spline Wire",
+  "description": {
+    "": "Spline Wire palette spike: checks what a palette can do (docs/fusion-palette.md). A throwaway test, not the Spline Wire add-in."
+  },
+  "version": "0.0.1",
+  "runOnStartup": false,
+  "supportedOS": "windows|mac",
+  "editEnabled": true
+}

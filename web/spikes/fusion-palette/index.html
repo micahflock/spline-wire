@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusion palette spike</title>
+<script>
+// The watchdog (README.md here): a classic script in old JavaScript, so it runs
+// in any browser Fusion may have, before and without the module (main.ts). It
+// notes when window.adsk appears, receives what the add-in pushes
+// (palette.sendInfoToHTML calls window.fusionJavaScriptHandler.handle, which
+// must return a non-empty string), keeps the facts the summary is made of, and
+// copies the summary. If the module never runs, it says so.
+(function () {
+  var S = window.__spike = {
+    facts: [], module: false, adskAt: null, sendAt: null, pushes: [], onPush: null, errors: []
+  };
+  var SECTIONS = ["browser", "web", "fusion"];
+  S.set = function (section, key, text) {
+    for (var i = 0; i < S.facts.length; i++) {
+      if (S.facts[i].key === key) { S.facts[i].text = text; S.render(); return; }
+    }
+    S.facts.push({ section: section, key: key, text: text });
+    S.render();
+  };
+  S.summary = function () {
+    var lines = ["Spline Wire palette spike, " + new Date().toISOString()];
+    for (var i = 0; i < S.facts.length; i++) lines.push(S.facts[i].key + ": " + S.facts[i].text);
+    return lines.join("\n");
+  };
+  S.render = function () {
+    for (var s = 0; s < SECTIONS.length; s++) {
+      var el = document.getElementById(SECTIONS[s]);
+      if (!el) return;                                  // not parsed yet: DOMContentLoaded renders
+      var lines = [];
+      for (var i = 0; i < S.facts.length; i++) {
+        if (S.facts[i].section === SECTIONS[s]) lines.push(S.facts[i].key + ": " + S.facts[i].text);
+      }
+      el.textContent = lines.join("\n");
+    }
+    var sum = document.getElementById("summary");
+    if (sum) sum.value = S.summary();
+  };
+  function error(text) {
+    S.errors.push(text);
+    S.set("browser", "errors", S.errors.join(" | "));
+  }
+  window.addEventListener("error", function (e) {
+    error((e.message || "error") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : ""));
+  });
+  window.addEventListener("unhandledrejection", function (e) { error("unhandled: " + (e.reason && e.reason.message || e.reason)); });
+
+  window.fusionJavaScriptHandler = {
+    handle: function (action, data) {
+      var push = { action: action, data: data, at: performance.now() };
+      S.pushes.push(push);
+      if (S.onPush) { try { S.onPush(push); } catch (e) { error("push: " + e.message); } }
+      return "OK";
+    }
+  };
+
+  var ua = navigator.userAgent;
+  var chrome = /Chrome\/([\d.]+)/.exec(ua), qt = /QtWebEngine\/([\d.]+)/.exec(ua);
+  var major = chrome ? parseInt(chrome[1], 10) : 0;
+  S.set("browser", "chromium", chrome
+    ? chrome[1] + (qt ? " (QtWebEngine " + qt[1] + ")" : "") + (major >= 89 ? "" : ": older than 89, the site's pages will not run")
+    : "not Chromium");
+  S.set("browser", "user agent", ua);
+  S.set("browser", "page", location.origin + " (the relay accepts only https://micahflock.github.io)");
+  S.set("browser", "secure context", window.isSecureContext ? "yes" : "NO: WebCrypto is missing outside a secure context");
+
+  var firstLook = performance.now(), atStart = !!window.adsk, ticks = 0;
+  function ms(t) { return Math.round(t) + " ms"; }
+  function look() {
+    var now = performance.now();
+    if (S.adskAt === null && window.adsk) S.adskAt = now;
+    if (S.sendAt === null && window.adsk && typeof window.adsk.fusionSendData === "function") S.sendAt = now;
+    var text;
+    if (S.sendAt !== null) {
+      text = (atStart ? "there when the page's first script ran (" + ms(firstLook) + " after navigation)"
+                      : "appeared " + ms(S.adskAt) + " after navigation (first script at " + ms(firstLook) + ")")
+        + (S.sendAt > S.adskAt ? ", fusionSendData at " + ms(S.sendAt) : "");
+    } else if (S.adskAt !== null) {
+      text = "appeared at " + ms(S.adskAt) + " but has no fusionSendData yet";
+    } else {
+      text = ticks < 2000 ? "not yet" : "not seen in 10 s: not in a Fusion palette";
+    }
+    S.set("browser", "adsk", text);
+    return S.sendAt !== null || ticks >= 2000;
+  }
+  if (!look()) {
+    var timer = setInterval(function () { ticks++; if (look()) clearInterval(timer); }, 5);
+  }
+  setTimeout(function () {
+    if (!S.module) S.set("browser", "page script", "did NOT run (an es2022 module with top-level await, as the site's pages are): see errors");
+  }, 8000);
+
+  function copied(how) { S.set("browser", "clipboard", how); var p = document.getElementById("copied"); if (p) p.textContent = how; }
+  S.copy = function () {
+    var text = S.summary(), area = document.getElementById("summary");
+    function fallback() {
+      area.focus(); area.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      copied(ok ? "copied (execCommand)" : "could not copy: the text is selected, press Ctrl+C (Cmd+C), or save it to a file");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { copied("copied (clipboard API)"); }, fallback);
+    } else {
+      fallback();
+    }
+  };
+  document.addEventListener("DOMContentLoaded", function () {
+    S.render();
+    document.getElementById("copy").addEventListener("click", S.copy);
+  });
+})();
+</script>
+<style>
+  :root { --bg: #f6f6f3; --card: #fff; --ink: #1d1d1b; --muted: #66665f; --line: #d8d8d0; --accent: #1f5fbf; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141413; --card: #1f1f1d; --ink: #ecece6; --muted: #a3a39a; --line: #3a3a36; --accent: #6aa0ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 10px 24px; }
+  main { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 1.15rem; margin: 14px 0 4px; }
+  h2 { font-size: 1rem; margin: 0 0 6px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 10px 0; }
+  button { display: block; width: 100%; min-height: 36px; margin: 8px 0 0; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; }
+  button.quiet { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  pre, textarea { white-space: pre-wrap; word-break: break-word; font: 12px/1.35 ui-monospace, Consolas, Menlo, monospace; margin: 0; }
+  textarea { width: 100%; min-height: 220px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+  select { font: inherit; margin-top: 6px; max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fusion palette spike</h1>
+  <p class="muted">What the Spline Wire add-in's palette can do in this copy of Fusion. Nothing leaves this computer but a test
+    message through the relay, which cannot read it.</p>
+  <section>
+    <h2>1. This browser</h2>
+    <pre id="browser"></pre>
+  </section>
+  <section>
+    <h2>2. Pairing pieces</h2>
+    <pre id="web"></pre>
+  </section>
+  <section>
+    <h2>3. Fusion</h2>
+    <pre id="fusion"></pre>
+    <button id="insert" disabled>Insert a test spline</button>
+    <p class="muted">Open a sketch first to put it there (else it goes in a new sketch on XY). Then press Ctrl+Z (Cmd+Z) once
+      in Fusion and say what happened:</p>
+    <select id="undo" aria-label="What one undo did">
+      <option value="">one undo: not tried</option>
+      <option value="removed the spline">one undo removed the spline</option>
+      <option value="left something: more than one step">one undo left something behind</option>
+      <option value="removed the new sketch too">one undo also removed the new sketch</option>
+      <option value="did nothing">one undo did nothing</option>
+    </select>
+    <button id="again" class="quiet" disabled>Ask Fusion again</button>
+  </section>
+  <section>
+    <h2>4. Summary</h2>
+    <textarea id="summary" readonly aria-label="Summary"></textarea>
+    <button id="copy">Copy the summary</button>
+    <button id="save" class="quiet" disabled>Save it to a file (if Copy fails)</button>
+    <p class="muted" id="copied"></p>
+  </section>
+  <p class="muted" id="version"></p>
+</main>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>
