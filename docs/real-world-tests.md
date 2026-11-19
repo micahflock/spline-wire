@@ -81,6 +81,22 @@ The owner is starting with a subset; the other gauges follow if the data leaves 
 
 ## Phase 0: calibrate (no photos)
 
+**Results (2026-11-19, the owner's calipers; testing is iPhone only for now):**
+
+| Check | Measured | Design | Reading |
+|---|---|---|---|
+| Scale bar | 49.995 mm | 50.00 | Printer scale −0.01%: fine |
+| `convex-r25` outside diameter | ~49.8 | 50.00 | Outside edges ~0.1 mm in |
+| `concave-r60` gap between the inner tips | ~120.2 (hard to measure) | 120.00 | Inside edges ~0.1 mm out: the same ~0.1 mm per edge shrink |
+| Plaque, neighbouring rims, outside to outside | 21.5–21.6 ± 0.05 | 21.79 | The rims print ~8.55 mm across, not 8.79 (the same shrink); the plaque's pitch is exact by construction |
+| Chain, neighbouring rims, outside to outside | 21.65 | 21.79 | 0.1 mm more than the plaque: a pitch ~0.1 mm long (0.8%), or rims printed larger. Not yet resolved |
+| Chain straight, first rim to last | — | 164.79 | Too long for the calipers |
+
+What follows:
+- Read the gauges' radius errors against the printed sizes: about −0.10 mm on convex R25, +0.10 mm on concave R60, and (assumed) +0.10 mm on concave R100. The rims' centres, and so the plaques' truth, do not move.
+- The chain's pitch needs a span the calipers reach: each chain straight, outside of rim 1 to outside of rim 11 (10 links), pitch = (L − 8.55) / 10, using the rim size the plaque gives; 138.55 mm for a 13.00 mm pitch, 139.55 mm for 13.10. More than ~0.15 mm off 138.55 and that chain gets a pitch setting of its own before phase 2: a uniformly long pitch only rescales the measurement, so no photo can show it.
+
+
 - **Plaques and gauges:** measure each 50 mm bar. A bar off by more than 0.1 mm means the printer's scale needs fixing, or every score from that print is read after the scale fit. Check the convex discs' diameters and the concave hole's.
 - **Each chain's pitch:** lay it straight and measure L across the outsides of the first and last rims (8.79 mm across each): pitch = (L − 8.79) / (links − 1). If either chain is more than 0.1% (0.013 mm) from 13.0 mm, give it a preset of its own. Pitch error scales the whole curve.
 - **Rims:** look at the white and the orange rims' print quality (two perimeters) and note any gaps or blobs per link.
