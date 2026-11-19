@@ -350,6 +350,65 @@ test("a permission prompt that hides the page does not close the camera view (iO
   }
 });
 
+test("switching from iOS's triple camera to its main lens does not close the camera view (the first tap of a visit)", async () => {
+  // As an iPhone does it: no camera names until the camera is allowed, so the
+  // page opens the default rear camera, the virtual "Back Triple Camera", then
+  // switches to "Back Camera" once the names come; and iOS runs one camera at
+  // a time, ending the open one as the next opens. The view took that end for
+  // the camera going away and closed.
+  const ctx = await browser.newContext({ ...PHONE, baseURL: BASE, permissions: ["camera"] });
+  await ctx.addInitScript((s) => localStorage.setItem("splinewire-phone:phone-settings", s), settings({ pins: 15 }));
+  await ctx.addInitScript(() => {
+    const md = navigator.mediaDevices;
+    const realGum = md.getUserMedia.bind(md);
+    let allowed = false;
+    const live: MediaStreamTrack[] = [];
+    md.enumerateDevices = async () => (allowed
+      ? [{ deviceId: "triple", label: "Back Triple Camera" }, { deviceId: "wide", label: "Back Camera" }, { deviceId: "front", label: "Front Camera" }]
+      : [{ deviceId: "", label: "" }]).map((d) => ({ ...d, kind: "videoinput", groupId: "" }) as MediaDeviceInfo);
+    md.getUserMedia = async (c) => {
+      for (const t of live.splice(0)) {            // one camera at a time
+        t.stop();
+        t.dispatchEvent(new Event("ended"));
+      }
+      const { deviceId, ...video } = (c?.video ?? {}) as MediaTrackConstraints;
+      const want = (deviceId as { exact?: string } | undefined)?.exact === "wide" ? ["wide", "Back Camera"] : ["triple", "Back Triple Camera"];
+      const stream = await realGum({ ...c, video });
+      allowed = true;
+      for (const t of stream.getVideoTracks()) {
+        Object.defineProperty(t, "label", { configurable: true, get: () => want[1] });
+        const settings = t.getSettings.bind(t);
+        t.getSettings = () => ({ ...settings(), deviceId: want[0] });
+        live.push(t);
+      }
+      return stream;
+    };
+  });
+  const p = await ctx.newPage();
+  try {
+    await p.goto("phone/");
+    await p.locator("#take-camera").click();
+    await expect(p.locator("#cam-shutter")).toBeEnabled({ timeout: 20_000 });
+    await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
+    await expect(p.locator("#cam")).toBeVisible();
+    await expect(p.locator("#cam-info")).toContainText("Back Camera");               // switched to the main lens
+    await expect(p.locator("#toast")).not.toContainText("The camera closed");
+    log(`after the switch: ${await p.locator("#cam-info").textContent()}`);
+    // A camera that stops while it is open (another app took it) still closes the view, and says why.
+    await p.evaluate(() => {
+      const v = document.getElementById("cam-video") as HTMLVideoElement;
+      for (const t of (v.srcObject as MediaStream).getTracks()) {
+        t.stop();
+        t.dispatchEvent(new Event("ended"));
+      }
+    });
+    await expect(p.locator("#cam")).toBeHidden();
+    await expect(p.locator("#toast")).toContainText("The camera closed: the camera stopped.");
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("a camera that is not allowed falls back to the system camera", async () => {
   // Chromium's stand-in for the permission prompt, answering no: getUserMedia fails with NotAllowedError.
   const denied = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream=deny"] });

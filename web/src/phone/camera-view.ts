@@ -61,6 +61,8 @@ export interface CameraDeps {
   upload(): void;
   /** Pick a photo to learn the focal length from (settings). */
   teach(): void;
+  /** The view closed by itself (not the person's Close, Upload or back gesture): why, in a few words. */
+  closedBy?(why: string): void;
 }
 
 interface PhotoCaps {
@@ -119,6 +121,8 @@ export interface CameraStats {
   takePhotoMs: number | null;
   takePhotoError: string | null;
   still: string | null;
+  /** Why the view last closed by itself, if it did. */
+  closedBy: string | null;
 }
 
 export class CameraView {
@@ -144,6 +148,8 @@ export class CameraView {
   private gray = new Uint8Array(0);
   /** The camera is being asked for (getUserMedia): a permission prompt may be up. */
   private requesting = false;
+  /** Another camera is being opened in place of the open one (switchTo). */
+  private switching = false;
   /** The frame grab in a worker, when this browser can (camera/grab.ts). */
   private grab: FrameGrab | null = null;
   private shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
@@ -186,7 +192,7 @@ export class CameraView {
     // person back to the page on the first tap. start() looks again once the
     // camera has answered.
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" && this.open && !this.requesting) this.close();
+      if (document.visibilityState === "hidden" && this.open && !this.requesting) this.closeBy("the page was hidden");
     });
     // The phone's back gesture closes the camera, not the page.
     addEventListener("popstate", () => {
@@ -249,7 +255,7 @@ export class CameraView {
     // back in a moment; else the person left, and the camera is given back.
     if (gen === this.gen && !(await visibleWithin(VISIBLE_AGAIN_MS))) {
       stop(stream);
-      this.close();
+      this.closeBy("the page stayed hidden after the camera was allowed");
       return;
     }
     if (gen !== this.gen) {
@@ -285,6 +291,14 @@ export class CameraView {
   }
 
   /** Release the camera and hide the view. */
+  /** Close by itself, and say why (deps.closedBy). */
+  private closeBy(why: string): void {
+    if (!this.open) return;
+    this.close();
+    this.stats.closedBy = why;
+    this.deps.closedBy?.(why);
+  }
+
   close(fromButton = true): void {
     if (!this.open) return;
     this.open = false;
@@ -326,8 +340,12 @@ export class CameraView {
     if (old && old !== stream) stop(old);
     const track = this.track;
     if (!track) return;
+    // The camera went away (another app took it, or it failed): close. Not
+    // while switching cameras: iOS runs one camera at a time and ends the open
+    // one as the next opens, and on the first tap of a visit the page switches
+    // from the virtual triple camera it was given to the main lens (start()).
     track.addEventListener("ended", () => {
-      if (this.open && this.track === track && !this.shooting) this.close();
+      if (this.open && this.track === track && !this.shooting && !this.switching) this.closeBy("the camera stopped");
     });
     // Firefox refused a second request at another size (S3): ask the live
     // track instead, only if it came well short of what it can do.
@@ -353,6 +371,7 @@ export class CameraView {
   private async switchTo(camera: CameraInfo, chosen: boolean): Promise<void> {
     if (!camera.deviceId || camera.deviceId === this.current()?.deviceId) return;
     const before = this.current();
+    this.switching = true;
     try {
       const stream = await request(camera);
       if (!this.open) {
@@ -370,6 +389,8 @@ export class CameraView {
           this.fail("error", e as Error);
         }
       }
+    } finally {
+      this.switching = false;
     }
     this.fillSwitcher(await cameras());
   }
@@ -782,5 +803,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null };
 }
