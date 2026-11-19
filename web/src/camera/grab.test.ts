@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { fullRegion } from "../overlay/region";
-import { compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, whyNotWorker } from "./grab";
+import { fullRegion, region as makeRegion } from "../overlay/region";
+import { compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, type Turn, drawFor, turnsFor, whyNotWorker } from "./grab";
 
 /** A worker that answers each request as `answer` says (or never, with null). */
 function fakeWorker(answer: (req: GrabRequest) => GrabReply | null) {
@@ -104,5 +104,57 @@ describe("the frame grab in a worker", () => {
     c.checked("different");
     expect(c.mode).toBe("main");
     expect(GRAB.maxDifference).toBeLessThan(GRAB.minContrast);
+  });
+
+  it("knows which turns could take a frame to the video", () => {
+    expect(turnsFor(3024, 4032, 3024, 4032)).toEqual([0, 180]);
+    expect(turnsFor(4032, 3024, 3024, 4032)).toEqual([90, 270, 0]);          // Safari on iPhone
+    expect(turnsFor(4032, 3024, 3024, 4032, 270)).toEqual([270, 90, 0]);     // a browser that says
+    expect(turnsFor(4032, 3024, 3024, 4032, 45)).toEqual([90, 270, 0]);
+    expect(turnsFor(1920, 1080, 3024, 4032)).toBeNull();
+  });
+
+  it("draws a region upright from a frame turned any way", () => {
+    // Where the shown video's point (x, y) is in a frame turned by `turn` (fw × fh the frame).
+    const inFrame = (turn: Turn, x: number, y: number, fw: number, fh: number): [number, number] =>
+      turn === 0 ? [x, y] : turn === 90 ? [y, fh - x] : turn === 180 ? [fw - x, fh - y] : [fw - y, x];
+    const vw = 3024, vh = 4032;
+    const r = makeRegion(1200.4, 1700.7, 372, 813, 2.14, 5, vw, vh, "track");
+    for (const turn of [0, 90, 180, 270] as Turn[]) {
+      const [fw, fh] = turn % 180 ? [vh, vw] : [vw, vh];
+      const d = drawFor(r, turn, fw, fh);
+      expect(d.sx).toBeGreaterThanOrEqual(0);
+      expect(d.sy).toBeGreaterThanOrEqual(0);
+      expect(d.sx + d.sw).toBeLessThanOrEqual(fw);
+      expect(d.sy + d.sh).toBeLessThanOrEqual(fh);
+      const [a, b, c, dd, e, f] = d.m;
+      for (const [x, y] of [[r.x, r.y], [r.x + r.width, r.y], [r.x + 100, r.y + 700], [r.x + r.width, r.y + r.height]]) {
+        // The frame's point, drawn: into the source rect, scaled to (dw, dh), then the transform.
+        const [u, v] = inFrame(turn, x!, y!, fw, fh);
+        const px = ((u - d.sx) / d.sw) * d.dw, py = ((v - d.sy) / d.sh) * d.dh;
+        const cx = a * px + c * py + e, cy = b * px + dd * py + f;
+        // ...lands where the work frame shows the video's point.
+        expect(cx).toBeCloseTo(((x! - r.x) / r.width) * r.workWidth, 6);
+        expect(cy).toBeCloseTo(((y! - r.y) / r.height) * r.workHeight, 6);
+      }
+    }
+  });
+
+  it("checks each turn in order, and the page grabs only when none matches", () => {
+    const grab = new FrameGrab(() => fakeWorker(() => null).w, null);
+    expect(grab.turn).toBe(0);
+    grab.setTurns([90, 270, 0]);
+    grab.setTurns([0, 180]);                    // told once: the first frame's
+    expect(grab.turn).toBe(90);
+    grab.checked("different");
+    expect([grab.mode, grab.turn]).toEqual(["check", 270]);
+    grab.checked("same");
+    expect(grab.describe()).toBe("grab in a worker (frames turned 270°)");
+    const none = new FrameGrab(() => fakeWorker(() => null).w, null);
+    none.setTurns([90, 270, 0]);
+    none.checked("different");
+    none.checked("different");
+    none.checked("different");
+    expect(none.describe()).toBe("grab on the page: the worker's copy of a frame differs");
   });
 });

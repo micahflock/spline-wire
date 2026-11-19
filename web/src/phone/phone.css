@@ -198,7 +198,9 @@ html.cam-on, html.cam-on body { overflow: hidden; }
 .cam-pill { border: 1px solid rgba(255,255,255,.5); background: rgba(0,0,0,.45); color: #fff; font-size: 14px; padding: 6px 12px; border-radius: 999px; min-height: 40px; flex: none; }
 .cam-teach { border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 14px; padding: 8px 14px; border-radius: 999px; min-height: 36px; }
 .cam-teach { background: rgba(178,106,0,.85); }
-.cam-info { font-size: 10.5px; opacity: .75; margin: 0; text-align: center; overflow-wrap: anywhere; max-width: 100%; }
+/* The camera view's diagnostics: one item a line, each cut short rather than wrapped. */
+.cam-info { font-size: 10.5px; opacity: .75; margin: 0; text-align: left; width: 100%; max-width: 100%; }
+.cam-info > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cam-fail { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px;
   padding: 24px var(--gutter-r) 24px var(--gutter-l); background: var(--paper); color: var(--ink); font-size: 15.5px; }
 .cam-fail b { font-size: 20px; }

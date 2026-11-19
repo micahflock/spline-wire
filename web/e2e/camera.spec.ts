@@ -409,6 +409,42 @@ test("switching from iOS's triple camera to its main lens does not close the cam
   }
 });
 
+for (const turn of [90, 270] as const) {
+  test(`frames that come turned ${turn}° from the video (Safari on iPhone) are turned upright in the worker`, async () => {
+    // Safari on an iPhone gives a 3024×4032 video's VideoFrames as 4032×3024 (the
+    // sensor's way round), saying nothing of the turn: here VideoFrame is made so.
+    const ctx = await browser.newContext({ ...PHONE, baseURL: BASE, permissions: ["camera"] });
+    await ctx.addInitScript((s) => localStorage.setItem("splinewire-phone:phone-settings", s), settings({ pins: 15 }));
+    await ctx.addInitScript((turn) => {
+      const Real = VideoFrame;
+      const Turned = function (this: unknown, src: CanvasImageSource, init?: VideoFrameInit) {
+        if (!(src instanceof HTMLVideoElement)) return new Real(src as VideoFrame, init);
+        const vw = src.videoWidth, vh = src.videoHeight;
+        const c = new OffscreenCanvas(vh, vw);
+        const g = c.getContext("2d")!;
+        // The frame is the video turned back: shown (x, y) is frame (y, vw - x) for 90, (vh - y, x) for 270.
+        if (turn === 90) g.setTransform(0, -1, 1, 0, 0, vw);
+        else g.setTransform(0, 1, -1, 0, vh, 0);
+        g.drawImage(src, 0, 0);
+        return new Real(c, { timestamp: init?.timestamp ?? 0 });
+      } as unknown as typeof VideoFrame;
+      (window as unknown as { VideoFrame: typeof VideoFrame }).VideoFrame = Turned;
+    }, turn);
+    const p = await ctx.newPage();
+    try {
+      await p.goto("phone/");
+      await p.locator("#take-camera").click();
+      await expect(p.locator("#cam-info")).toContainText(`grab in a worker (frames turned ${turn}°)`, { timeout: 30_000 });
+      await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
+      const info = await p.locator("#cam-info > div").allTextContents();
+      log(`frames turned ${turn}°: ${info.join(" | ")}`);
+      expect(info.length).toBe(8);                                             // one item a line
+    } finally {
+      await ctx.close();
+    }
+  });
+}
+
 test("a camera that is not allowed falls back to the system camera", async () => {
   // Chromium's stand-in for the permission prompt, answering no: getUserMedia fails with NotAllowedError.
   const denied = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream=deny"] });

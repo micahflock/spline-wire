@@ -20,7 +20,7 @@
 // closed or the page is hidden: iOS keeps the camera light on otherwise.
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
-import { compareGrays, FrameGrab, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
+import { compareGrays, FrameGrab, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
@@ -152,7 +152,7 @@ export class CameraView {
   private switching = false;
   /** The frame grab in a worker, when this browser can (camera/grab.ts). */
   private grab: FrameGrab | null = null;
-  private shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
+  private shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
   private infoAt = 0;
   private readonly el: Record<string, HTMLElement>;
   private readonly video: VideoWithCallback;
@@ -217,7 +217,7 @@ export class CameraView {
     Object.assign(this.stats, blankStats());
     this.shooting = false;
     this.latest = null;
-    this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
+    this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
     this.el["cam"]!.hidden = false;
     this.el["cam-fail"]!.hidden = true;
     this.el["cam-live"]!.hidden = false;
@@ -493,11 +493,16 @@ export class CameraView {
       this.grabFailed(grab, `VideoFrame failed (${(e as Error).name})`);
       return null;
     }
-    if (frame.displayWidth !== v.videoWidth || frame.displayHeight !== v.videoHeight) {
+    // The frame may come the sensor's way round (Safari on iPhone: 4032×3024 for
+    // a 3024×4032 video): the worker turns it upright, and the check finds which way.
+    const turns = turnsFor(frame.displayWidth, frame.displayHeight, v.videoWidth, v.videoHeight,
+      (frame as unknown as { rotation?: unknown }).rotation);
+    if (!turns || (grab.turnsKnown() && !turns.includes(grab.turn))) {
       this.grabFailed(grab, `VideoFrame ${frame.displayWidth}×${frame.displayHeight}, video ${v.videoWidth}×${v.videoHeight}`);
       frame.close();
       return null;
     }
+    grab.setTurns(turns);
     return frame;
   }
 
@@ -644,12 +649,19 @@ export class CameraView {
     st.focal = focal;
     st.size = `${v.videoWidth}×${v.videoHeight}`;
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
-    this.el["cam-info"]!.textContent = [st.camera || "camera", st.size, focal,
-      st.grabMs.length ? `frame ${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "",
-      this.grab?.describe() ?? "",
-      st.region,
-      st.analyseMs.length ? `analysis ${Math.round(median(st.analyseMs))} ms` : "", sharp !== null ? `sharpness ${sharp.toFixed(2)}` : ""]
-      .filter(Boolean).join(" · ");
+    // One item a line, always the same lines (a dash until there is a value),
+    // none wrapping: the block keeps its height while the numbers change.
+    const lines = [st.camera || "camera", st.size, focal,
+      `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`,
+      this.grab?.describe() ?? "grab –",
+      `region ${st.region || "–"}`,
+      `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
+      `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`];
+    const text = lines.join("\n");
+    if (text !== this.shown.info) {
+      this.shown.info = text;
+      this.el["cam-info"]!.replaceChildren(...lines.map((l) => Object.assign(document.createElement("div"), { textContent: l })));
+    }
     this.el["cam-teach"]!.hidden = !!f;
   }
 
