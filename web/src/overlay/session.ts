@@ -11,7 +11,8 @@
 //     capture: () => takeStillAndMeasure(),                 // once per good hold; resolves when done
 //   });
 //   video.requestVideoFrameCallback(function each(now) {
-//     overlay.frame(grabWorkFrame(video), video.videoWidth, video.videoHeight, now);
+//     const r = overlay.region(video.videoWidth, video.videoHeight);   // which part, how finely (region.ts)
+//     overlay.frame(grabWorkFrame(video, r), video.videoWidth, video.videoHeight, now, r);
 //     video.requestVideoFrameCallback(each);
 //   });
 //
@@ -22,9 +23,10 @@
 
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec } from "../core/types";
-import { detectBlobs, shapeOf, type Shape } from "./blobs";
+import { detectBlobs, shapeOf, type Shape, type Window } from "./blobs";
 import { Coach } from "./coach";
 import { makeReading } from "./reading";
+import { RegionTracker, type Region } from "./region";
 import type { Blob, CoachState, FrameReading, GrayFrame, Point } from "./types";
 
 export interface OverlayView {
@@ -68,6 +70,7 @@ export class OverlaySession {
   private previous: FrameReading | null = null;
   private chain: Point[] = [];
   private lastStart = -Infinity;
+  private readonly regions: RegionTracker;
   readonly stats: OverlayStats = { frames: 0, analysed: 0, blobMs: 0, lastAnalyseMs: 0 };
 
   /** The chain's fiducial (a dot or a ring): what the frames are searched for,
@@ -76,15 +79,36 @@ export class OverlaySession {
     return shapeOf(this.o.chain);
   }
 
-  constructor(private readonly o: OverlayOptions) {}
+  constructor(private readonly o: OverlayOptions) {
+    this.regions = new RegionTracker(this.shape, o.chain.n_pins);
+  }
 
-  /** One video frame: `work` is the frame drawn small and gray (blobs.workSize, toGray). */
-  frame(work: GrayFrame, videoWidth: number, videoHeight: number, t: number): void {
-    const scale = videoWidth / work.width;
+  /** The part of the next video frame to draw, and its work size (region.ts):
+   * round the chain while it is tracked, else the whole frame or a quarter of it. */
+  region(videoWidth: number, videoHeight: number): Region {
+    return this.regions.next(videoWidth, videoHeight);
+  }
+
+  /** True while the chain is tracked (the regions are drawn round it). */
+  get tracking(): boolean {
+    return this.regions.tracking;
+  }
+
+  /** One video frame: `work` is the frame drawn small and gray (toGray), from
+   * `region` (this.region()); without one, from the whole frame (blobs.workSize). */
+  frame(work: GrayFrame, videoWidth: number, videoHeight: number, t: number, region?: Window): void {
+    const from: Window = region ?? { x: 0, y: 0, scaleX: videoWidth / work.width, scaleY: videoWidth / work.width };
     const t0 = performance.now();
     // The chain's own fiducial: a dot, or a ring like the snap-fit chain's rim.
-    const blobs = detectBlobs(work, scale, this.shape);
-    this.stats.blobMs += performance.now() - t0;
+    const blobs = detectBlobs(work, from, this.shape);
+    this.found(blobs, videoWidth, videoHeight, t, performance.now() - t0);
+  }
+
+  /** One video frame's blobs (video pixels), found elsewhere (camera/grab-worker.ts)
+   * from this.region() with this.shape, in `blobMs`. */
+  found(blobs: Blob[], videoWidth: number, videoHeight: number, t: number, blobMs = 0): void {
+    this.regions.observe(blobs);
+    this.stats.blobMs += blobMs;
     this.stats.frames++;
     this.o.show({ state: this.coach.current, chain: this.chain, blobs });
     if (this.busy || this.capturing) return;
@@ -113,6 +137,7 @@ export class OverlaySession {
     const reading = makeReading(t, { width, height }, blobs, analysis, this.o.chain.n_pins, this.previous);
     this.previous = reading;
     this.chain = reading.chain;
+    this.regions.chainFound(reading.chain, analysis.order.map((i) => blobs[i]?.d ?? 0), reading.missing);
     const state = this.coach.update(reading);
     if (state.phase !== "capture") return;
     if (this.o.autoCapture === false) {

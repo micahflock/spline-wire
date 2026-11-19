@@ -1,15 +1,16 @@
 """A chain for Chromium's fake camera: the camera view's end-to-end test
 (e2e/camera.spec.ts) streams it as if it were a phone's rear camera.
 
-    uv run python web/e2e/camera_scene.py OUT_DIR [WIDTHxHEIGHT] [snap]
+    uv run python web/e2e/camera_scene.py OUT_DIR [WIDTHxHEIGHT] [snap [SPAN]]
         -> OUT_DIR/camera.y4m   two identical frames (Chromium loops the file)
            OUT_DIR/camera.json  pins in frame pixels, the focal length, the chain
            OUT_DIR/camera.jpg   the same frame as a phone's JPEG with its EXIF focal
                                 length, for the upload path
 
 Portrait 3024x4032 by default: the full 4:3 sensor an iPhone streams (S3).
-The chain spans about 0.55 of the short side and is seen 12 degrees off
-straight-on, in the "daylight" scene of splinewire.scene.
+The chain spans about 0.55 of the short side (the snap-fit chain: SPAN, its
+pins' greatest distance plus a link's width over the short side) and is seen
+12 degrees off straight-on, in the "daylight" scene of splinewire.scene.
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     w, h = (int(v) for v in (sys.argv[2] if len(sys.argv) > 2 else "3024x4032").split("x"))
     if len(sys.argv) > 3 and sys.argv[3] == "snap":
-        return snap(out, w, h)
+        return snap(out, w, h, float(sys.argv[4]) if len(sys.argv) > 4 else SPAN)
     spec = load_chain_spec(oring_chain_path())
     pins = s_curve_pins(spec)
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
@@ -44,7 +45,7 @@ def main() -> None:
     write(out, sc.image.astype(np.uint8), sc.pins_px, sc.focal_px, spec)
 
 
-def snap(out: Path, w: int, h: int) -> None:
+def snap(out: Path, w: int, h: int, span: float = SPAN) -> None:
     """The snap-fit chain (data/chain-snap.yaml: thin white rims on round
     sleeves, 13 mm pitch), drawn with its relief by synthetic.render_snap_photo,
     framed and tilted as the dot chain's scene is."""
@@ -52,7 +53,7 @@ def snap(out: Path, w: int, h: int) -> None:
     pins = s_curve_pins(spec)
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
     focal = focal_px_from_35mm(FOCAL_35MM, (w, h))
-    distance = focal * extent / (SPAN * min(w, h))
+    distance = focal * extent / (span * min(w, h))
     cam = look_at_plane(focal, (w, h), distance, tilt_deg=12.0, tilt_direction_deg=30.0, roll_deg=70.0,
                         target_mm=tuple(pins.mean(axis=0)))
     image = render_snap_photo(pins, spec, cam, rng=np.random.default_rng(3))

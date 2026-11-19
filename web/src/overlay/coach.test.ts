@@ -61,8 +61,13 @@ describe("coach", () => {
   it("names the right problem for a chain at the edge, far away, bridged or blurred", () => {
     const shifted = reading(0).chain.map(([x, y]) => [x - 350, y] as Point);
     expect(check(reading(0, { chain: shifted }), false)).toEqual(["at-edge"]);
-    const small = reading(0).chain.map(([x, y]) => [960 + (x - 960) / 4, 540 + (y - 540) / 4] as Point);
-    expect(check(reading(0, { chain: small }), false)).toEqual(["too-far"]);
+    // The chain spans 1200 / 1080 of the short side: shrunk to 0.24, too far to start
+    // the hold (minSpan.enter 0.26) but near enough to keep it (keep 0.22); to 0.20, too far.
+    const shrink = (span: number) => reading(0).chain.map(([x, y]) => [960 + ((x - 960) * span * 1080) / 1200, 540 + ((y - 540) * span * 1080) / 1200] as Point);
+    expect(check(reading(0, { chain: shrink(0.24) }), false)).toEqual(["too-far"]);
+    expect(check(reading(0, { chain: shrink(0.24) }), true)).toEqual([]);
+    expect(check(reading(0, { chain: shrink(0.2) }), true)).toEqual(["too-far"]);
+    expect(check(reading(0, { chain: shrink(0.27) }), false)).toEqual([]);
     expect(check(reading(0, { chain: reading(0).chain.slice(1), missing: 1 }), false)).toEqual(["pins-missing"]);
     expect(check(reading(0, { sharpness: 0.1 }), false)).toEqual(["blurred"]);
     expect(check(reading(0, { tiltDeg: null, motion: null }), false)).toEqual([]);

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { FramePoints } from "../core/protocol";
+import { specFromDict } from "../pipeline/chain";
+import { analyse as liveAnalyse } from "../pipeline/live";
 import { motion } from "./reading";
 import { OverlaySession, type OverlayView } from "./session";
+import { SNAP_SPEC, snapScene, VIDEO } from "./snap-frames";
+import { followChain } from "./trace";
 import type { FrameReading, GrayFrame, Point } from "./types";
 
 /** A 640×360 work frame with a 9-pin chain: dark links, light dots, drawn without antialiasing. */
@@ -111,4 +115,34 @@ it("searches for the fiducial its chain preset names", () => {
   const o = { focalPx: () => null, analyse, show: () => {}, capture: async () => {} };
   expect(new OverlaySession({ ...o, chain: snap }).shape.inner).toBeCloseTo(0.761, 3);
   expect(new OverlaySession({ ...o, chain }).shape.inner).toBe(0);
+});
+
+it("draws regions round the snap-fit chain at span 0.29, and the trace lands on its pins in video pixels", { timeout: 120_000 }, async () => {
+  // 0.29 with a rim; the pins alone span 0.27 of the short side, past the coach's minSpan.enter (0.26).
+  const sc = snapScene(0.29, 128, 0.62, 0.35);
+  const spec = specFromDict(SNAP_SPEC);
+  const views: OverlayView[] = [];
+  const kinds: string[] = [];
+  let captures = 0;
+  const overlay = new OverlaySession({
+    chain: SNAP_SPEC, focalPx: () => null, show: (v) => views.push(v), capture: async () => void captures++,
+    // The live worker's analysis, answered at once.
+    analyse: async (p) => liveAnalyse(p.points, p.diameters, [p.width, p.height], spec, p.focal_px),
+  });
+  for (let t = 0; t <= 1500 && captures === 0; t += 100) {
+    const r = overlay.region(VIDEO.width, VIDEO.height);
+    kinds.push(r.kind);
+    overlay.frame(sc.draw(r), VIDEO.width, VIDEO.height, t, r);
+    await turn();
+  }
+  expect(kinds[0]).toBe("full");
+  expect(kinds.indexOf("track")).toBeGreaterThan(0);           // tracked once an analysis has ordered it
+  expect(kinds.indexOf("track")).toBeLessThanOrEqual(5);
+  expect(overlay.tracking).toBe(true);
+  expect(captures).toBe(1);                                     // near enough to shoot
+  const last = views.at(-1)!;
+  const near = (pts: Point[]) => Math.max(...sc.pins.map(([x, y]) => Math.min(...pts.map(([px, py]) => Math.hypot(px - x, py - y)))));
+  expect(last.chain.length).toBe(13);
+  expect(near(last.chain)).toBeLessThan(0.3);
+  expect(near(followChain(last.chain, last.blobs))).toBeLessThan(0.3);
 });
