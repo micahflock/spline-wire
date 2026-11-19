@@ -23,6 +23,8 @@ export interface Gauge {
 export interface PlaquePose {
   name: string;
   label: string;
+  /** The pitch it was printed at: the link's design pitch. */
+  pitch_mm: number;
 }
 
 export const GAUGES: readonly Gauge[] = (targetsJson as unknown as { gauges: Gauge[] }).gauges;

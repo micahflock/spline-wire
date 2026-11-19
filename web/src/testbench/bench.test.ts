@@ -9,7 +9,7 @@ import { readGrayPng } from "../pipeline/golden/png";
 import type { PlaqueScore } from "../pipeline/scoring";
 import type { ChainSpec } from "../pipeline/types";
 import {
-  chooseFocal, isTarget, measureAndScore, photoName, phoneSlug, report, REPORT_SCHEMA, reportText, targetSide,
+  chooseFocal, isTarget, specFor, measureAndScore, photoName, phoneSlug, report, REPORT_SCHEMA, reportText, targetSide,
   testId, verdict, type TestRecord,
 } from "./bench";
 
@@ -50,6 +50,13 @@ describe("the rest", () => {
     expect(chooseFocal(null, null, null)).toEqual({ source: "estimated", f35: null });
   });
 
+  it("measures a plaque at its printed pitch and the chain at its own", () => {
+    expect(specFor(spec, "plaque-s", 13, "light", 12.98).pitch_mm).toBe(13.0);
+    expect(specFor(spec, "convex-r25", 11, "dark", 12.98)).toMatchObject({ pitch_mm: 12.98, n_pins: 11, fiducial_shade: "dark" });
+    expect(specFor(spec, "object", 13, "light", null).pitch_mm).toBe(spec.pitch_mm);
+    expect(specFor(spec, "concave-r60", 13, "light", 1.298).pitch_mm).toBe(spec.pitch_mm);   // a slip: ignored
+  });
+
   it("knows each target's side", () => {
     expect(targetSide("convex-r40")).toBe("inside");
     expect(targetSide("concave-r60")).toBe("outside");
@@ -81,7 +88,7 @@ describe("the rest", () => {
   it("writes the report splinewire score reads", () => {
     const t: TestRecord = {
       id: "iphone-001", photo: "iphone-001-plaque-s.jpg", created: "2026-11-18T12:00:00Z", phone: "iPhone", chain: "snap",
-      shade: "dark", pins: 13, target: "plaque-s", route: "camera",
+      shade: "dark", pins: 13, pitch_mm: 13, target: "plaque-s", route: "camera",
       conditions: { tilt: "20", surface: "white paper", light: "daylight", frame: "centre" },
       exif: { make: "Apple", model: "iPhone", focal_mm: 6.8, focal_35mm: 24 }, saved_focal_35mm: null, size: [4032, 3024],
     };

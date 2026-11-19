@@ -91,10 +91,12 @@ The owner is starting with a subset; the other gauges follow if the data leaves 
 | Plaque, neighbouring rims, outside to outside | 21.5–21.6 ± 0.05 | 21.79 | The rims print ~8.55 mm across, not 8.79 (the same shrink); the plaque's pitch is exact by construction |
 | Chain, neighbouring rims, outside to outside | 21.65 | 21.79 | 0.1 mm more than the plaque: a pitch ~0.1 mm long (0.8%), or rims printed larger. Not yet resolved |
 | Chain straight, first rim to last | — | 164.79 | Too long for the calipers |
+| Chain straight, outside of rim 1 to outside of rim 11 (10 links) | 138.35 | 138.55 at 13.00 mm | Pitch (138.35 − 8.55) / 10 = **12.98 mm** (−0.15%); 12.97 if this chain's rims are as wide as its single pair suggests (8.67), so ±0.01 mm. The single pair's 21.65 was too coarse to show it. Only one chain measured so far |
 
 What follows:
 - Read the gauges' radius errors against the printed sizes: about −0.10 mm on convex R25, +0.10 mm on concave R60, and (assumed) +0.10 mm on concave R100. The rims' centres, and so the plaques' truth, do not move.
-- The chain's pitch needs a span the calipers reach: each chain straight, outside of rim 1 to outside of rim 11 (10 links), pitch = (L − 8.55) / 10, using the rim size the plaque gives; 138.55 mm for a 13.00 mm pitch, 139.55 mm for 13.10. More than ~0.15 mm off 138.55 and that chain gets a pitch setting of its own before phase 2: a uniformly long pitch only rescales the measurement, so no photo can show it.
+- **The chain's pitch is 12.98 mm**, not 13.00: uncorrected, every measurement of the chain comes out 0.15% small (0.05 mm on the R25 radius, 0.15 mm on R100, 0.15 mm per 100 mm of curve). The test page now has a chain pitch setting (and the report carries it to `splinewire score`); the plaques stay at the 13.00 mm they were printed at. Measure the other chain the same way. The phone page has no pitch setting yet: phase 4 needs one, or `data/chain-snap.yaml` set to the measured pitch.
+- How it was measured: a span the calipers reach, each chain straight, outside of rim 1 to outside of rim 11 (10 links), pitch = (L − 8.55) / 10, using the rim size the plaque gives; 138.55 mm for a 13.00 mm pitch, 139.55 mm for 13.10. More than ~0.15 mm off 138.55 and that chain gets a pitch setting of its own before phase 2: a uniformly long pitch only rescales the measurement, so no photo can show it.
 
 
 - **Plaques and gauges:** measure each 50 mm bar. A bar off by more than 0.1 mm means the printer's scale needs fixing, or every score from that print is read after the scale fit. Check the convex discs' diameters and the concave hole's.

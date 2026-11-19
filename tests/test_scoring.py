@@ -133,6 +133,27 @@ def test_score_command_reads_the_test_pages_report(snap, tmp_path, capsys):
     assert scores[0]["focal"]["exif"]["score"]["max_error_mm"] < 0.02
 
 
+def test_score_command_measures_the_chain_at_its_own_pitch_and_a_plaque_at_its_printed_one(snap, tmp_path, capsys):
+    """A chain whose pitch came out 12.98 mm (phase 0): its photo on a gauge,
+    measured at 13.00, comes out 0.15% large; at 12.98, exact. A plaque is
+    measured at 13.00 whatever pitch the report gives the chain."""
+    short = replace(snap, pitch_mm=12.98)
+    write_synthetic_photo(tmp_path / "G.jpg", chain_on_gauge(GAUGES["concave-r100"], short, 1, 5.0), short, (3000, 2250))
+    write_synthetic_photo(tmp_path / "P.jpg", plaque_pins("plaque-s", snap), snap, (3000, 2250))
+    tests = [{"id": "G", "photo": "G.jpg", "chain": "snap", "pins": 13, "target": "concave-r100"},
+             {"id": "P", "photo": "P.jpg", "chain": "snap", "pins": 13, "target": "plaque-s"}]
+    radius = {}
+    for pitch in (None, 12.98):
+        doc = {"schema": REPORT_SCHEMA, "tests": [dict(t, pitch_mm=pitch) for t in tests]}
+        (tmp_path / "r.json").write_text(json.dumps(doc))
+        assert main(["score", "--report", str(tmp_path / "r.json"), "--json", str(tmp_path / "s.json")]) == 0
+        g, p = json.loads((tmp_path / "s.json").read_text())
+        radius[pitch] = g["focal"]["exif"]["score"]["inner"]["radius_error_mm"]
+        assert p["focal"]["exif"]["score"]["max_error_mm"] < 0.02
+    assert radius[12.98] == pytest.approx(0.0, abs=0.03)
+    assert radius[None] == pytest.approx(0.02 / 12.98 * (100 - snap.half_width_mm), abs=0.05)
+
+
 def test_score_command_needs_a_target(tmp_path, capsys):
     assert main(["score", str(tmp_path / "x.jpg")]) == 1
     assert "--target" in capsys.readouterr().err

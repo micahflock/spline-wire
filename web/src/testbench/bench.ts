@@ -13,7 +13,7 @@ import { PipelineError } from "../pipeline/errors";
 import { measureDetections, type Measurement } from "../pipeline/measure";
 import { headline, score, type Score } from "../pipeline/scoring";
 import { focalPxFrom35mm } from "../pipeline/session";
-import { gaugeByName, isPlaque } from "../pipeline/targets";
+import { gaugeByName, isPlaque, PLAQUES } from "../pipeline/targets";
 import type { ChainSpec, Side } from "../pipeline/types";
 
 export const REPORT_SCHEMA = "spline-wire/test-report@1";
@@ -53,6 +53,9 @@ export interface TestRecord {
   chain: "snap";
   shade: Colourway;
   pins: number;
+  /** The pitch the photo was measured with: the plaque's own for a plaque, the
+   * chain's (as measured with calipers, else the preset's) otherwise. */
+  pitch_mm: number;
   target: string;
   route: "camera" | "frame" | "library";
   conditions: { tilt: string; surface: string; light: string; frame: string };
@@ -68,6 +71,20 @@ export function targetSide(target: string): Side | null {
   const g = gaugeByName(target);
   if (!g || g.concave === undefined) return null;
   return g.concave ? "outside" : "inside";
+}
+
+/** The pitch a chain's own pitch setting may take, mm: a typing slip outside it is ignored. */
+export const PITCH_RANGE = { min: 12, max: 14 };
+
+/** The chain a test is measured with. A plaque was printed from the link's
+ * design, so it is measured at its own pitch whatever the chain's is; the
+ * chain on a gauge or an object at the chain's pitch as measured with calipers
+ * (docs/real-world-tests.md, phase 0), else the preset's. */
+export function specFor(base: ChainSpec, target: string, links: number, shade: Colourway, chainPitch: number | null): ChainSpec {
+  const plaque = PLAQUES.find((p) => p.name === target);
+  const measured = chainPitch !== null && chainPitch >= PITCH_RANGE.min && chainPitch <= PITCH_RANGE.max ? chainPitch : null;
+  const pitch = plaque ? plaque.pitch_mm : measured ?? base.pitch_mm;
+  return { ...base, n_pins: links, fiducial_shade: shade, pitch_mm: pitch };
 }
 
 /** The focal length a photo is measured with: its EXIF, else the lens the
@@ -181,7 +198,7 @@ export function reportText(r: Report): string {
     }
     const main = res.focal.main, est = res.focal.estimated;
     const head = (run: FocalRun | undefined) => (!run ? "-" : run.error ? "failed" : run.score ? headline(run.score).toFixed(3) : "ok");
-    lines.push(`${t.id} ${t.target} ${COLOURWAYS[t.shade]}, ${t.pins} links, tilt ${res.tilt_deg}° (planned ${t.conditions.tilt}), `
+    lines.push(`${t.id} ${t.target} ${COLOURWAYS[t.shade]}, ${t.pins} links at ${t.pitch_mm} mm, tilt ${res.tilt_deg}° (planned ${t.conditions.tilt}), `
       + `${t.conditions.surface}, ${t.conditions.light}, ${t.route}: ${res.pins_found} pins; `
       + `${main.source} ${main.focal_35mm ?? "?"} mm -> ${head(main)} mm; estimated -> ${head(est)} mm`
       + (res.warnings.length ? ` [${res.warnings.length} warning(s)]` : ""));

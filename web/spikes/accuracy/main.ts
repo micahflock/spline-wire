@@ -11,7 +11,7 @@ import { GAUGES, PLAQUES } from "../../src/pipeline/targets";
 import type { ChainSpec } from "../../src/pipeline/types";
 import { LocalStore } from "../../src/relay/store";
 import {
-  chooseFocal, COLOURWAYS, measureAndScore, photoName, report, reportText, testId, verdict,
+  chooseFocal, COLOURWAYS, measureAndScore, specFor, photoName, report, reportText, testId, verdict,
   type Colourway, type TestRecord,
 } from "../../src/testbench/bench";
 import { Camera } from "./camera";
@@ -25,7 +25,7 @@ $("version").textContent = `Version ${version}.`;
 
 const store = new LocalStore("splinewire-bench:");
 const phoneSettings = () => loadSettings(new LocalStore("splinewire-phone:"));
-const fields = ["phone", "shade", "links", "focal", "target", "tilt", "frame", "surface", "light"] as const;
+const fields = ["phone", "shade", "links", "focal", "pitch", "target", "tilt", "frame", "surface", "light"] as const;
 type Field = (typeof fields)[number];
 const input = (f: Field) => $<HTMLInputElement | HTMLSelectElement>(f);
 
@@ -72,13 +72,18 @@ function showFocalNote(): void {
 showFocalNote();
 
 let chainBase: Promise<Record<string, unknown>> | null = null;
-async function chain(): Promise<ChainSpec> {
+function pitch(): number | null {
+  const v = input("pitch").value.trim();
+  return v ? Number(v) : null;
+}
+
+async function chain(target: string): Promise<ChainSpec> {
   chainBase ??= fetch(new URL("../../chains.json", location.href)).then(async (r) => {
     if (!r.ok) throw new Error(`chains.json: HTTP ${r.status}`);
     return ((await r.json()) as Record<string, Record<string, unknown>>)["snap"]!;
   });
   const shade = input("shade").value as Colourway;
-  return specFromDict({ ...(await chainBase), n_pins: links(), fiducial_shade: shade });
+  return specFor(specFromDict(await chainBase), target, links(), shade, pitch());
 }
 
 // ---- taking and measuring ----
@@ -141,7 +146,7 @@ async function run(photo: Blob, route: TestRecord["route"]): Promise<void> {
   const exif: Exif = await exifOfFile(photo).catch(() => ({ make: null, model: null, lens: null, focalMm: null, focal35: null }));
   const record: TestRecord = {
     id, photo: photoName(id, target, photo.type), created: new Date().toISOString(), phone, chain: "snap",
-    shade: input("shade").value as Colourway, pins: links(), target, route,
+    shade: input("shade").value as Colourway, pins: links(), pitch_mm: 0, target, route,
     conditions: { tilt: input("tilt").value, surface: input("surface").value, light: input("light").value, frame: input("frame").value },
     exif: { make: exif.make, model: exif.model, focal_mm: exif.focalMm, focal_35mm: exif.focal35 },
     saved_focal_35mm: savedFocal(), size: [0, 0],
@@ -152,7 +157,9 @@ async function run(photo: Blob, route: TestRecord["route"]): Promise<void> {
     now(`${id}: measuring ${gray.width}×${gray.height}… (a few seconds; the page waits)`);
     await paint();
     const remembered = lensFocal(phoneSettings(), exif)?.focal35 ?? null;
-    record.results = measureAndScore(gray, await chain(), target, chooseFocal(exif.focal35, remembered, record.saved_focal_35mm));
+    const spec = await chain(target);
+    record.pitch_mm = spec.pitch_mm;
+    record.results = measureAndScore(gray, spec, target, chooseFocal(exif.focal35, remembered, record.saved_focal_35mm));
     const v = verdict(record.results.focal.main, record.results.pins_found, record.pins);
     now(`${id}: ${v.ok ? "PASS" : "CHECK"} — ${v.text}`);
   } catch (e) {
@@ -175,7 +182,7 @@ async function list(): Promise<void> {
     row.className = "test";
     const r = t.results;
     const head = document.createElement("div");
-    head.innerHTML = `<b>${t.id}</b> ${t.target} · ${COLOURWAYS[t.shade]} · ${t.pins} links · ${t.route}`;
+    head.innerHTML = `<b>${t.id}</b> ${t.target} · ${COLOURWAYS[t.shade]} · ${t.pins} links at ${t.pitch_mm || "?"} mm · ${t.route}`;
     row.append(head);
     if (!r) {
       row.append(line(t.error ?? "not measured", false));

@@ -100,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--photo-dir", type=Path, help="where the report's photos are (default: beside it)")
     p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
     p.add_argument("--pins", type=int, help="number of pins (default: n_pins from the chain file)")
+    p.add_argument("--pitch", type=float, help="the chain's pitch as measured with calipers, mm (not used for a plaque, "
+                                               "which is measured at the pitch it was printed at)")
     p.add_argument("--saved-focal-35mm", type=float, help="the phone's focal length, for photos without EXIF")
     p.add_argument("--fit-focal", action="store_true",
                    help="also find the focal length that fits the target best (slower)")
@@ -270,6 +272,8 @@ def _score(args, spec: ChainSpec) -> int:
                 continue
             s = load_chain_spec(presets[t.get("chain") or "snap"])
             s = replace(s, n_pins=int(t["pins"]), fiducial_shade=t.get("shade") or s.fiducial_shade)
+            if t.get("pitch_mm") and t["target"] not in PLAQUE_POSES:
+                s = replace(s, pitch_mm=float(t["pitch_mm"]))
             jobs.append((t["id"], folder / t["photo"], t["target"], s, t.get("saved_focal_35mm")))
     else:
         if not args.photos or not args.target:
@@ -278,6 +282,8 @@ def _score(args, spec: ChainSpec) -> int:
             raise ValueError(f"no target {args.target!r}; there are {', '.join(target_names())}")
         if args.pins is not None:
             spec = replace(spec, n_pins=args.pins)
+        if args.pitch is not None and args.target not in PLAQUE_POSES:
+            spec = replace(spec, pitch_mm=args.pitch)
         jobs = [(p.stem, p, args.target, spec, args.saved_focal_35mm) for p in args.photos]
 
     results = []
