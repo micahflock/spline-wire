@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fullRegion, region as makeRegion } from "../overlay/region";
-import { compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, type Turn, drawFor, turnsFor, whyNotWorker } from "./grab";
+import { compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, type Turn, drawFor, grayCorrelation, turnsFor, whyNotWorker } from "./grab";
 
 /** A worker that answers each request as `answer` says (or never, with null). */
 function fakeWorker(answer: (req: GrabRequest) => GrabReply | null) {
@@ -104,6 +104,10 @@ describe("the frame grab in a worker", () => {
     c.checked("different");
     expect(c.mode).toBe("main");
     expect(GRAB.maxDifference).toBeLessThan(GRAB.minContrast);
+    // The same picture made lighter and of more contrast correlates fully; turned, hardly.
+    expect(grayCorrelation(pic, pic.map((v) => Math.min(255, 20 + Math.round(v * 0.8))))).toBeGreaterThan(0.99);
+    expect(Math.abs(grayCorrelation(pic, pic.slice().reverse()))).toBeLessThan(0.5);
+    expect(grayCorrelation(pic, pic.slice(1))).toBeNaN();
   });
 
   it("knows which turns could take a frame to the video", () => {
@@ -152,9 +156,9 @@ describe("the frame grab in a worker", () => {
     expect(grab.describe()).toBe("grab in a worker (frames turned 270°)");
     const none = new FrameGrab(() => fakeWorker(() => null).w, null);
     none.setTurns([90, 270, 0]);
-    none.checked("different", 41.2);
-    none.checked("different", 38.6);
-    none.checked("different", Infinity);
-    expect(none.describe()).toBe("grab on the page: the worker's copy of a frame differs (90° 41, 270° 39, 0° –)");
+    none.checked("different", 41.2, 0.12);
+    none.checked("different", 38.6, 0.97);
+    none.checked("different", Infinity, NaN);
+    expect(none.describe()).toBe("grab on the page: the worker's copy of a frame differs (90° 41 r 0.12, 270° 39 r 0.97, 0° –)");
   });
 });

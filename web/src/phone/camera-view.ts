@@ -20,7 +20,7 @@
 // closed or the page is hidden: iOS keeps the camera light on otherwise.
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
-import { compareGrays, FrameGrab, grayDifference, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
+import { compareGrays, FrameGrab, grayCorrelation, grayDifference, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
@@ -517,7 +517,7 @@ export class CameraView {
     grab.run(frame, r, this.session!.shape, true).then((reply) => {
       if (gen !== this.gen || this.grab !== grab) return;
       const worker = reply.gray ?? new Uint8Array(0);
-      grab.checked(compareGrays(page, worker), grayDifference(page, worker));
+      grab.checked(compareGrays(page, worker), grayDifference(page, worker), grayCorrelation(page, worker));
       this.stats.grab = this.grabText();
     }, (e: Error) => {
       if (gen === this.gen) this.grabFailed(grab, `worker: ${e.message}`);
@@ -655,14 +655,15 @@ export class CameraView {
     st.focal = focal;
     st.size = `${v.videoWidth}×${v.videoHeight}`;
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
-    // One item a line, always the same lines (a dash until there is a value),
-    // none wrapping: the block keeps its height while the numbers change.
+    // One item a line, always the same lines (a dash until there is a value).
+    // Only the last, where frames are grabbed, may wrap (its reason can be
+    // long): last, so its wrapping moves no other line.
     const lines = [st.camera || "camera", st.size, focal,
       `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`,
-      this.grab?.describe() ?? "grab –",
       `region ${st.region || "–"}`,
       `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
-      `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`];
+      `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`,
+      this.grab?.describe() ?? "grab –"];
     const text = lines.join("\n");
     if (text !== this.shown.info) {
       this.shown.info = text;

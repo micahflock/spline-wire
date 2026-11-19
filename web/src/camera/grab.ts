@@ -202,13 +202,19 @@ export class FrameGrab {
 
   /** The check's verdict (compareGrays): the worker grabs from now on, the page
    * does, or the check is tried again on a busier frame a little later. */
-  checked(verdict: "same" | "different" | "unsure", difference?: number): void {
+  checked(verdict: "same" | "different" | "unsure", difference?: number, correlation?: number): void {
     if (this.mode !== "check") return;
     if (verdict === "same") this.mode = "worker";
     else if (verdict === "unsure") this.wait = GRAB.recheckFrames;
     else {
-      // Kept for the message: how far each turn's copy was from the page's, mean gray levels.
-      if (difference !== undefined) this.tried.push(`${this.turn}° ${Number.isFinite(difference) ? difference.toFixed(0) : "–"}`);
+      // Kept for the message: how far each turn's copy was from the page's (mean
+      // gray levels), and how alike (correlation: near 1 for the same picture
+      // made lighter or darker, near 0 for one turned or shifted).
+      if (difference !== undefined) {
+        const d = Number.isFinite(difference) ? difference.toFixed(0) : "–";
+        const r = correlation !== undefined && Number.isFinite(correlation) ? ` r ${correlation.toFixed(2)}` : "";
+        this.tried.push(`${this.turn}° ${d}${r}`);
+      }
       if (this.turns.length > 1) this.turns.shift();      // try the frame turned the next way
       else this.fallBack(`the worker's copy of a frame differs${this.tried.length ? ` (${this.tried.join(", ")})` : ""}`);
     }
@@ -267,6 +273,20 @@ export function compareGrays(page: Uint8Array, worker: Uint8Array): "same" | "di
   const n = page.length, mean = sum / n;
   if (Math.sqrt(Math.max(0, sq / n - mean * mean)) < GRAB.minContrast) return "unsure";
   return grayDifference(page, worker) <= GRAB.maxDifference ? "same" : "different";
+}
+
+/** How alike two gray copies are, -1 to 1 (Pearson correlation; NaN if their
+ * sizes differ or either is flat): about 1 for the same picture even if one is
+ * lighter, darker or of more contrast, low for a picture turned or shifted. */
+export function grayCorrelation(a: Uint8Array, b: Uint8Array): number {
+  if (a.length !== b.length || a.length === 0) return NaN;
+  let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!, y = b[i]!;
+    sa += x; sb += y; saa += x * x; sbb += y * y; sab += x * y;
+  }
+  const n = a.length, va = saa - (sa * sa) / n, vb = sbb - (sb * sb) / n;
+  return va > 0 && vb > 0 ? (sab - (sa * sb) / n) / Math.sqrt(va * vb) : NaN;
 }
 
 /** Mean absolute difference of two gray copies, gray levels (Infinity if their sizes differ). */
