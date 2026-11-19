@@ -385,6 +385,27 @@ test.describe("paired with a computer", () => {
     await page.screenshot({ path: path.join(SHOTS, "paired-light.png"), fullPage: true });
     await desktop.close();
   });
+
+  test("a code scanned while the page is open pairs it, without loading the page again", async ({ browser }) => {
+    // Another computer, so another secret. The browser only changes the #fragment
+    // of the open page (same document), as Safari does for a scanned link.
+    const other = await browser.newContext();
+    try {
+      const otherDesktop = await other.newPage();
+      await otherDesktop.goto(demo.desktop);
+      const secret = new URL((await otherDesktop.locator("#pair").textContent())!).hash;
+      const marker = await page.evaluate(() => ((window as unknown as { loadMark: number }).loadMark = Math.random()));
+      await page.goto(`phone/?relay=${encodeURIComponent(demo.relay.url)}${secret}`);
+      expect(await page.evaluate(() => (window as unknown as { loadMark?: number }).loadMark)).toBe(marker);  // not reloaded
+      await expect(page).toHaveURL(/\/phone\/\?relay=[^#]*$/);
+      await expect(page.locator("#toast")).toContainText("Paired with the computer");
+      await expect(page.locator("#link-text")).toHaveText("Computer connected");
+      await otherDesktop.close();
+      await expect(page.locator("#link-text")).toHaveText("Computer not open");
+    } finally {
+      await other.close();
+    }
+  });
 });
 
 /** Visits the phone page until its engine is ready: the core's files (Pyodide,

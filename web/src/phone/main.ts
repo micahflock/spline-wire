@@ -24,7 +24,7 @@ import { pack } from "../relay/files";
 import { RelayLink, type LinkStatus } from "../relay/link";
 import { pointsTsv } from "../relay/messages";
 import { Outbox } from "../relay/outbox";
-import { forgetPairing, phoneSecret } from "../relay/pairing";
+import { forgetPairing, phoneSecret, secretFromHash } from "../relay/pairing";
 import { LocalStore } from "../relay/store";
 import { CameraView, type Still } from "./camera-view";
 import { curveFrom } from "./curve";
@@ -676,13 +676,18 @@ const sentNames = new Map<string, string>();
 
 const paired = () => outbox !== null;
 
+/** Bumped by each start, so a start overtaken by a newer one (two quick scans) leaves no link behind. */
+let pairingRun = 0;
+
 async function startPairing(): Promise<void> {
+  const run = ++pairingRun;
   secret = phoneSecret(store, location.hash, () => history_.replaceState(null, "", location.pathname + location.search));
   if (!secret || !relayUrl) {
     renderPairing();
     return;
   }
   const keys = await deriveKeys(secret);
+  if (run !== pairingRun) return;
   const hello = () => void link?.send({ type: "hello", role: "phone", device: deviceName(navigator.userAgent), app: import.meta.env.APP_VERSION });
   link = new RelayLink({
     relayUrl, keys, role: "phone",
@@ -835,6 +840,21 @@ $("unpair").onclick = () => {
   renderPairing();
   renderResult();
 };
+
+// A code scanned while this page is already open in the browser: the address
+// differs from the open one only in its #fragment, so the browser does not load
+// the page again, it only changes location.hash. Pair here instead.
+addEventListener("hashchange", () => {
+  if (!secretFromHash(location.hash)) return;
+  const before = secret;
+  link?.stop();
+  link = null;
+  outbox = null;
+  linkStatus = { state: "off", peers: 0 };
+  void startPairing()
+    .then(() => { if (secret && secret !== before) toast("Paired with the computer."); })
+    .catch((e: Error) => toast(`Pairing: ${e.message}`));
+});
 
 addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") link?.retryNow();
