@@ -152,9 +152,9 @@ describe("the frame grab in a worker", () => {
     expect(grab.describe()).toBe("grab in a worker (frames turned 270°)");
     const none = new FrameGrab(() => fakeWorker(() => null).w, null);
     none.setTurns([90, 270, 0]);
-    none.checked("different");
-    none.checked("different");
-    none.checked("different");
-    expect(none.describe()).toBe("grab on the page: the worker's copy of a frame differs");
+    none.checked("different", 41.2);
+    none.checked("different", 38.6);
+    none.checked("different", Infinity);
+    expect(none.describe()).toBe("grab on the page: the worker's copy of a frame differs (90° 41, 270° 39, 0° –)");
   });
 });
