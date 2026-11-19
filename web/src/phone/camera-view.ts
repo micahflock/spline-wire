@@ -30,6 +30,7 @@ import type { Region } from "../overlay/region";
 import { OverlaySession, type OverlayView } from "../overlay/session";
 import { followChain } from "../overlay/trace";
 import { pinsText, sayFor } from "../overlay/words";
+import { browserInfo, uaData, type UAData } from "./browser";
 import { frameFocal, ultraWides, type FrameFocal } from "./lenses";
 import type { Settings } from "./settings";
 
@@ -120,7 +121,7 @@ export interface CameraStats {
   focal: string;
   /** Which work canvas was chosen, and the trial's medians. */
   work: string;
-  /** The QR scan beside the overlay: frames decoded and the last one's time. */
+  /** The QR scan beside the overlay: frames decoded × the page's draw + the worker's decode of the last (ms). */
   qr: string;
   imageCapture: boolean;
   takePhotoMs: number | null;
@@ -128,6 +129,8 @@ export interface CameraStats {
   still: string | null;
   /** Why the view last closed by itself, if it did. */
   closedBy: string | null;
+  /** The browser, OS, phone and build, as the info's first line shows them. */
+  browser: string;
 }
 
 export class CameraView {
@@ -151,6 +154,8 @@ export class CameraView {
   private trial: Record<WorkMode, number[]> = { gpu: [], cpu: [] };
   /** The gray work frame, reused from frame to frame. */
   private gray = new Uint8Array(0);
+  /** What Chromium tells of the phone when asked (browser.ts): the real Android version and model. */
+  private ua: UAData | null = null;
   /** The camera is being asked for (getUserMedia): a permission prompt may be up. */
   private requesting = false;
   /** Another camera is being opened in place of the open one (switchTo). */
@@ -166,6 +171,7 @@ export class CameraView {
   private readonly canvas: HTMLCanvasElement;
 
   constructor(private readonly deps: CameraDeps) {
+    void uaData().then((d) => (this.ua = d));
     const $ = (id: string) => document.getElementById(id) as HTMLElement;
     this.el = Object.fromEntries(["cam", "cam-say-title", "cam-say-detail", "cam-count", "cam-ring", "cam-info", "cam-fail",
       "cam-fail-title", "cam-fail-text", "cam-switch", "cam-shutter", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
@@ -448,7 +454,7 @@ export class CameraView {
     // A frame it takes is the overlay's frame skipped, under the same budget.
     if (this.qr && r.kind !== "track" && this.qr.frame(v, now)) {
       const cost = this.qr.grabMs;
-      this.stats.qr = `${this.qr.frames + 1} frames, page ${cost.toFixed(1)} ms, decode ${this.qr.lastMs.toFixed(0)} ms`;
+      this.stats.qr = `${this.qr.frames + 1} × ${cost.toFixed(0)}+${this.qr.lastMs.toFixed(0)} ms`;
       this.lastWork = now;
       this.gap = cost / BUSY_SHARE - cost;
       return;
@@ -619,16 +625,11 @@ export class CameraView {
       const X = (x: number) => ox + (x + 0.5) * k, Y = (y: number) => oy + (y + 0.5) * k;
       const phase = view.state.phase;
       const color = phase === "steady" || phase === "capture" ? "#4cc27a" : phase === "adjusting" ? "#f2b705" : "rgba(255,255,255,.8)";
+      // Only the chain is drawn. Blobs off it (glints, holes, clutter, each
+      // found in one frame and lost in the next) were drawn as faint rings
+      // until 2026-11-19 and only flickered: the pin count and the coach's
+      // message already say when pins are missing.
       const chain = followChain(view.chain, view.blobs);
-      const onChain = new Set(chain.map(([x, y]) => `${x},${y}`));
-      g.lineWidth = 1.5 * dpr;
-      g.strokeStyle = "rgba(255,255,255,.45)";
-      for (const b of view.blobs) {
-        if (onChain.has(`${b.x},${b.y}`)) continue;
-        g.beginPath();
-        g.arc(X(b.x), Y(b.y), Math.max(3 * dpr, (b.d / 2) * k), 0, 2 * Math.PI);
-        g.stroke();
-      }
       if (chain.length) {
         g.lineWidth = 3 * dpr;
         g.strokeStyle = color;
@@ -679,11 +680,14 @@ export class CameraView {
     // One item a line, always the same lines (a dash until there is a value).
     // Only the last, where frames are grabbed, may wrap (its reason can be
     // long): last, so its wrapping moves no other line.
-    const lines = [st.camera || "camera", st.size, focal,
+    // First, what a screenshot sent by someone else must say: the browser, the OS, the phone and the build.
+    st.browser = `${browserInfo(navigator.userAgent, this.ua)} · build ${import.meta.env.BUILD_ID}`;
+    const lines = [st.browser, st.camera || "camera", st.size, focal,
       `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`,
       `region ${st.region || "–"}`,
       `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
       `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`,
+      `qr ${st.qr || "–"}`,
       this.grab?.describe() ?? "grab –"];
     const text = lines.join("\n");
     if (text !== this.shown.info) {
@@ -843,5 +847,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "", qr: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null, browser: "" };
 }
