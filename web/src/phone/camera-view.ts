@@ -437,7 +437,9 @@ export class CameraView {
     // In a worker when the browser can (camera/grab.ts); a check frame is
     // grabbed here as well, and the two copies compared.
     let check: VideoFrame | null = null;
-    if (this.grab?.wants()) {
+    // The check skips whole frames: a whole frame came out right on an iPhone
+    // while regions came out shifted, so only a region tests the worker's drawing.
+    if (this.grab && (this.grab.mode === "worker" || r.kind !== "full") && this.grab.wants()) {
       const frame = this.videoFrame();
       if (frame && this.grab.mode === "worker") return this.toWorker(frame, now, r, t0);
       check = frame;

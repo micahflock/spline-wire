@@ -99,21 +99,21 @@ export function turnsFor(frameW: number, frameH: number, videoW: number, videoH:
   return turns;
 }
 
-/** How to draw `r` (a region of the video as shown) from a frame of frameW ×
- * frameH turned by `turn`: drawImage(frame, sx, sy, sw, sh, 0, 0, dw, dh) with
- * the context's transform set to `m` (setTransform's a, b, c, d, e, f) puts the
- * region upright into r.workWidth × r.workHeight. */
-export function drawFor(r: Region, turn: Turn, frameW: number, frameH: number): {
-  sx: number; sy: number; sw: number; sh: number; dw: number; dh: number; m: [number, number, number, number, number, number];
-} {
-  const { x, y, width: w, height: h, workWidth: W, workHeight: H } = r;
+/** The transform (setTransform's a, b, c, d, e, f) under which drawImage(frame,
+ * 0, 0) puts the region `r` of the video as shown upright into r.workWidth ×
+ * r.workHeight, from a frame of frameW × frameH turned by `turn`: the whole
+ * frame turned, scaled and shifted, the rest falling off the canvas. Not a
+ * source rectangle: Safari on iPhone took drawImage's source rectangle of a
+ * camera video in the wrong place (owner's screenshots, 2026-11-19: on the page,
+ * and then in this worker, where whole frames were right and regions shifted). */
+export function transformFor(r: Region, turn: Turn, frameW: number, frameH: number): [number, number, number, number, number, number] {
+  const kx = 1 / r.scaleX, ky = 1 / r.scaleY;
   switch (turn) {
-    case 0: return { sx: x, sy: y, sw: w, sh: h, dw: W, dh: H, m: [1, 0, 0, 1, 0, 0] };
-    // Shown (x, y) is frame (y, frameH - x): the frame's top-left shows top-right.
-    case 90: return { sx: y, sy: frameH - x - w, sw: h, sh: w, dw: H, dh: W, m: [0, 1, -1, 0, W, 0] };
-    case 180: return { sx: frameW - x - w, sy: frameH - y - h, sw: w, sh: h, dw: W, dh: H, m: [-1, 0, 0, -1, W, H] };
-    // Shown (x, y) is frame (frameW - y, x): the frame's top-left shows bottom-left.
-    case 270: return { sx: frameW - y - h, sy: x, sw: h, sh: w, dw: H, dh: W, m: [0, -1, 1, 0, 0, H] };
+    // Work (x, y) = ((shown x - r.x) / scaleX, (shown y - r.y) / scaleY), with shown from frame (u, v):
+    case 0: return [kx, 0, 0, ky, -r.x * kx, -r.y * ky];                                // shown (u, v)
+    case 90: return [0, ky, -kx, 0, (frameH - r.x) * kx, -r.y * ky];                    // shown (frameH - v, u)
+    case 180: return [-kx, 0, 0, -ky, (frameW - r.x) * kx, (frameH - r.y) * ky];        // shown (frameW - u, frameH - v)
+    case 270: return [0, -ky, kx, 0, -r.x * kx, (frameW - r.y) * ky];                   // shown (v, frameW - u)
   }
 }
 

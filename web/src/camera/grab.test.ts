@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fullRegion, region as makeRegion } from "../overlay/region";
-import { compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, type Turn, drawFor, grayCorrelation, turnsFor, whyNotWorker } from "./grab";
+import { compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, type Turn, transformFor, grayCorrelation, turnsFor, whyNotWorker } from "./grab";
 
 /** A worker that answers each request as `answer` says (or never, with null). */
 function fakeWorker(answer: (req: GrabRequest) => GrabReply | null) {
@@ -119,7 +119,7 @@ describe("the frame grab in a worker", () => {
     expect(turnsFor(1920, 1080, 3024, 4032)).toBeNull();
   });
 
-  it("draws a region upright from a frame turned any way", () => {
+  it("draws a region upright from a whole frame turned any way", () => {
     // Where the shown video's point (x, y) is in a frame turned by `turn` (fw × fh the frame).
     const inFrame = (turn: Turn, x: number, y: number, fw: number, fh: number): [number, number] =>
       turn === 0 ? [x, y] : turn === 90 ? [y, fh - x] : turn === 180 ? [fw - x, fh - y] : [fw - y, x];
@@ -127,20 +127,14 @@ describe("the frame grab in a worker", () => {
     const r = makeRegion(1200.4, 1700.7, 372, 813, 2.14, 5, vw, vh, "track");
     for (const turn of [0, 90, 180, 270] as Turn[]) {
       const [fw, fh] = turn % 180 ? [vh, vw] : [vw, vh];
-      const d = drawFor(r, turn, fw, fh);
-      expect(d.sx).toBeGreaterThanOrEqual(0);
-      expect(d.sy).toBeGreaterThanOrEqual(0);
-      expect(d.sx + d.sw).toBeLessThanOrEqual(fw);
-      expect(d.sy + d.sh).toBeLessThanOrEqual(fh);
-      const [a, b, c, dd, e, f] = d.m;
-      for (const [x, y] of [[r.x, r.y], [r.x + r.width, r.y], [r.x + 100, r.y + 700], [r.x + r.width, r.y + r.height]]) {
-        // The frame's point, drawn: into the source rect, scaled to (dw, dh), then the transform.
+      const [a, b, c, d, e, f] = transformFor(r, turn, fw, fh);
+      for (const [x, y] of [[r.x, r.y], [r.x + r.width, r.y], [r.x + 100, r.y + 700], [r.x + r.width, r.y + r.height], [0, 0], [vw, vh]]) {
+        // The frame's point, under the transform...
         const [u, v] = inFrame(turn, x!, y!, fw, fh);
-        const px = ((u - d.sx) / d.sw) * d.dw, py = ((v - d.sy) / d.sh) * d.dh;
-        const cx = a * px + c * py + e, cy = b * px + dd * py + f;
-        // ...lands where the work frame shows the video's point.
-        expect(cx).toBeCloseTo(((x! - r.x) / r.width) * r.workWidth, 6);
-        expect(cy).toBeCloseTo(((y! - r.y) / r.height) * r.workHeight, 6);
+        const cx = a * u + c * v + e, cy = b * u + d * v + f;
+        // ...lands where the work frame shows the video's point (off the canvas, outside the region).
+        expect(cx).toBeCloseTo((x! - r.x) / r.scaleX, 6);
+        expect(cy).toBeCloseTo((y! - r.y) / r.scaleY, 6);
       }
     }
   });
