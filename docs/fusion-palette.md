@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md) · [future-work.md](future-work.md) · [web-build.md](web-build.md) · [fusion-import.md](fusion-import.md)
 
-Research of 2026-11-18. The spike below ran in Fusion on Windows on 2026-11-19 (results at the end); macOS is deferred (D25 in web-build.md). The `?fusion` page and the add-in are next. The goal: curves go phone → relay → Fusion with no desktop page and no clipboard (was O7). The owner's aim is the fewest steps from "measure with chain" to "points in CAD".
+Research of 2026-11-18. The spike below ran in Fusion on Windows on 2026-11-19 (results at the end); macOS is deferred (D25 in web-build.md). **Built on 2026-11-19** (see "What was built" below): the `?fusion` page and the add-in's **Add from phone**, tested outside Fusion; the owner tries them in Fusion next. The goal: curves go phone → relay → Fusion with no desktop page and no clipboard (was O7). The owner's aim is the fewest steps from "measure with chain" to "points in CAD".
 
 ## Recommendation
 
@@ -78,3 +78,22 @@ As S1–S5 in web-build.md: a page `web/spikes/fusion-palette/` (deployed with t
 | Workspace switch | the palette stayed (recreation kept as a safeguard) | |
 | Clipboard | Copy does not work; the `?fusion` page offers none | |
 
+## What was built (2026-11-19)
+
+As designed above, with these choices made while building:
+
+- **Page:** `web/src/desktop/fusion.ts` is the bridge and the contract (version `FUSION_PROTOCOL` = 1, actions `status` and `insert`, the push `inserted`), written out at its top; `main.ts` uses it when the address has `?fusion`. The mode keeps its own pairing (`splinewire-fusion:` in the palette's localStorage, which S6 showed survives a restart), shows a bar with the sketch being edited (asked every 2 s while the palette is visible) and a **Put new curves into the open sketch** switch (on by default), and on each curve **Insert into Sketch3** or **Insert into a new sketch…** under the drawing. The list marks where each curve went ("Sketch3", "waiting", "not inserted"), kept across reloads. No Copy points, downloads, add-in help, Copy link or measuring a dropped photo; a dropped file does not navigate the palette.
+- **Add-in:** `fusion/SplineWire/palette.py` (version 0.2.0): an **Add from phone** button beside Paste points (Sketch → Create and Insert) shows or hides the palette, made on first use and docked right. Hidden, the page keeps running, so curves still go into the open sketch. `curvedata.parse_request` / `parse_insert` are the checks (fixed actions, JSON, 256 KB, 2–2000 finite pairs within 1e5 mm, an id of at most 64 safe characters, a name cleaned of control characters). An insert is queued with a custom event and run by one of two commands: into the sketch being edited (no inputs: it runs at once), or, when Insert is pressed with no sketch open, a dialog asking for a plane or planar face (XY if none) for a new sketch named "Spline Wire · <photo>". A failed insert sets `executeFailed`, so Fusion undoes it, and the page is told; a cancelled dialog is reported as such. Paste points and Add from phone share `sketch.py`, so both add the same sketch points and spline.
+- **Not done:** the palette does not open by itself at Fusion's start (the phone keeps curves until it is opened); "align to a point and a line" is still future work. Executing the insert command ends any other command the person is in the middle of.
+- **Tests:** `web/src/desktop/fusion.test.ts` (the bridge, the marks), `web/e2e/fusion.spec.ts` (the page at palette width with a stubbed add-in, paired through a dev relay with the site's relay client in Node as the phone: arrivals with and without a sketch, Insert both ways, the switch, a reload), and `tests/test_fusion_addin.py` (the add-in against a fake `adsk`: the buttons, the palette and its toggle, status, inserts as commands, the plane dialog and its cancel, a failed insert undone, every refusal, the pending cap, workspace recreation, and that the page and the add-in name the same actions and version).
+
+### Trying it in Fusion (the owner)
+
+After the site is deployed (it serves both the page and the add-in's zip):
+
+1. Desktop page → **No Paste points button in Fusion?** → download the add-in zip and unzip it over the old `SplineWire` folder (or anywhere; Fusion runs it from where it is). In Fusion, Utilities → Add-Ins, select **SplineWire**, **Stop** then **Run** (or restart Fusion). **Add from phone** appears beside Paste points.
+2. Press **Add from phone**: the palette opens with a QR code. Scan it with the phone's Camera app. (This replaces the phone's pairing with the desktop page; pair it there again later if you want both.)
+3. Open a sketch, measure the chain on the phone: the curve should appear in the sketch within seconds, and one Ctrl+Z (Cmd+Z) should remove it.
+4. Close the sketch, measure again: the curve waits in the palette ("waiting"). Press **Insert into a new sketch…**, pick a face or press OK for XY: a new sketch "Spline Wire · …" with the curve.
+5. Hide the palette (Add from phone again), open a sketch, measure: the curve should still go in.
+6. Check a distance with Inspect → Measure against the curve's numbers in the palette.

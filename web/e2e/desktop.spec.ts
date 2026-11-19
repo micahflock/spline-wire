@@ -249,7 +249,8 @@ test("the Fusion add-in can be downloaded from beside Copy points", async () => 
   const listing = execFileSync("python3", ["-c",
     "import sys, zipfile; print('\\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))", (await zip.path())!]).toString();
   expect(listing.split("\n").filter(Boolean).sort()).toEqual(
-    ["SplineWire/SplineWire.manifest", "SplineWire/SplineWire.py", "SplineWire/curvedata.py"]);
+    ["SplineWire/SplineWire.manifest", "SplineWire/SplineWire.py", "SplineWire/curvedata.py", "SplineWire/palette.py",
+      "SplineWire/sketch.py"]);
 });
 
 test("a reload keeps the curve and its mark", async () => {
