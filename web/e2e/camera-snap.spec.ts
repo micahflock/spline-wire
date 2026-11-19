@@ -37,19 +37,21 @@ test.afterEach(async () => {
   browser = null;
 });
 
-/** A phone page whose fake camera streams the snap chain at `span`. */
-async function phoneAt(span: number, query = ""): Promise<Page> {
-  const out = path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}`);
+/** A phone page whose fake camera streams the snap chain at `span` (with `dark`,
+ * printed the other way round, and Colours set to match). */
+async function phoneAt(span: number, query = "", dark = false): Promise<Page> {
+  const out = path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}${dark ? "-dark" : ""}`);
   fs.mkdirSync(out, { recursive: true });
-  execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, "3024x4032", "snap", String(span)], { cwd: ROOT, stdio: "inherit" });
+  execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, "3024x4032", "snap", String(span), ...(dark ? ["dark"] : [])],
+    { cwd: ROOT, stdio: "inherit" });
   browser = await chromium.launch({
     args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
       `--use-file-for-fake-video-capture=${path.join(out, "camera.y4m")}`],
   });
   const context = await browser.newContext({ ...devices["Pixel 7"], baseURL: BASE, permissions: ["camera"] });
   // The snap preset chosen, and the scene's focal length saved, as a person would have it.
-  await context.addInitScript(() => localStorage.setItem("splinewire-phone:phone-settings",
-    JSON.stringify({ savedFocal35: 24, chain: "snap" })));
+  await context.addInitScript((shade) => localStorage.setItem("splinewire-phone:phone-settings",
+    JSON.stringify({ savedFocal35: 24, chain: "snap", shade })), dark ? "dark" : "light");
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("[page error]", e.message));
   await page.goto(`phone/${query}`);
@@ -116,4 +118,17 @@ test("span 0.22: every rim found and tracked, and the coach asks to come closer"
   await expect(page.locator("#cam-info")).toContainText("track");
   expect(await page.locator("#photos li").count()).toBe(0);
   await page.screenshot({ path: path.resolve(ROOT, "web/test-results/camera-scene-snap-0.22/too-far.png") });
+});
+
+test("dark rims on light links (Colours: dark): tracked in the worker, every rim found, the still taken and measured", async () => {
+  const page = await phoneAt(0.3, "", true);
+  await expect(page.locator("#s-shade")).toHaveValue("dark");
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  const st = await stats(page);
+  log(`dark 0.30: ${costs(st)}`);
+  expect(st.regions.track).toBeGreaterThan(0);
+  await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
+  await measured(page);
 });
