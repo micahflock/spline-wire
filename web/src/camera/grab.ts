@@ -13,8 +13,8 @@
 // VideoFrame of the same pixels the page sees: Chrome and Safari 16.4+ have
 // all three, Firefox on Android may lack VideoFrame. So first a check: the
 // page grabs a frame as before, and the worker draws the same region of the
-// same frame; their gray copies must agree (same orientation, same pixels
-// within a few gray levels). A plain picture cannot tell a turned or mirrored
+// same frame; their gray copies must correlate (the same picture the same
+// way round; a little lighter or darker is allowed). A plain picture cannot tell a turned or mirrored
 // frame: the check waits for one with contrast (the chain's region has it). Any failure
 // (no VideoFrame, another size, the check, an error or no answer from the
 // worker) makes the page grab from then on, as it did before. ?grab=main in
@@ -59,8 +59,13 @@ export interface GrabWorkerLike {
 export type GrabMode = "check" | "worker" | "main";
 
 export const GRAB = {
-  /** The worker's copy and the page's may differ by this much, mean absolute gray level. */
-  maxDifference: 6,
+  /** The worker's copy and the page's must correlate at least this well (Pearson
+   * r). On the owner's iPhone (Safari, 2026-11-19) the right turn gave r 1.00 at
+   * a mean 8 gray levels lighter or darker, the wrong ones r -0.08 and 0.02: the
+   * worker's colour conversion differs a little from the page's, which a fixed
+   * gray-level limit took for another picture. The detector thresholds each pixel
+   * against its own neighbourhood, so an even shift of a few levels is nothing to it. */
+  minCorrelation: 0.95,
   /** A frame with less contrast than this (gray levels, standard deviation) cannot
    * show a turned or mirrored picture: the check waits for a busier one. */
   minContrast: 8,
@@ -272,7 +277,7 @@ export function compareGrays(page: Uint8Array, worker: Uint8Array): "same" | "di
   }
   const n = page.length, mean = sum / n;
   if (Math.sqrt(Math.max(0, sq / n - mean * mean)) < GRAB.minContrast) return "unsure";
-  return grayDifference(page, worker) <= GRAB.maxDifference ? "same" : "different";
+  return grayCorrelation(page, worker) >= GRAB.minCorrelation ? "same" : "different";
 }
 
 /** How alike two gray copies are, -1 to 1 (Pearson correlation; NaN if their

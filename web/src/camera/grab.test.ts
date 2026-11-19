@@ -103,7 +103,8 @@ describe("the frame grab in a worker", () => {
     const c = new FrameGrab(() => fakeWorker(() => null).w, null);
     c.checked("different");
     expect(c.mode).toBe("main");
-    expect(GRAB.maxDifference).toBeLessThan(GRAB.minContrast);
+    // As on the owner's iPhone: the worker's copy 8 gray levels lighter is the same picture.
+    expect(compareGrays(pic, pic.map((v) => Math.min(255, v + 8)))).toBe("same");
     // The same picture made lighter and of more contrast correlates fully; turned, hardly.
     expect(grayCorrelation(pic, pic.map((v) => Math.min(255, 20 + Math.round(v * 0.8))))).toBeGreaterThan(0.99);
     expect(Math.abs(grayCorrelation(pic, pic.slice().reverse()))).toBeLessThan(0.5);
