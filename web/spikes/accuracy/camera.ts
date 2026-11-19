@@ -12,6 +12,10 @@ interface ImageCaptureLike {
 }
 
 const STREAM = { width: { ideal: 4032 }, height: { ideal: 3024 } };
+/** How long the camera may take to answer before the page says so. */
+const OPEN_MS = 10_000;
+/** How long to wait for the preview to play: the still comes from the track, not the video. */
+const PLAY_MS = 1_500;
 
 export interface Shot {
   blob: Blob;
@@ -37,20 +41,24 @@ export class Camera {
     }
     let devices = await cameras();
     const first = labelled(devices) ? chooseCamera(devices, remembered, avoid) : null;
-    let stream = await request(first).catch(() => request(null));
+    let stream = await answer(request(first).catch(() => request(null)));
     devices = await cameras();
     const best = chooseCamera(devices, remembered, avoid);
     const current = stream.getVideoTracks()[0]?.getSettings().deviceId;
     if (best?.deviceId && best.deviceId !== current) {
       stop(stream);
-      stream = await request(best);
+      stream = await answer(request(best));
     }
     this.stream = stream;
     const track = stream.getVideoTracks()[0]!;
     const IC = (globalThis as { ImageCapture?: new (t: MediaStreamTrack) => ImageCaptureLike }).ImageCapture;
     this.capture = IC ? new IC(track) : null;
     this.video.srcObject = stream;
-    await this.video.play().catch(() => {});
+    // iOS Safari does not play a video it is not showing, and play() can then
+    // wait until the page is hidden and shown again (seen 2026-11-19: the page
+    // hung on "Starting the camera…" until the person switched apps). The
+    // page shows the video first; this only makes sure nothing waits on it.
+    await Promise.race([this.video.play().catch(() => {}), sleep(PLAY_MS)]);
     return track.label;
   }
 
@@ -110,6 +118,30 @@ async function cameras(): Promise<CameraInfo[]> {
 function request(camera: CameraInfo | null): Promise<MediaStream> {
   const which = camera?.deviceId ? { deviceId: { exact: camera.deviceId } } : { facingMode: { ideal: "environment" } };
   return navigator.mediaDevices.getUserMedia({ video: { ...which, ...STREAM }, audio: false });
+}
+
+/** The stream, or an error once the camera has not answered in OPEN_MS; a
+ * stream that arrives after that is stopped at once, so the camera light goes off. */
+function answer(pending: Promise<MediaStream>): Promise<MediaStream> {
+  return new Promise((resolve, reject) => {
+    let late = false;
+    const timer = setTimeout(() => {
+      late = true;
+      reject(new Error(`the camera did not answer in ${OPEN_MS / 1000} s`));
+    }, OPEN_MS);
+    pending.then((s) => {
+      clearTimeout(timer);
+      if (late) stop(s);
+      else resolve(s);
+    }, (e) => {
+      clearTimeout(timer);
+      if (!late) reject(e);
+    });
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function stop(stream: MediaStream): void {
