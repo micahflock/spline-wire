@@ -166,6 +166,19 @@ Through the phone and desktop pages, not the test page:
 - Timed: shutter to points on the desktop page (under 15 s), and to the curve in a Fusion sketch (under 30 s).
 - Fusion along the way: install the add-in with the desktop page's steps (O5), Paste points, and Insert DXF once (D19).
 
+## Sessions (at most 16 photos each)
+
+A session is what fits one message: at most 16 photos attached, plus the page's report. The report carries every number; the photos (which the upload shrinks to half size and strips of EXIF) are for re-scoring. iPhone only for now.
+
+| Session | Photos | What |
+|---|---|---|
+| 1 (done, 2026-11-19) | 20 | Phase 1, white-rim plaques |
+| 2 | 12 | Focal calibration: S plaque, centred, 30–40°, 6 sides; **Use it as the override**. Then phase 2, white-rim chain at 12.98 mm: `convex-r25`, `concave-r60`, `concave-r100`, 2 wraps each |
+| 3 | 13 | Phase 3, white-rim chain: `convex-r25` and `concave-r60`, 3 lifts each (6). Orange-rim chain: pitch measured first (10-link span, set on the page), then phase 2 on the three gauges, 2 wraps each (6). Creep: the white chain posed off `convex-r25`, first photo (1) |
+| 4 | 8 | Phase 3, orange-rim chain: `convex-r25` and `concave-r60`, 3 lifts each (6). Creep at 1 h and 24 h (2) |
+
+Phase 4 (end to end) runs through the phone and desktop pages, not the test page.
+
 ## Recording
 
 - The test page's report, pasted into a message after each session, is the record. The figures go into [open-items.md](open-items.md) item 1 as a table, one row per set, with conditions. CLAUDE.md: every accuracy claim has a number behind it.
