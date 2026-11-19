@@ -7,7 +7,7 @@ import { MemoryStore } from "./store";
 
 function curve(id = newCurveId()): Curve {
   return {
-    v: 1, id, measured_at: "2026-11-18T08:00:00Z", photo: "IMG_0001.jpg",
+    v: 1, id, rev: 1, measured_at: "2026-11-18T08:00:00Z", photo: "IMG_0001.jpg",
     chain: { name: "O-ring chain", pitch_mm: 10, half_width_mm: 4, n_pins: 13 },
     points_mm: [[0, 0], [9.5, 1.25]], pins_mm: [[0, 4], [10, 5]], object_side: "inside", warnings: [], notes: [],
     diagnostics: { focal_source: "exif", focal_35mm: 26, tilt_deg: 12.5, missing_pins: 0,
@@ -18,7 +18,7 @@ function curve(id = newCurveId()): Curve {
 function inbox(store = new MemoryStore()) {
   const sent: Message[] = [];
   const arrived: Curve[] = [];
-  const box = new Inbox(store, { send: async (m) => (sent.push(m), true) }, (c) => arrived.push(c));
+  const box = new Inbox(store, { send: async (m) => (sent.push(m), true) }, { arrived: (c) => arrived.push(c) });
   return { box, sent, arrived, store };
 }
 
@@ -32,7 +32,8 @@ describe("a curve measured on this computer", () => {
     expect(box.curves.map((c) => c.id)).toEqual([here.id, phone.id]);
     expect(box.isLocal(here.id)).toBe(true);
     expect(box.isLocal(phone.id)).toBe(false);
-    expect(sent).toEqual([{ type: "ack", ids: [phone.id] }]);
+    expect(sent).toEqual([{ type: "ack", ids: [phone.id] },
+      { type: "state", full: false, curves: [{ id: phone.id, rev: 1, star: false, star_at: 0 }], deleted: [] }]);
     expect(arrived).toEqual([phone]);
     // A new page reads the same list and marks.
     const again = new Inbox(store, { send: async () => true });

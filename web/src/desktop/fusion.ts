@@ -165,6 +165,13 @@ export class InsertLog {
     this.save();
   }
 
+  /** Forget where a curve went: a newer revision of it is not in any sketch yet. */
+  forget(id: string): void {
+    if (!(id in this.marks)) return;
+    delete this.marks[id];
+    this.save();
+  }
+
   /** Drop the marks of curves no longer in the list. */
   keepOnly(ids: readonly string[]): void {
     const keep = new Set(ids);

@@ -17,7 +17,7 @@ const slow = targetName === "worker" ? 4 : 1;
 
 function curve(id = newCurveId()): Curve {
   return {
-    v: 1, id, measured_at: "2026-11-18T08:00:00Z", photo: "IMG_0001.jpg",
+    v: 1, id, rev: 1, measured_at: "2026-11-18T08:00:00Z", photo: "IMG_0001.jpg",
     chain: { name: "O-ring chain", pitch_mm: 10, half_width_mm: 4, n_pins: 13 },
     points_mm: [[0, 0], [9.5, 1.25], [19, 3]], pins_mm: [[0, 4], [10, 5], [20, 7]],
     object_side: "inside", warnings: [], notes: [],
@@ -51,7 +51,7 @@ function page(role: Role) {
   });
   running.push(link);
   if (role === "phone") outbox = new Outbox(new MemoryStore(), link);
-  else inbox = new Inbox(new MemoryStore(), link, (c) => arrived.push(c));
+  else inbox = new Inbox(new MemoryStore(), link, { arrived: (c) => arrived.push(c) });
   return { link, outbox: outbox!, inbox: inbox!, arrived };
 }
 
@@ -94,14 +94,14 @@ describe(`delivery through the ${targetName} relay`, () => {
     keys = await deriveKeys(newSecret());
   });
 
-  it("delivers a curve once and the ack clears the phone's outbox", async () => {
+  it("delivers a curve once and the reply clears the phone's outbox", async () => {
     keys = await deriveKeys(newSecret());
     const phone = page("phone"), desktop = page("desktop");
     phone.link.start();
     desktop.link.start();
     await until("both open with a peer", () => phone.link.current.peers === 1 && desktop.link.current.peers === 1);
     const c = curve();
-    await phone.outbox.send(c);
+    await phone.outbox.put(c);
     await until("delivered", () => phone.outbox.items.length === 0);
     expect(desktop.arrived).toEqual([c]);
     expect(phone.outbox.delivered).toEqual([c.id]);
@@ -113,8 +113,8 @@ describe(`delivery through the ${targetName} relay`, () => {
     phone.link.start();
     await until("phone open", () => phone.link.current.state === "open");
     const a = curve(), b = curve();
-    await phone.outbox.send(a);
-    await phone.outbox.send(b);
+    await phone.outbox.put(a);
+    await phone.outbox.put(b);
     await pause(200);
     expect(phone.outbox.items.map((i) => i.state)).toEqual(["queued", "queued"]);
     const desktop = page("desktop");
@@ -130,14 +130,14 @@ describe(`delivery through the ${targetName} relay`, () => {
     desktop.link.start();
     await until("paired", () => phone.link.current.peers === 1 && desktop.link.current.peers === 1);
     const first = curve();
-    await phone.outbox.send(first);
+    await phone.outbox.put(first);
     await until("first delivered", () => phone.outbox.items.length === 0);
 
     await target.stop();
     await until("both lost the relay", () =>
       phone.link.current.state !== "open" && desktop.link.current.state !== "open");
     const c = curve();
-    await phone.outbox.send(c);
+    await phone.outbox.put(c);
     expect(phone.outbox.items.map((i) => i.state)).toEqual(["queued"]);
 
     await target.start();
@@ -165,7 +165,7 @@ describe(`delivery through the ${targetName} relay`, () => {
     await pause(15_000);
     a.ws.close();
     await until("the room shrank", () => phone.link.current.peers === 1 && desktop.link.current.peers === 1);
-    await phone.outbox.send(curve());
+    await phone.outbox.put(curve());
     await until("delivered", () => phone.outbox.items.length === 0);
     expect(desktop.arrived.length).toBe(1);
   }, 60_000);
@@ -177,7 +177,7 @@ describe(`delivery through the ${targetName} relay`, () => {
     const stranger = page("desktop");
     for (const p of [phone, desktop, stranger]) p.link.start();
     await until("paired", () => phone.link.current.peers === 1 && stranger.link.current.state === "open");
-    await phone.outbox.send(curve());
+    await phone.outbox.put(curve());
     await until("delivered", () => phone.outbox.items.length === 0);
     await pause(200);
     expect(desktop.arrived.length).toBe(1);

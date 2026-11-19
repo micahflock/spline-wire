@@ -40,7 +40,7 @@ Object.assign(window, {
   async sendCurve(doc: MeasurementDocument, outputs: Partial<Record<FileKind | "tsv", string>>, photo: string,
     ctx: CurveContext): Promise<string> {
     const curve = curveFrom({ ...doc, name: photo }, ctx, await pack(outputs))!;
-    await outbox.send(curve);
+    await outbox.put(curve);
     return curve.id;
   },
   delivered: () => outbox.delivered.length,

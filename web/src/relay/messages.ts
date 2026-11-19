@@ -1,8 +1,11 @@
 // What paired pages say to each other, inside sealed frames (crypto.ts).
 //
-// The phone sends curves; the desktop acknowledges each by id. That is the
-// whole conversation. A curve stays in the phone's outbox until its ack
-// arrives, so the relay may drop anything.
+// The phone sends curves; the desktop stores them. Each side also says what it
+// holds in a `state` message: the revision of each curve, its star, and the
+// curves deleted (sync.ts has the rules). The relay keeps nothing, so both
+// pages send their whole state whenever the other may have appeared, and a
+// change at once while both are open; a curve stays in the phone's outbox
+// until a state from the desktop shows its revision, so the relay may drop anything.
 //
 // Versioning: `v` on a curve is bumped when a field changes meaning or goes
 // away. A page must ignore fields it does not know and message types it does
@@ -24,8 +27,11 @@ export type Point = [number, number];
 /** One measured curve: decision D5, the curve and its diagnostics, never the photo. */
 export interface Curve {
   v: typeof CURVE_VERSION;
-  /** Made by the phone, unique for ever: deduplication and acks go by it. */
+  /** Made by the phone, unique for ever, one per photo: an edited photo's curve keeps it. */
   id: string;
+  /** Its revision: 1 when first sent, one more each time the photo's curve changes
+   * (a pin edit, the object side). The desktop keeps the highest. Absent: 1 (older phones). */
+  rev?: number;
   /** When it was measured, ISO 8601. */
   measured_at: string;
   /** The photo's file name, for the person to tell curves apart. */
@@ -55,8 +61,23 @@ export type Message =
   /** Sent on connecting and whenever a peer joins: who is there, for the status line. */
   | { type: "hello"; role: Role; device: string; app: string }
   | { type: "curve"; curve: Curve }
-  /** The desktop has stored these curves. Idempotent. */
-  | { type: "ack"; ids: string[] };
+  /** The desktop has stored these curves. Idempotent. Kept for phones from before `state`. */
+  | { type: "ack"; ids: string[] }
+  /** What the sender holds (sync.ts). `full`: all of it, else only what just changed. */
+  | { type: "state"; full: boolean; curves: CurveState[]; deleted: string[] };
+
+/** One curve as a page holds it: the revision it has and the star. */
+export interface CurveState {
+  id: string;
+  rev: number;
+  /** Starred, and when that was last set (ms since 1970): the later setting wins. */
+  star: boolean;
+  star_at: number;
+}
+
+/** Entries a state message may carry (a full state of a hundred curves and the
+ * last deletions is ~15 KB, well inside the relay's 64 K frame). */
+export const STATE_LIMITS = { curves: 500, deleted: 500 };
 
 /** A new curve id: time-ordered, so a list sorted by id is in order of measuring. */
 export function newCurveId(now: number = Date.now()): string {
@@ -79,6 +100,17 @@ export function parseMessage(body: unknown): Message | null {
         return { type: "ack", ids: body.ids as string[] };
       }
       return null;
+    case "state": {
+      const { curves, deleted } = body;
+      if (!Array.isArray(curves) || curves.length > STATE_LIMITS.curves) return null;
+      if (!Array.isArray(deleted) || deleted.length > STATE_LIMITS.deleted || !deleted.every(isId)) return null;
+      const out: CurveState[] = [];
+      for (const c of curves) {
+        if (!isObject(c) || !isId(c.id) || !isRev(c.rev) || typeof c.star !== "boolean" || !isNum(c.star_at)) return null;
+        out.push({ id: c.id, rev: c.rev, star: c.star, star_at: c.star_at });
+      }
+      return { type: "state", full: body.full === true, curves: out, deleted: deleted as string[] };
+    }
     case "curve": {
       const curve = parseCurve(body.curve);
       return curve && { type: "curve", curve };
@@ -107,10 +139,12 @@ export function parseCurve(c: unknown): Curve | null {
   if (!source || !nums.every(isNum)) return null;
   const files = c.files === undefined ? undefined : parseFiles(c.files);
   if (files === null) return null;
+  if (c.rev !== undefined && !isRev(c.rev)) return null;
   // Built field by field: unknown fields from a newer build are dropped, not stored.
   return {
     v: CURVE_VERSION,
     id: c.id,
+    rev: (c.rev as number | undefined) ?? 1,
     measured_at: c.measured_at,
     photo: c.photo,
     chain: { name: chain.name, pitch_mm: chain.pitch_mm, half_width_mm: chain.half_width_mm, n_pins: chain.n_pins },
@@ -154,6 +188,9 @@ function isNum(v: unknown): v is number {
 }
 function isText(v: unknown): v is string {
   return typeof v === "string" && v.length <= LIMITS.textChars;
+}
+function isRev(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 1e9;
 }
 function isId(v: unknown): v is string {
   return typeof v === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(v);

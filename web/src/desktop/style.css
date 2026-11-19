@@ -88,6 +88,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .item .tag-here { margin-left: auto; flex: none; font: 600 10.5px/1 var(--f-data); color: var(--brand); border: 1px solid currentColor;
   border-radius: 2px; padding: 2px 4px; white-space: nowrap; }
 .item .tag-here + .warns { margin-left: 0; }
+.item .starred { flex: none; color: var(--warn); font-size: 12px; }
+.head .star.on { color: var(--warn); }
 .item.draft { border-left-style: dashed; }
 .item.flash { animation: flash 1.8s ease-out; }
 @keyframes flash { from { background: color-mix(in srgb, var(--key) 55%, transparent); } }

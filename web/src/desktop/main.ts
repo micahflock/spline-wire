@@ -143,7 +143,7 @@ async function connect(): Promise<void> {
 
 /** The inbox reads its list from the store, so a new one keeps every curve. */
 function loadInbox(): void {
-  inbox = new Inbox(store, { send: (m) => link?.send(m) ?? Promise.resolve(false) }, arrived);
+  inbox = new Inbox(store, { send: (m) => link?.send(m) ?? Promise.resolve(false) }, { arrived, removed: removedOnPhone, starred: starredOnPhone });
 }
 
 function onStatus(s: LinkStatus): void {
@@ -165,11 +165,14 @@ function onMessage(m: Message): void {
     renderStatus();
   }
   inbox.onMessage(m);
+  // A phone that says all it holds hears all this computer holds: stars set and curves deleted here while it was away.
+  if (m.type === "state" && m.full) void link?.send(inbox.fullState());
 }
 
-function arrived(curve: Curve): void {
+function arrived(curve: Curve, updated: boolean): void {
   if (!phoneHere) phoneHere = { device: "" };
   rememberPhone(phoneHere.device);
+  if (updated) return changedOnPhone(curve);
   // A photo being measured here is the person's own pick: a curve arriving does not take its place.
   const shown = !showingDraft && selection.arrived(curve.id, Date.now());
   unseen.arrived(document.hidden);
@@ -185,6 +188,49 @@ function arrived(curve: Curve): void {
     return;
   }
   toast(shown ? `New curve: ${curve.photo}` : `New curve: ${curve.photo}, at the top of the list`);
+}
+
+/** A newer revision of a curve in the list: the person changed it on the phone (a pin, the side). */
+function changedOnPhone(curve: Curve): void {
+  flashId = curve.id;
+  renderList();
+  if (current()?.id === curve.id) renderMain();
+  if (FUSION) {
+    const mark = marks.get(curve.id);
+    if (mark?.state === "inserted") {
+      // The sketch keeps what was inserted; this revision is not in it.
+      marks.forget(curve.id);
+      renderMark(curve.id);
+      toast(`Changed on the phone: ${curve.photo}. ${mark.sketch} has the earlier curve; Insert puts this one in.`, 6000);
+      return;
+    }
+    if (bridge && autoInsert(store) && mark?.state !== "inserting") {
+      void insertCurve(curve, "auto");
+      return;
+    }
+  }
+  toast(`Changed on the phone: ${curve.photo}`);
+}
+
+/** The phone deleted these. */
+function removedOnPhone(curves: Curve[]): void {
+  marks.keepOnly(ids());
+  selection.keepIn(ids());
+  renderAll();
+  toast(curves.length === 1 ? `Deleted on the phone: ${curves[0]!.photo}` : `${curves.length} curves deleted on the phone`);
+}
+
+function starredOnPhone(): void {
+  renderList();
+  renderMain();
+}
+
+function toggleStar(): void {
+  const c = current();
+  if (!c) return;
+  inbox.setStar(c.id, !inbox.isStarred(c.id));
+  renderList();
+  renderMain();
 }
 
 // ---- Fusion (?fusion) -----------------------------------------------------
@@ -349,7 +395,7 @@ function renderList(): void {
     const mine = inbox.isLocal(c.id);
     return `<li><button type="button" class="item${c.id === flashId ? " flash" : ""}" data-id="${esc(c.id)}"
       aria-current="${!showingDraft && c.id === selection.id}">
-      <span class="row1"><span class="name">${esc(c.photo)}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
+      <span class="row1">${inbox.isStarred(c.id) ? `<span class="starred" title="Starred">★</span>` : ""}<span class="name">${esc(c.photo)}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
       <span class="sub"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, now))}</time>
         <span>· ${esc(c.chain.name)}</span><span>· ${c.chain.n_pins} pins</span></span>
     </button></li>`;
@@ -496,6 +542,8 @@ function curveHtml(c: Curve): string {
     <div class="head"><h2 id="curve-title">${esc(c.photo)}</h2>
       <span class="meta">${mine ? "measured here" : "measured"} <time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, Date.now()))}</time> · ${esc(c.chain.name)}</span>
       <span class="spacer"></span>
+      <button type="button" class="btn plain small star${inbox.isStarred(c.id) ? " on" : ""}" data-act="star" aria-pressed="${inbox.isStarred(c.id)}"
+        title="${mine ? "Starred here" : "Starred here and on the phone"}">${inbox.isStarred(c.id) ? "★ Starred" : "☆ Star"}</button>
       <button type="button" class="btn plain small" data-act="delete">Delete…</button></div>
     <div class="plot">${plot}</div>
     <div class="legend" aria-hidden="true">
@@ -649,8 +697,10 @@ function showDraft(): void {
 async function remove(): Promise<void> {
   const c = current();
   if (!c) return;
-  const sure = await confirmBox(`Delete ${c.photo}?`,
-    "Its points and files go from this computer. Save them first if you need them; the phone does not keep a copy.", "Delete");
+  const sure = await confirmBox(`Delete ${c.photo}?`, inbox.isLocal(c.id)
+    ? "Its points and files go from this computer. Save them first if you need them."
+    : "Its points and files go from this computer, and the photo goes from the phone too (when the phone's page next opens, if it is closed). Save them first if you need them.",
+    "Delete");
   if (!sure) return;
   const at = ids().indexOf(c.id);
   inbox.remove(c.id);
@@ -718,6 +768,7 @@ document.addEventListener("click", (ev) => {
   if (act === "copy") void copyPoints();
   else if (act === "copy-link") void copyLink();
   else if (act === "delete") void remove();
+  else if (act === "star") toggleStar();
   else if (act === "unpair") void unpair();
   else if (act === "pick") $("pick").click();
   else if (act === "insert" && current()) void insertCurve(current()!, "ask");

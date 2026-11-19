@@ -1,13 +1,15 @@
-// The phone's side of delivery: every curve sent to the desktop stays here
-// until the desktop acknowledges it.
+// The phone's side of delivery: the latest revision of each curve stays here
+// until a state from the desktop shows that revision (sync.ts).
 //
 // Rules, which make delivery at-least-once and the desktop's inbox makes it
-// exactly-once:
-//   - send(curve) stores first, then tries the link;
-//   - everything unacknowledged is sent again whenever a desktop might have
+// exactly-once (it keeps the highest revision of each curve):
+//   - put(curve) stores first, then tries the link. A newer revision of a
+//     curve replaces the older one here: only the latest is worth sending;
+//   - everything unsettled is sent again whenever a desktop might have
 //     appeared: the link opened, the room's peer count rose, a hello arrived;
-//   - an ack removes its curves. Nothing else does, except the cap below and
-//     the person (forget).
+//   - a state from the desktop settles each curve whose revision it holds
+//     (an ack from an older desktop settles the curve as it is). Nothing else
+//     removes a curve, except the cap below and the person (forget).
 //
 // The page shows `items` so the person knows what has and has not arrived
 // ("queued: the computer's page is not open").
@@ -18,18 +20,20 @@ import { readJson, type KeyValueStore } from "./store";
 
 export interface OutboxItem {
   curve: Curve;
-  /** queued: not yet handed to an open link with a peer in the room. sent: handed over, no ack yet. */
+  /** queued: not yet handed to an open link with a peer in the room. sent: handed over, not settled yet. */
   state: "queued" | "sent";
 }
 
-/** Unacknowledged curves kept. Beyond it the oldest are dropped: a phone that
+/** Unsettled curves kept. Beyond it the oldest are dropped: a phone that
  * never meets its desktop must not fill its storage. */
 export const OUTBOX_CAP = 50;
 const KEY = "outbox";
 
+export const revOf = (c: Curve): number => c.rev ?? 1;
+
 export class Outbox {
   private list: OutboxItem[];
-  /** Ids delivered during this visit, newest last, for the page's "delivered" marks. */
+  /** Ids settled during this visit, newest last, for the page's "delivered" marks. */
   readonly delivered: string[] = [];
 
   constructor(
@@ -37,7 +41,7 @@ export class Outbox {
     private readonly link: Pick<RelayLink, "send" | "current">,
     private readonly changed: () => void = () => {},
   ) {
-    // After a reload nothing is "sent": no ack came, so all of it goes again.
+    // After a reload nothing is "sent": nothing settled it, so all of it goes again.
     this.list = readJson<Curve[]>(store, KEY, []).map((curve) => ({ curve, state: "queued" }));
   }
 
@@ -45,18 +49,32 @@ export class Outbox {
     return this.list;
   }
 
-  /** Queue a curve and try to send it. */
-  async send(curve: Curve): Promise<void> {
-    if (this.list.some((i) => i.curve.id === curve.id)) return;
+  /** Queue a curve, or a newer revision of one queued, and try to send it. */
+  async put(curve: Curve): Promise<void> {
+    const at = this.list.findIndex((i) => i.curve.id === curve.id);
+    if (at >= 0) {
+      if (revOf(this.list[at]!.curve) >= revOf(curve)) return;
+      this.list.splice(at, 1);
+    }
     this.list.push({ curve, state: "queued" });
     if (this.list.length > OUTBOX_CAP) this.list.splice(0, this.list.length - OUTBOX_CAP);
     this.save();
     await this.flush();
   }
 
-  /** The person gave up on a curve. */
+  /** The person gave up on a curve, or deleted its photo. */
   forget(id: string): void {
+    const before = this.list.length;
     this.list = this.list.filter((i) => i.curve.id !== id);
+    if (this.list.length !== before) this.save();
+  }
+
+  /** The desktop holds revision `rev` of curve `id`: an older or equal one here is done. */
+  settle(id: string, rev: number): void {
+    const item = this.list.find((i) => i.curve.id === id);
+    if (!item || revOf(item.curve) > rev) return;
+    this.delivered.push(id);
+    this.list = this.list.filter((i) => i !== item);
     this.save();
   }
 
@@ -73,15 +91,18 @@ export class Outbox {
 
   onMessage(message: Message): void {
     if (message.type === "hello" && message.role === "desktop") void this.flush(true);
-    if (message.type !== "ack") return;
-    const acked = new Set(message.ids);
-    const before = this.list.length;
-    for (const i of this.list) if (acked.has(i.curve.id)) this.delivered.push(i.curve.id);
-    this.list = this.list.filter((i) => !acked.has(i.curve.id));
-    if (this.list.length !== before) this.save();
+    else if (message.type === "state") for (const c of message.curves) this.settle(c.id, c.rev);
+    else if (message.type === "ack") {
+      // A desktop from before `state`: it stored the curve (and, keeping one copy
+      // an id, may not take a later revision). Settled as it is.
+      for (const id of message.ids) {
+        const item = this.list.find((i) => i.curve.id === id);
+        if (item) this.settle(id, revOf(item.curve));
+      }
+    }
   }
 
-  /** Send what is queued; with `again`, also what was sent and not yet acknowledged. */
+  /** Send what is queued; with `again`, also what was sent and not yet settled. */
   private async flush(again = false): Promise<void> {
     const status = this.link.current;
     if (status.state !== "open" || status.peers < 1) return;

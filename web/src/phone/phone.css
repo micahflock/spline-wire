@@ -140,7 +140,7 @@ select { max-width: 55%; }
 .downloads .btn { flex: 1 1 auto; font-family: var(--f-data); font-size: 14px; }
 
 .photos { list-style: none; padding: 0; margin: 0; }
-.photos li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-bottom: 1px solid var(--line); }
+.photos li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; border-bottom: 1px solid var(--line); }
 .photos li.on { background: var(--sel); }
 .photos .open { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 56px;
   border: none; background: none; text-align: left; padding: 6px 4px; min-width: 0; }
@@ -148,6 +148,8 @@ select { max-width: 55%; }
 .photos .who { min-width: 0; }
 .photos .who > span { display: block; }
 .photos .del { width: 48px; height: 48px; border: none; background: none; color: var(--muted); font-size: 22px; }
+.photos .star { width: 44px; height: 48px; border: none; background: none; color: var(--muted); font-size: 21px; padding: 0; }
+.photos .star.on { color: var(--warn); }
 .outbox li { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 4px; gap: 8px; }
 .outbox .what { font-size: 14.5px; min-width: 0; overflow-wrap: anywhere; }
 .outbox .state { font-size: 13px; color: var(--muted); }

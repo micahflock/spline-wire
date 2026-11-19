@@ -37,7 +37,7 @@ const relay = new RelayLink({
     message: (m) => inbox.onMessage(m),
   },
 });
-const inbox = new Inbox(store, relay, show);
+const inbox = new Inbox(store, relay, { arrived: show });
 show();
 relay.start();
 
