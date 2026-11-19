@@ -20,7 +20,7 @@
 // closed or the page is hidden: iOS keeps the camera light on otherwise.
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
-import { compareGrays, FrameGrab, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
+import { compareGrays, FrameGrab, grayDifference, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
@@ -61,6 +61,8 @@ export interface CameraDeps {
   upload(): void;
   /** Pick a photo to learn the focal length from (settings). */
   teach(): void;
+  /** The view closed by itself (not the person's Close, Upload or back gesture): why, in a few words. */
+  closedBy?(why: string): void;
 }
 
 interface PhotoCaps {
@@ -119,6 +121,8 @@ export interface CameraStats {
   takePhotoMs: number | null;
   takePhotoError: string | null;
   still: string | null;
+  /** Why the view last closed by itself, if it did. */
+  closedBy: string | null;
 }
 
 export class CameraView {
@@ -144,9 +148,11 @@ export class CameraView {
   private gray = new Uint8Array(0);
   /** The camera is being asked for (getUserMedia): a permission prompt may be up. */
   private requesting = false;
+  /** Another camera is being opened in place of the open one (switchTo). */
+  private switching = false;
   /** The frame grab in a worker, when this browser can (camera/grab.ts). */
   private grab: FrameGrab | null = null;
-  private shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
+  private shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
   private infoAt = 0;
   private readonly el: Record<string, HTMLElement>;
   private readonly video: VideoWithCallback;
@@ -186,7 +192,7 @@ export class CameraView {
     // person back to the page on the first tap. start() looks again once the
     // camera has answered.
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" && this.open && !this.requesting) this.close();
+      if (document.visibilityState === "hidden" && this.open && !this.requesting) this.closeBy("the page was hidden");
     });
     // The phone's back gesture closes the camera, not the page.
     addEventListener("popstate", () => {
@@ -211,7 +217,7 @@ export class CameraView {
     Object.assign(this.stats, blankStats());
     this.shooting = false;
     this.latest = null;
-    this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "" };
+    this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
     this.el["cam"]!.hidden = false;
     this.el["cam-fail"]!.hidden = true;
     this.el["cam-live"]!.hidden = false;
@@ -249,7 +255,7 @@ export class CameraView {
     // back in a moment; else the person left, and the camera is given back.
     if (gen === this.gen && !(await visibleWithin(VISIBLE_AGAIN_MS))) {
       stop(stream);
-      this.close();
+      this.closeBy("the page stayed hidden after the camera was allowed");
       return;
     }
     if (gen !== this.gen) {
@@ -285,6 +291,14 @@ export class CameraView {
   }
 
   /** Release the camera and hide the view. */
+  /** Close by itself, and say why (deps.closedBy). */
+  private closeBy(why: string): void {
+    if (!this.open) return;
+    this.close();
+    this.stats.closedBy = why;
+    this.deps.closedBy?.(why);
+  }
+
   close(fromButton = true): void {
     if (!this.open) return;
     this.open = false;
@@ -326,8 +340,12 @@ export class CameraView {
     if (old && old !== stream) stop(old);
     const track = this.track;
     if (!track) return;
+    // The camera went away (another app took it, or it failed): close. Not
+    // while switching cameras: iOS runs one camera at a time and ends the open
+    // one as the next opens, and on the first tap of a visit the page switches
+    // from the virtual triple camera it was given to the main lens (start()).
     track.addEventListener("ended", () => {
-      if (this.open && this.track === track && !this.shooting) this.close();
+      if (this.open && this.track === track && !this.shooting && !this.switching) this.closeBy("the camera stopped");
     });
     // Firefox refused a second request at another size (S3): ask the live
     // track instead, only if it came well short of what it can do.
@@ -353,6 +371,7 @@ export class CameraView {
   private async switchTo(camera: CameraInfo, chosen: boolean): Promise<void> {
     if (!camera.deviceId || camera.deviceId === this.current()?.deviceId) return;
     const before = this.current();
+    this.switching = true;
     try {
       const stream = await request(camera);
       if (!this.open) {
@@ -370,6 +389,8 @@ export class CameraView {
           this.fail("error", e as Error);
         }
       }
+    } finally {
+      this.switching = false;
     }
     this.fillSwitcher(await cameras());
   }
@@ -424,7 +445,12 @@ export class CameraView {
     // The trial takes turns, so that both canvases see the same mix of regions.
     const mode = this.workMode ?? (this.trial.gpu.length <= this.trial.cpu.length ? "gpu" : "cpu");
     const work = this.workCanvas(mode, r.workWidth, r.workHeight);
-    work.g.drawImage(v, r.x, r.y, r.width, r.height, 0, 0, r.workWidth, r.workHeight);
+    // The whole frame, scaled and shifted so that the region lands on the
+    // canvas: not drawImage's source rectangle, which Safari on iPhone took in
+    // the camera sensor's landscape, not the portrait video's (owner's
+    // screenshots, 2026-11-19: overlays off the chain, a chain in plain view
+    // not found). A whole-frame draw is what the page did before regions.
+    work.g.drawImage(v, -r.x / r.scaleX, -r.y / r.scaleY, v.videoWidth / r.scaleX, v.videoHeight / r.scaleY);
     const n = r.workWidth * r.workHeight;
     if (this.gray.length < n) this.gray = new Uint8Array(n);
     const gray = toGray(work.g.getImageData(0, 0, r.workWidth, r.workHeight).data, r.workWidth, r.workHeight, this.gray);
@@ -472,11 +498,16 @@ export class CameraView {
       this.grabFailed(grab, `VideoFrame failed (${(e as Error).name})`);
       return null;
     }
-    if (frame.displayWidth !== v.videoWidth || frame.displayHeight !== v.videoHeight) {
+    // The frame may come the sensor's way round (Safari on iPhone: 4032×3024 for
+    // a 3024×4032 video): the worker turns it upright, and the check finds which way.
+    const turns = turnsFor(frame.displayWidth, frame.displayHeight, v.videoWidth, v.videoHeight,
+      (frame as unknown as { rotation?: unknown }).rotation);
+    if (!turns || (grab.turnsKnown() && !turns.includes(grab.turn))) {
       this.grabFailed(grab, `VideoFrame ${frame.displayWidth}×${frame.displayHeight}, video ${v.videoWidth}×${v.videoHeight}`);
       frame.close();
       return null;
     }
+    grab.setTurns(turns);
     return frame;
   }
 
@@ -485,7 +516,8 @@ export class CameraView {
     const grab = this.grab!, gen = this.gen;
     grab.run(frame, r, this.session!.shape, true).then((reply) => {
       if (gen !== this.gen || this.grab !== grab) return;
-      grab.checked(compareGrays(page, reply.gray ?? new Uint8Array(0)));
+      const worker = reply.gray ?? new Uint8Array(0);
+      grab.checked(compareGrays(page, worker), grayDifference(page, worker));
       this.stats.grab = this.grabText();
     }, (e: Error) => {
       if (gen === this.gen) this.grabFailed(grab, `worker: ${e.message}`);
@@ -623,12 +655,19 @@ export class CameraView {
     st.focal = focal;
     st.size = `${v.videoWidth}×${v.videoHeight}`;
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
-    this.el["cam-info"]!.textContent = [st.camera || "camera", st.size, focal,
-      st.grabMs.length ? `frame ${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "",
-      this.grab?.describe() ?? "",
-      st.region,
-      st.analyseMs.length ? `analysis ${Math.round(median(st.analyseMs))} ms` : "", sharp !== null ? `sharpness ${sharp.toFixed(2)}` : ""]
-      .filter(Boolean).join(" · ");
+    // One item a line, always the same lines (a dash until there is a value),
+    // none wrapping: the block keeps its height while the numbers change.
+    const lines = [st.camera || "camera", st.size, focal,
+      `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`,
+      this.grab?.describe() ?? "grab –",
+      `region ${st.region || "–"}`,
+      `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
+      `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`];
+    const text = lines.join("\n");
+    if (text !== this.shown.info) {
+      this.shown.info = text;
+      this.el["cam-info"]!.replaceChildren(...lines.map((l) => Object.assign(document.createElement("div"), { textContent: l })));
+    }
     this.el["cam-teach"]!.hidden = !!f;
   }
 
@@ -782,5 +821,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null };
 }

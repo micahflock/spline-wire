@@ -985,6 +985,8 @@ const cameraView = new CameraView({
     ($("settings") as HTMLDetailsElement).open = true;     // a closed <details> may not pass the click on
     $("s-teach").click();
   },
+  // Said, so that a camera view that closes unexpectedly tells the person (and us) why.
+  closedBy: (why) => toast(`The camera closed: ${why}.`, 6000),
 });
 debug.cameraView = cameraView;
 debug.camera = cameraView.stats;

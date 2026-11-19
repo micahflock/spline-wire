@@ -11,7 +11,7 @@
 // is always closed here: a VideoFrame left open holds the camera's buffer.
 
 import { detectBlobs, toGray } from "../overlay/blobs";
-import type { GrabReply, GrabRequest } from "./grab";
+import { drawFor, type GrabReply, type GrabRequest } from "./grab";
 
 const scope = self as unknown as {
   onmessage: ((e: MessageEvent<GrabRequest>) => void) | null;
@@ -23,7 +23,7 @@ let g: OffscreenCanvasRenderingContext2D | null = null;
 let gray = new Uint8Array(0);
 
 scope.onmessage = (e) => {
-  const { id, frame, region: r, shape } = e.data;
+  const { id, frame, region: r, shape, turn } = e.data;
   try {
     const t0 = performance.now();
     if (!canvas || !g || canvas.width < r.workWidth || canvas.height < r.workHeight) {
@@ -34,7 +34,11 @@ scope.onmessage = (e) => {
     }
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = "high";            // area-like averaging, as on the page
-    g.drawImage(frame, r.x, r.y, r.width, r.height, 0, 0, r.workWidth, r.workHeight);
+    // Upright: the frame may be the sensor's way round, not the video's (grab.ts, Turn).
+    const d = drawFor(r, turn ?? 0, frame.displayWidth, frame.displayHeight);
+    g.setTransform(...d.m);
+    g.drawImage(frame, d.sx, d.sy, d.sw, d.sh, 0, 0, d.dw, d.dh);
+    g.setTransform(1, 0, 0, 1, 0, 0);
     frame.close();
     const n = r.workWidth * r.workHeight;
     if (gray.length < n) gray = new Uint8Array(n);
