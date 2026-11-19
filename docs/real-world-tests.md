@@ -71,6 +71,14 @@ Each phase isolates one more source of error than the one before it. A failure i
    - **Measure** with the TypeScript engine three ways: the EXIF focal length, the estimate from the chain, and the saved setting if there is one. **Score** against the target's truth at once, so a bad photo can be retaken on the spot.
    - **Keep** every test on the phone with its photo. **Copy the report** (all tests as text, to paste into a message), and **Save photos** (the exact stills, EXIF intact, named by test ID) for re-scoring in Python later.
 
+## First print (2026-11-18)
+
+The owner is starting with a subset; the other gauges follow if the data leaves questions open.
+
+- Printed: `plaque-tight-13`, `plaque-s-13` (one colourway so far), the 50 mm scale bar, gauges `convex-r25`, `concave-r60` and `concave-r100`.
+- Still to print: the S plaque in the other colourway, then (if needed) the S gauge first, since it is the only test of an inflection, where the model's one simulated error is (0.19 mm in the spline); then the straight edge, convex R40/R60/R100 and concave R40.
+- With this subset, phase 0 reads the edge offset from the R25 ring's outside diameter (50.00 mm) and the gap between the concave R60 half ring's inner tips (120.00 mm). Phase 2 uses the three printed gauges. Phase 3 uses convex R25 and concave R60 in place of R40 and the S, and the creep check uses R25.
+
 ## Phase 0: calibrate (no photos)
 
 - **Plaques and gauges:** measure each 50 mm bar. A bar off by more than 0.1 mm means the printer's scale needs fixing, or every score from that print is read after the scale fit. Check the convex discs' diameters and the concave hole's.
