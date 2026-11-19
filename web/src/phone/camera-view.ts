@@ -20,7 +20,7 @@
 // closed or the page is hidden: iOS keeps the camera light on otherwise.
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
-import { compareGrays, FrameGrab, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
+import { compareGrays, FrameGrab, grayDifference, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
@@ -445,7 +445,12 @@ export class CameraView {
     // The trial takes turns, so that both canvases see the same mix of regions.
     const mode = this.workMode ?? (this.trial.gpu.length <= this.trial.cpu.length ? "gpu" : "cpu");
     const work = this.workCanvas(mode, r.workWidth, r.workHeight);
-    work.g.drawImage(v, r.x, r.y, r.width, r.height, 0, 0, r.workWidth, r.workHeight);
+    // The whole frame, scaled and shifted so that the region lands on the
+    // canvas: not drawImage's source rectangle, which Safari on iPhone took in
+    // the camera sensor's landscape, not the portrait video's (owner's
+    // screenshots, 2026-11-19: overlays off the chain, a chain in plain view
+    // not found). A whole-frame draw is what the page did before regions.
+    work.g.drawImage(v, -r.x / r.scaleX, -r.y / r.scaleY, v.videoWidth / r.scaleX, v.videoHeight / r.scaleY);
     const n = r.workWidth * r.workHeight;
     if (this.gray.length < n) this.gray = new Uint8Array(n);
     const gray = toGray(work.g.getImageData(0, 0, r.workWidth, r.workHeight).data, r.workWidth, r.workHeight, this.gray);
@@ -511,7 +516,8 @@ export class CameraView {
     const grab = this.grab!, gen = this.gen;
     grab.run(frame, r, this.session!.shape, true).then((reply) => {
       if (gen !== this.gen || this.grab !== grab) return;
-      grab.checked(compareGrays(page, reply.gray ?? new Uint8Array(0)));
+      const worker = reply.gray ?? new Uint8Array(0);
+      grab.checked(compareGrays(page, worker), grayDifference(page, worker));
       this.stats.grab = this.grabText();
     }, (e: Error) => {
       if (gen === this.gen) this.grabFailed(grab, `worker: ${e.message}`);

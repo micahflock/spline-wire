@@ -116,6 +116,8 @@ export class FrameGrab {
   mode: GrabMode;
   /** The turns still to check, the one in use first (turnsFor). */
   private turns: Turn[] = [];
+  /** Turns the check found different, with their differences. */
+  private tried: string[] = [];
   /** Why the page grabs, when it does. */
   why: string;
   private worker: GrabWorkerLike | null = null;
@@ -200,12 +202,16 @@ export class FrameGrab {
 
   /** The check's verdict (compareGrays): the worker grabs from now on, the page
    * does, or the check is tried again on a busier frame a little later. */
-  checked(verdict: "same" | "different" | "unsure"): void {
+  checked(verdict: "same" | "different" | "unsure", difference?: number): void {
     if (this.mode !== "check") return;
     if (verdict === "same") this.mode = "worker";
     else if (verdict === "unsure") this.wait = GRAB.recheckFrames;
-    else if (this.turns.length > 1) this.turns.shift();      // try the frame turned the next way
-    else this.fallBack("the worker's copy of a frame differs");
+    else {
+      // Kept for the message: how far each turn's copy was from the page's, mean gray levels.
+      if (difference !== undefined) this.tried.push(`${this.turn}° ${Number.isFinite(difference) ? difference.toFixed(0) : "–"}`);
+      if (this.turns.length > 1) this.turns.shift();      // try the frame turned the next way
+      else this.fallBack(`the worker's copy of a frame differs${this.tried.length ? ` (${this.tried.join(", ")})` : ""}`);
+    }
   }
 
   /** From now on the page grabs. */
@@ -252,14 +258,21 @@ export class FrameGrab {
  * plain a picture to tell). */
 export function compareGrays(page: Uint8Array, worker: Uint8Array): "same" | "different" | "unsure" {
   if (page.length !== worker.length || page.length === 0) return "different";
-  let sum = 0, sq = 0, diff = 0;
+  let sum = 0, sq = 0;
   for (let i = 0; i < page.length; i++) {
     const v = page[i]!;
     sum += v;
     sq += v * v;
-    diff += Math.abs(v - worker[i]!);
   }
   const n = page.length, mean = sum / n;
   if (Math.sqrt(Math.max(0, sq / n - mean * mean)) < GRAB.minContrast) return "unsure";
-  return diff / n <= GRAB.maxDifference ? "same" : "different";
+  return grayDifference(page, worker) <= GRAB.maxDifference ? "same" : "different";
+}
+
+/** Mean absolute difference of two gray copies, gray levels (Infinity if their sizes differ). */
+export function grayDifference(a: Uint8Array, b: Uint8Array): number {
+  if (a.length !== b.length || a.length === 0) return Infinity;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d += Math.abs(a[i]! - b[i]!);
+  return d / a.length;
 }
