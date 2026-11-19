@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md) · [future-work.md](future-work.md) · [web-build.md](web-build.md) · [fusion-import.md](fusion-import.md)
 
-Research of 2026-11-18, nothing built yet. The goal: curves go phone → relay → Fusion with no desktop page and no clipboard (was O7). The owner's aim is the fewest steps from "measure with chain" to "points in CAD".
+Research of 2026-11-18. The spike below was built on 2026-11-19 and waits for the owner's runs in Fusion; nothing else is built yet. The goal: curves go phone → relay → Fusion with no desktop page and no clipboard (was O7). The owner's aim is the fewest steps from "measure with chain" to "points in CAD".
 
 ## Recommendation
 
@@ -62,3 +62,5 @@ Risks: the Qt Chromium's age; a site deploy breaking the add-in's contract (henc
 ## The spike
 
 As S1–S5 in web-build.md: a page `web/spikes/fusion-palette/` (deployed with the site) and a ~60-line add-in `SplineWirePaletteSpike` that opens it in a palette. The page reports the user agent and Chromium version, when `adsk` appears, `isSecureContext`, HKDF and AES-GCM, a relay ping/pong and peer count, whether localStorage survives a restart, and a `fusionSendData` round trip; a button inserts a fixed 3-point spline through custom event → command (check: one Ctrl+Z). The owner runs it on Windows and macOS; results go in web-build.md's Log.
+
+**Built 2026-11-19:** the page `web/spikes/fusion-palette/` (its README has the owner's steps for Windows and macOS) and the add-in `fusion/SplineWirePaletteSpike/`, tested outside Fusion (`e2e/fusion-palette.spec.ts`, `tests/test_fusion_addin.py`). Results: pending (S6 in web-build.md).

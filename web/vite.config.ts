@@ -21,6 +21,8 @@ export default defineConfig({
         decode: "spikes/decode-check/index.html",
         // The accuracy test page (spikes/accuracy/README.md, docs/real-world-tests.md).
         accuracy: "spikes/accuracy/index.html",
+        // The Fusion palette spike (spikes/fusion-palette/README.md), opened by fusion/SplineWirePaletteSpike/.
+        fusion: "spikes/fusion-palette/index.html",
       },
       // The service worker keeps a fixed name at the site's root: its scope is
       // its own folder, and the pages register it by name.
