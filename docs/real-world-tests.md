@@ -150,7 +150,7 @@ Scored: for round gauges, the fitted radius against the gauge's and each contact
 
 **Pass** (the old targets): radius within 0.5 mm; worst contact point within 0.5 mm, end pins excluded until the end links exist.
 
-**Results, session 2 (2026-11-19; iPhone 16 Pro; the black chain at 12.98 mm; focal override 24.61 mm; on the dotted mousepad).** Worst contact point without the ends, and the fitted circle:
+**Results, session 2 (2026-11-19; iPhone 16 Pro; the black chain at 12.98 mm; focal override 24.61 mm; on the dotted mousepad).** **Not accuracy figures:** the owner found the printed chain twists, and it does not sit fully against the concave gauges' walls; the chain is being diagnosed separately, and these photos describe that chain, not the system. Worst contact point without the ends, and the fitted circle:
 
 | Photo | Gauge | Tilt | Worst | Radius error (print offset: −0.1 convex, +0.1 concave) | Circle-fit residual | Notes |
 |---|---|---|---|---|---|---|
@@ -166,7 +166,7 @@ What it says:
 - **Convex R25 passes** (0.26 mm), and concave R100 once on its points (0.43 mm).
 - Two stills (025, 034) came out 1080×1920 instead of 3024×4032, with the EXIF's 35 mm figure at 25: the page asked takePhoto for the size its capabilities gave, and when those did not arrive in time took the default. To fix in the page.
 
-**Focal calibration (session 2, plaque photos 024–031, and session 1 re-run):** the best-fit focal length on 16 centred, whole-chain photos tilted 20° or more is 24.2–26.7 mm, median 25.0. Placement does not explain the spread among centred photos (session 1's edge-of-frame shots fit 27–28 mm, which is distortion). Some fits are flat (027: 24.0 and 24.2 give the same 0.106 mm), others sharp (024: 0.49 mm at 24, 0.085 at 26.75), so part of the spread is real. A fixed override of ~25.0 mm is the best single value; at 20° tilt or less a few percent hardly matters (above), so **gauge and object photos should be taken near straight on**.
+**Focal calibration (session 2, plaque photos 024–031, and session 1 re-run). Provisional: hold loosely.** The plaques are rigid, so the chain's twist does not touch these; but they come from half-size uploads on one phone, some fits are flat, and the plaques' flatness is unchecked (a warped plaque puts the rims off one plane, which the focal fit would partly absorb). What stands: at steep tilt the EXIF's 24 mm can be clearly wrong (017, 018, 024: 0.5–0.9 mm, about 0.1–0.2 mm with ~5% more), and near straight on the focal length hardly matters. Before relying on a value: check each plaque rocks on nothing (glass or a flat desk). the best-fit focal length on 16 centred, whole-chain photos tilted 20° or more is 24.2–26.7 mm, median 25.0. Placement does not explain the spread among centred photos (session 1's edge-of-frame shots fit 27–28 mm, which is distortion). Some fits are flat (027: 24.0 and 24.2 give the same 0.106 mm), others sharp (024: 0.49 mm at 24, 0.085 at 26.75), so part of the spread is real. A fixed override of ~25.0 mm is a working value, not a calibration; at 20° tilt or less a few percent hardly matters (above), so **gauge and object photos should be taken near straight on**.
 
 Next (session 3): the gauges again on a hard, flat surface, pressing every link against the wall and looking for light between sleeve and wall, at ≤10° tilt (focal-proof), two each; then one each at 20° on the same surface.
 
