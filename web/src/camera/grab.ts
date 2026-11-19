@@ -63,12 +63,14 @@ export const GRAB = {
   recheckFrames: 15,
 };
 
-/** Can this browser try the worker at all? */
-export function canTryWorker(search: string, g: object = globalThis): boolean {
-  if (new URLSearchParams(search).get("grab") === "main") return false;
-  return typeof (g as { VideoFrame?: unknown }).VideoFrame === "function"
-    && typeof (g as { OffscreenCanvas?: unknown }).OffscreenCanvas === "function"
-    && typeof (g as { Worker?: unknown }).Worker === "function";
+/** Why this browser cannot try the worker, or null if it can. */
+export function whyNotWorker(search: string, g: object = globalThis): string | null {
+  if (new URLSearchParams(search).get("grab") === "main") return "?grab=main";
+  const has = (name: string) => typeof (g as Record<string, unknown>)[name] === "function";
+  if (!has("VideoFrame")) return "no VideoFrame here";
+  if (!has("OffscreenCanvas")) return "no OffscreenCanvas here";
+  if (!has("Worker")) return "no workers here";
+  return null;
 }
 
 export class FrameGrab {
@@ -81,9 +83,17 @@ export class FrameGrab {
   private wait = 0;
   private pending: { id: number; resolve: (r: GrabReply) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
-  constructor(private readonly make: () => GrabWorkerLike, available: boolean, private readonly timeoutMs = GRAB.timeoutMs) {
-    this.mode = available ? "check" : "main";
-    this.why = available ? "" : "no VideoFrame or OffscreenCanvas here, or ?grab=main";
+  /** `blocked`: why the worker cannot be tried here (whyNotWorker), or null. */
+  constructor(private readonly make: () => GrabWorkerLike, blocked: string | null, private readonly timeoutMs = GRAB.timeoutMs) {
+    this.mode = blocked === null ? "check" : "main";
+    this.why = blocked ?? "";
+  }
+
+  /** Where frames are grabbed, for the camera view's info line. */
+  describe(): string {
+    return this.mode === "worker" ? "grab in a worker"
+      : this.mode === "check" ? "grab on the page (checking the worker)"
+        : `grab on the page: ${this.why}`;
   }
 
   /** A frame is with the worker: the page waits for it rather than send another. */
@@ -138,7 +148,7 @@ export class FrameGrab {
   checked(verdict: "same" | "different" | "unsure"): void {
     if (this.mode !== "check") return;
     if (verdict === "same") this.mode = "worker";
-    else if (verdict === "different") this.fallBack("the worker's copy of a frame differs from the page's");
+    else if (verdict === "different") this.fallBack("the worker's copy of a frame differs");
     else this.wait = GRAB.recheckFrames;
   }
 
