@@ -18,6 +18,7 @@ export function makeReading(
     t, width: size.width, height: size.height, chain, pinsExpected,
     missing: analysis.gaps.length,
     tiltDeg: analysis.tilt_deg,
+    tiltDir: analysis.tilt_dir,
     sharpness: on.length ? median(on.map((b) => b.sharpness)) : 0,
     motion: previous ? motion(previous, chain, t) : null,
   };

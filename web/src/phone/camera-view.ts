@@ -25,6 +25,7 @@ import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
 import { toGray } from "../overlay/blobs";
+import { COACH } from "../overlay/coach";
 import type { Region } from "../overlay/region";
 import { OverlaySession, type OverlayView } from "../overlay/session";
 import { followChain } from "../overlay/trace";
@@ -126,6 +127,8 @@ export interface CameraStats {
   closedBy: string | null;
   /** The browser, OS, phone and build, as the info's first line shows them. */
   browser: string;
+  /** The way the arrow over the chain last pointed (frame axes, y down), or null with none drawn. */
+  arrow: [number, number] | null;
 }
 
 export class CameraView {
@@ -600,6 +603,7 @@ export class CameraView {
     }
     const g = c.getContext("2d")!;
     g.clearRect(0, 0, cw, ch);
+    this.stats.arrow = null;
     if (vw && vh) {
       // The video is shown whole (object-fit: contain): what the still will hold.
       const k = Math.min(cw / vw, ch / vh), ox = (cw - vw * k) / 2, oy = (ch - vh * k) / 2;
@@ -624,6 +628,28 @@ export class CameraView {
           g.beginPath();
           g.arc(X(x), Y(y), r, 0, 2 * Math.PI);
           g.stroke();
+        }
+        const arrow = view.state.arrow;
+        if (arrow && phase !== "capture" && phase !== "captured") {
+          this.stats.arrow = arrow.dir;
+          // The way to move the phone, just past the chain on that side (clear
+          // of its pins) and inside the picture; longer the more it is tilted.
+          const [ux, uy] = arrow.dir;
+          let cx = 0, cy = 0;
+          for (const [x, y] of chain) {
+            cx += X(x) / chain.length;
+            cy += Y(y) / chain.length;
+          }
+          let reach = 0;
+          for (const [x, y] of chain) reach = Math.max(reach, (X(x) - cx) * ux + (Y(y) - cy) * uy);
+          const short = Math.min(vw, vh) * k;
+          const grow = Math.min(1, Math.max(0, (arrow.tiltDeg - COACH.arrowDeg.enter) / 18));
+          const length = short * (0.12 + 0.08 * grow);
+          const pad = 14 * dpr + length / 2;
+          const along = reach + r + 10 * dpr + length / 2;
+          const ax = Math.min(Math.max(cx + ux * along, ox + pad), ox + vw * k - pad);
+          const ay = Math.min(Math.max(cy + uy * along, oy + pad), oy + vh * k - pad);
+          drawArrow(g, ax, ay, arrow.dir, length, color, dpr);
         }
       }
     }
@@ -819,6 +845,38 @@ function push(list: number[], v: number): void {
   if (list.length > 300) list.shift();
 }
 
+/** An arrow `length` long centred on (cx, cy), pointing along the unit vector
+ * `dir`, in `color` over a dark edge that keeps it visible on a light table. */
+function drawArrow(g: CanvasRenderingContext2D, cx: number, cy: number, dir: Point, length: number, color: string, dpr: number): void {
+  const [ux, uy] = dir;
+  const head = Math.min(length * 0.45, 22 * dpr), wing = head * 0.6;
+  const tx = cx + (ux * length) / 2, ty = cy + (uy * length) / 2;        // the tip
+  const bx = tx - ux * head, by = ty - uy * head;                          // where the head meets the shaft
+  const path = () => {
+    g.beginPath();
+    g.moveTo(cx - (ux * length) / 2, cy - (uy * length) / 2);
+    g.lineTo(bx, by);
+    g.moveTo(bx - uy * wing, by + ux * wing);
+    g.lineTo(tx, ty);
+    g.lineTo(bx + uy * wing, by - ux * wing);
+    g.closePath();
+  };
+  g.save();
+  g.lineJoin = "round";
+  g.lineCap = "round";
+  path();
+  g.strokeStyle = "rgba(0,0,0,.55)";
+  g.lineWidth = 9 * dpr;
+  g.stroke();
+  path();
+  g.strokeStyle = color;
+  g.fillStyle = color;
+  g.lineWidth = 5 * dpr;
+  g.stroke();
+  g.fill();
+  g.restore();
+}
+
 function median(v: number[]): number {
   if (!v.length) return 0;
   const s = [...v].sort((a, b) => a - b);
@@ -827,5 +885,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null, browser: "" };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null, browser: "", arrow: null };
 }

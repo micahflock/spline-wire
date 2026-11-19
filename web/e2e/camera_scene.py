@@ -1,16 +1,19 @@
 """A chain for Chromium's fake camera: the camera view's end-to-end test
 (e2e/camera.spec.ts) streams it as if it were a phone's rear camera.
 
-    uv run python web/e2e/camera_scene.py OUT_DIR [WIDTHxHEIGHT] [snap [SPAN [dark]]]
+    uv run python web/e2e/camera_scene.py OUT_DIR [WIDTHxHEIGHT] [snap [SPAN [dark] [tilt=DEG]]]
         -> OUT_DIR/camera.y4m   two identical frames (Chromium loops the file)
-           OUT_DIR/camera.json  pins in frame pixels, the focal length, the chain
+           OUT_DIR/camera.json  pins in frame pixels, the focal length, the chain,
+                                and move_dir: the way (frame axes, y down) the
+                                camera must move to look straight down (snap)
            OUT_DIR/camera.jpg   the same frame as a phone's JPEG with its EXIF focal
                                 length, for the upload path
 
 Portrait 3024x4032 by default: the full 4:3 sensor an iPhone streams (S3).
 The chain spans about 0.55 of the short side (the snap-fit chain: SPAN, its
 pins' greatest distance plus a link's width over the short side) and is seen
-12 degrees off straight-on, in the "daylight" scene of splinewire.scene.
+12 degrees off straight-on (the snap chain: tilt=DEG for another tilt), in
+the "daylight" scene of splinewire.scene.
 """
 from __future__ import annotations
 
@@ -35,7 +38,10 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     w, h = (int(v) for v in (sys.argv[2] if len(sys.argv) > 2 else "3024x4032").split("x"))
     if len(sys.argv) > 3 and sys.argv[3] == "snap":
-        return snap(out, w, h, float(sys.argv[4]) if len(sys.argv) > 4 else SPAN, len(sys.argv) > 5 and sys.argv[5] == "dark")
+        rest = sys.argv[4:]
+        tilt = next((float(a[5:]) for a in rest if a.startswith("tilt=")), 12.0)
+        rest = [a for a in rest if not a.startswith("tilt=")]
+        return snap(out, w, h, float(rest[0]) if rest else SPAN, len(rest) > 1 and rest[1] == "dark", tilt)
     spec = load_chain_spec(oring_chain_path())
     pins = s_curve_pins(spec)
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
@@ -45,7 +51,7 @@ def main() -> None:
     write(out, sc.image.astype(np.uint8), sc.pins_px, sc.focal_px, spec)
 
 
-def snap(out: Path, w: int, h: int, span: float = SPAN, dark: bool = False) -> None:
+def snap(out: Path, w: int, h: int, span: float = SPAN, dark: bool = False, tilt: float = 12.0) -> None:
     """The snap-fit chain (data/chain-snap.yaml: thin white rims on round
     sleeves, 13 mm pitch), drawn with its relief by synthetic.render_snap_photo,
     framed and tilted as the dot chain's scene is. With `dark`, printed the other
@@ -57,13 +63,16 @@ def snap(out: Path, w: int, h: int, span: float = SPAN, dark: bool = False) -> N
     extent = float(np.linalg.norm(pins[:, None] - pins[None], axis=2).max()) + 2 * spec.half_width_mm
     focal = focal_px_from_35mm(FOCAL_35MM, (w, h))
     distance = focal * extent / (span * min(w, h))
-    cam = look_at_plane(focal, (w, h), distance, tilt_deg=12.0, tilt_direction_deg=30.0, roll_deg=70.0,
-                        target_mm=tuple(pins.mean(axis=0)))
+    target = tuple(pins.mean(axis=0))
+    cam = look_at_plane(focal, (w, h), distance, tilt_deg=tilt, tilt_direction_deg=30.0, roll_deg=70.0, target_mm=target)
     image = render_snap_photo(pins, spec, cam, rng=np.random.default_rng(3))
-    write(out, np.clip(image, 0, 255).astype(np.uint8), cam.project(pins), focal, spec)
+    # From where the camera is to the spot as far straight above the chain, in the frame's axes.
+    move = cam.R @ (np.array([target[0], target[1], distance]) + cam.R.T @ cam.t)
+    write(out, np.clip(image, 0, 255).astype(np.uint8), cam.project(pins), focal, spec,
+          move_dir=(move[:2] / np.hypot(*move[:2])).tolist())
 
 
-def write(out: Path, y: np.ndarray, pins_px: np.ndarray, focal_px: float, spec) -> None:
+def write(out: Path, y: np.ndarray, pins_px: np.ndarray, focal_px: float, spec, move_dir=None) -> None:
     h, w = y.shape
     chroma = np.full((h // 2) * (w // 2), 128, np.uint8).tobytes()
     with open(out / "camera.y4m", "wb") as f:
@@ -76,7 +85,7 @@ def write(out: Path, y: np.ndarray, pins_px: np.ndarray, focal_px: float, spec) 
     save_photo(out / "camera.jpg", y, FOCAL_35MM)
     (out / "camera.json").write_text(json.dumps({
         "size": [w, h], "pins_px": np.asarray(pins_px).tolist(), "focal_px": focal_px,
-        "focal_35mm": focal_35mm_from_px(focal_px, (w, h)), "chain": asdict(spec),
+        "focal_35mm": focal_35mm_from_px(focal_px, (w, h)), "chain": asdict(spec), "move_dir": move_dir,
     }))
 
 

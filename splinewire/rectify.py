@@ -34,6 +34,7 @@ class Rectification:
     link_residuals_mm: np.ndarray | None = None   # per link: length minus pitch
     depth_mm: np.ndarray | None = None            # per pin: distance along the optical axis
     distortion_k1: float = 0.0                    # radial distortion solved for (0 unless asked)
+    normal: np.ndarray | None = None              # the plane's unit normal in camera axes (x right, y down, z ahead), away from the camera
 
 
 def min_links(focal_known: bool = True, estimate_distortion: bool = False) -> int:
@@ -125,6 +126,7 @@ def rectify_chain(
         link_residuals_mm=res,
         depth_mm=X[:, 2].copy(),
         distortion_k1=k1,
+        normal=n,
     )
 
 

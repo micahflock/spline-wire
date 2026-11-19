@@ -17,6 +17,7 @@ export interface LiveAnalysis {
   gaps: number[];
   tilt_deg: number | null;
   link_residual_max_mm: number | null;
+  tilt_dir: [number, number] | null;
 }
 
 /** The chain among a frame's blobs. focalPx: in this frame's pixels, or null
@@ -25,7 +26,7 @@ export function analyse(
   points: readonly Vec2[], diameters: readonly number[], size: readonly [number, number], spec: ChainSpec,
   focalPx: number | null = null,
 ): LiveAnalysis {
-  const none: LiveAnalysis = { order: [], gaps: [], tilt_deg: null, link_residual_max_mm: null };
+  const none: LiveAnalysis = { order: [], gaps: [], tilt_deg: null, link_residual_max_mm: null, tilt_dir: null };
   if (!(points.length >= 3 && points.length <= MAX_POINTS) || diameters.length !== points.length) return none;
   let order;
   try {
@@ -36,15 +37,27 @@ export function analyse(
   } catch {
     return none;
   }
-  const out: LiveAnalysis = { order: order.indices, gaps: order.gaps, tilt_deg: null, link_residual_max_mm: null };
+  const out: LiveAnalysis = { order: order.indices, gaps: order.gaps, tilt_deg: null, link_residual_max_mm: null, tilt_dir: null };
   if (order.links.length >= minLinks(focalPx !== null)) {
     try {
       const rect = rectifyChain(order.indices.map((i) => points[i]!), order.links, spec.pitch_mm, size, focalPx);
       out.tilt_deg = Number(fixed(rect.tilt_deg, 1));
       out.link_residual_max_mm = Number(fixed(rect.residual_max_mm, 3));
+      out.tilt_dir = farSide(rect.normal);
     } catch {
       return out;
     }
   }
   return out;
+}
+
+/** live.py far_side: the way across the image to the plane's far side, a unit
+ * vector rounded to 0.001; null when the camera looks straight down the normal.
+ * A pin's inverse depth is m . (x, y, 1), m along the normal, so the plane
+ * recedes fastest along -(n_x, n_y). */
+export function farSide(normal: readonly number[]): [number, number] | null {
+  const x = -normal[0]!, y = -normal[1]!;
+  const length = Math.hypot(x, y);
+  if (length < 1e-9) return null;
+  return [Number(fixed(x / length, 3)), Number(fixed(y / length, 3))];
 }

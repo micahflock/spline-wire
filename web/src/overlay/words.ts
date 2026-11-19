@@ -21,6 +21,9 @@ export const PROBLEM_WORDS: Record<Problem, Say> = {
   "blurred": { title: "Out of focus", detail: "Move back a little, or wait for it to focus." },
 };
 
+/** The tilt's detail while the arrow over the chain shows the way. */
+export const ARROW_DETAIL = "Move the phone the way the arrow points.";
+
 export interface SayContext {
   /** The measuring engine has loaded: before that nothing is analysed. */
   engineReady: boolean;
@@ -34,12 +37,14 @@ export function sayFor(state: CoachState, ctx: SayContext): Say {
     case "captured":
       return { title: "Taking the photo…", detail: "Keep still for a moment." };
     case "steady":
-      return { title: "Hold still…", detail: state.straighter ? "Straighter over the chain is better still." : "" };
+      return { title: "Hold still…", detail: !state.straighter ? "" : state.arrow ? "Straighter is better: follow the arrow." : "Straighter over the chain is better still." };
     case "searching":
       return PROBLEM_WORDS["no-chain"];
     case "adjusting":
       // A problem is shown only once it has lasted (coach.ts PROBLEM_MS): until then, nothing new to say.
-      return state.problems[0] ? PROBLEM_WORDS[state.problems[0]] : { title: "Hold still…", detail: "" };
+      if (!state.problems[0]) return { title: "Hold still…", detail: "" };
+      if (state.problems[0] === "tilted" && state.arrow) return { title: PROBLEM_WORDS.tilted.title, detail: ARROW_DETAIL };
+      return PROBLEM_WORDS[state.problems[0]];
   }
 }
 

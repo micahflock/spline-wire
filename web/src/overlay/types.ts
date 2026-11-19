@@ -56,6 +56,9 @@ export interface FrameReading {
   missing: number;
   /** null when it cannot be told (too few pins). */
   tiltDeg: number | null;
+  /** The way across the frame (unit vector, x right, y down) to move the phone
+   * to look straight down on the chain; null with tiltDeg, or straight on. */
+  tiltDir: Point | null;
   /** Median edge sharpness of the chain's blobs, 0-1. */
   sharpness: number;
   /** How far the chain moved since the previous reading, in pitches per second. null on the first. */
@@ -87,4 +90,9 @@ export interface CoachState {
   pinsExpected: number;
   /** A milder note that does not block the shot: the tilt is acceptable but straighter is better. */
   straighter: boolean;
+  /** Which way to move the phone to look straighter down on the chain, for an
+   * arrow over it: a unit vector in the frame's pixel axes (x right, y down),
+   * smoothed over readings, with the tilt (degrees) it was last read at; null
+   * when the tilt is small enough not to show one. */
+  arrow: { dir: Point; tiltDeg: number } | null;
 }
