@@ -29,6 +29,7 @@ import type { Region } from "../overlay/region";
 import { OverlaySession, type OverlayView } from "../overlay/session";
 import { followChain } from "../overlay/trace";
 import { pinsText, sayFor } from "../overlay/words";
+import { browserInfo, uaData, type UAData } from "./browser";
 import { frameFocal, ultraWides, type FrameFocal } from "./lenses";
 import type { Settings } from "./settings";
 
@@ -123,6 +124,8 @@ export interface CameraStats {
   still: string | null;
   /** Why the view last closed by itself, if it did. */
   closedBy: string | null;
+  /** The browser, OS, phone and build, as the info's first line shows them. */
+  browser: string;
 }
 
 export class CameraView {
@@ -146,6 +149,8 @@ export class CameraView {
   private trial: Record<WorkMode, number[]> = { gpu: [], cpu: [] };
   /** The gray work frame, reused from frame to frame. */
   private gray = new Uint8Array(0);
+  /** What Chromium tells of the phone when asked (browser.ts): the real Android version and model. */
+  private ua: UAData | null = null;
   /** The camera is being asked for (getUserMedia): a permission prompt may be up. */
   private requesting = false;
   /** Another camera is being opened in place of the open one (switchTo). */
@@ -159,6 +164,7 @@ export class CameraView {
   private readonly canvas: HTMLCanvasElement;
 
   constructor(private readonly deps: CameraDeps) {
+    void uaData().then((d) => (this.ua = d));
     const $ = (id: string) => document.getElementById(id) as HTMLElement;
     this.el = Object.fromEntries(["cam", "cam-say-title", "cam-say-detail", "cam-count", "cam-ring", "cam-info", "cam-fail",
       "cam-fail-title", "cam-fail-text", "cam-switch", "cam-shutter", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
@@ -660,7 +666,9 @@ export class CameraView {
     // One item a line, always the same lines (a dash until there is a value).
     // Only the last, where frames are grabbed, may wrap (its reason can be
     // long): last, so its wrapping moves no other line.
-    const lines = [st.camera || "camera", st.size, focal,
+    // First, what a screenshot sent by someone else must say: the browser, the OS, the phone and the build.
+    st.browser = `${browserInfo(navigator.userAgent, this.ua)} · build ${import.meta.env.BUILD_ID}`;
+    const lines = [st.browser, st.camera || "camera", st.size, focal,
       `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`,
       `region ${st.region || "–"}`,
       `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
@@ -824,5 +832,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null, browser: "" };
 }
