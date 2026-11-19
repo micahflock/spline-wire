@@ -606,16 +606,11 @@ export class CameraView {
       const X = (x: number) => ox + (x + 0.5) * k, Y = (y: number) => oy + (y + 0.5) * k;
       const phase = view.state.phase;
       const color = phase === "steady" || phase === "capture" ? "#4cc27a" : phase === "adjusting" ? "#f2b705" : "rgba(255,255,255,.8)";
+      // Only the chain is drawn. Blobs off it (glints, holes, clutter, each
+      // found in one frame and lost in the next) were drawn as faint rings
+      // until 2026-11-19 and only flickered: the pin count and the coach's
+      // message already say when pins are missing.
       const chain = followChain(view.chain, view.blobs);
-      const onChain = new Set(chain.map(([x, y]) => `${x},${y}`));
-      g.lineWidth = 1.5 * dpr;
-      g.strokeStyle = "rgba(255,255,255,.45)";
-      for (const b of view.blobs) {
-        if (onChain.has(`${b.x},${b.y}`)) continue;
-        g.beginPath();
-        g.arc(X(b.x), Y(b.y), Math.max(3 * dpr, (b.d / 2) * k), 0, 2 * Math.PI);
-        g.stroke();
-      }
       if (chain.length) {
         g.lineWidth = 3 * dpr;
         g.strokeStyle = color;
