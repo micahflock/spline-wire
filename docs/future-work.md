@@ -18,6 +18,14 @@ What might be done, in no particular order. Nothing here is needed for the measu
 - **Setting the CAD sketch origin and orientation.** Today the origin is the first pin and the axes follow the photo. Let the person pick them, or align them to something in the photo or the sketch.
 - **CAD packages beyond Fusion.** The DXF (mm) and the 1:1 SVG are a partial fallback for them today.
 
+## Chain
+
+The owner's plans for the snap-fit chain (2026-11-20); none designed yet.
+
+- **Dual-colour printing.** Print the links and their fiducial rims in two colours on a multi-material printer instead of one colour or a filament swap, so the rims' contrast with the links is part of the print. Pick the pair for detection: detection reads gray, so the two colours must differ clearly in gray, not just in hue (orange rims on off-white links fail on dark tables; see *Fiducial colours picked from a photo* below). Check a pair on the simulated tables before printing it.
+- **A chain that folds up neatly.** A chain that packs into a compact, tidy bundle for carrying and storage, without tangling or losing the pose-holding grip of its joints.
+- **A QR code on one side, visible when folded.** The fiducials are on one face only; put a printed QR code on the other face, placed so it shows on the outside of the folded chain. It could carry the chain's settings (preset, pitch, contact, Colours), so the phone page sets itself up from a scan rather than the person choosing them in Settings, or link to the website. Open: how a QR code prints legibly at link size on a 0.4 mm nozzle, and whether it must be split across links that only line up when folded.
+
 ## Measurement
 
 - **Sharp corners between short walls.** A corner marked on the drawing is rebuilt from the walls either side (`web/src/desktop/corners.ts`, D27 in web-build.md), each read from two pins resting on it, so steps shorter than about three pitches (40 mm with the snap-fit chain) come out wrong by several mm (corners.test.ts, the log of 2026-11-20). A global fit could do better: a polygon with a vertex at every marked corner, fitted so that each pin's sleeve or link arm touches it and none cuts into it, which also uses the pins lifted over a ridge and the ones touching the tip.
