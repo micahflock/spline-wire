@@ -327,13 +327,30 @@ test.describe("paired with a computer", () => {
     await demo?.close();
   });
 
-  const received = () => desktop.evaluate(() =>
-    JSON.parse(localStorage.getItem("splinewire-demo-desktop:inbox") ?? "[]") as Curve[]);
+  /** The desktop page (the site's root) on the test relay. */
+  const openDesktop = async (ctx: BrowserContext = desk) => {
+    const p = await ctx.newPage();
+    p.on("pageerror", (e) => log(`[desktop error] ${e.message}`));
+    await p.goto(`./?relay=${encodeURIComponent(demo.relay.url)}`);
+    return p;
+  };
+  const received = (p: Page = desktop) => p.evaluate(() =>
+    JSON.parse(localStorage.getItem("splinewire-desktop:inbox") ?? "[]") as Curve[]);
+  const items = (p: Page = desktop) => p.locator("#list button.item[data-id]");
+  const phoneItem = (id: string) => page.locator(`#photos li[data-id="${id}"]`);
+  /** A photo added on the phone (from the library), measured; its id. */
+  const addPhoto = async () => {
+    const before = await page.locator("#photos li").count();
+    await page.setInputFiles("#choose", pipe.photo);
+    await expect(page.locator("#photos li")).toHaveCount(before + 1);
+    const id = (await page.locator("#photos li").first().getAttribute("data-id"))!;
+    await expect(phoneItem(id)).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    return id;
+  };
 
-  test("pairs by the scanned link and sends the curve with its files", async () => {
-    desktop = await desk.newPage();
-    await desktop.goto(demo.desktop);
-    const link = (await desktop.locator("#pair").textContent())!;
+  test("pairs by the scanned link; a photo from before is sent with the button, with its files", async () => {
+    desktop = await openDesktop();
+    const link = (await desktop.locator("[data-pair-link]").first().textContent())!;
     const secret = new URL(link).hash;                 // #pair=<secret>
     expect(secret).toMatch(/^#pair=/);
     page.on("websocket", (ws) => {
@@ -342,13 +359,16 @@ test.describe("paired with a computer", () => {
     await page.goto(`phone/?relay=${encodeURIComponent(demo.relay.url)}${secret}`);
     await expect(page).toHaveURL(/\/phone\/\?relay=[^#]*$/);   // the secret is taken off the address
     await expect(page.locator("#link-text")).toHaveText("Computer connected");
-    await expect(page.locator(`#photos li[data-id="${photoId}"]`)).toHaveAttribute("data-status", "done");
-    await page.locator(`#photos li[data-id="${photoId}"] button.open`).tap();
+    await expect(phoneItem(photoId)).toHaveAttribute("data-status", "done");
+    await phoneItem(photoId).locator("button.open").tap();
+    await expect(page.locator("#send-note")).toContainText("Taken before this phone was paired");
     // The engine is new after the navigation: sending opens and measures the photo again first.
     await tapButton("Send to computer");
-    await expect(desktop.locator("#curves li")).toHaveCount(1, { timeout: 60_000 });
+    await expect(items()).toHaveCount(1, { timeout: 60_000 });
     await expect(page.locator("#send-note")).toHaveText(/Delivered to the computer/);
+    await expect(page.getByRole("button", { name: "Send to computer" })).toBeHidden();
     const [curve] = await received();
+    expect(curve!.rev).toBe(1);
     expect(curve!.points_mm.length).toBeGreaterThan(10);
     expect(curve!.photo).toBe(path.basename(pipe.photo));
     const files = await unpack(curve!.files!);
@@ -360,29 +380,125 @@ test.describe("paired with a computer", () => {
     log("link states:", JSON.stringify(await page.evaluate(() => (window as unknown as { phone: { link: unknown } }).phone.link)));
   });
 
-  test("a curve changed after sending goes as a new curve; one sent while the computer is away waits", async () => {
+  test("a change on the phone replaces the curve on the computer, also one made while it is closed", async () => {
+    const id = (await received())[0]!.id;
+    await tapButton(/^Outside$/);                     // the object side changed
+    await expect.poll(async () => (await received()).map((c) => [c.id, c.rev, c.object_side])).toEqual([[id, 2, "outside"]]);
+    await expect(items()).toHaveCount(1);
+    await expect(desktop.locator("#toast")).toContainText("Changed on the phone");
+    await expect(page.locator("#send-note")).toHaveText("Delivered to the computer, with your changes.");
+    await desktop.close();                             // the computer's page is closed
+    await expect(page.locator("#link-text")).toHaveText("Computer not open");
     await page.locator("#photo").scrollIntoViewIfNeeded();
     await page.touchscreen.tap(...Object.values(await center('#overlay circle[data-k="3"]')) as [number, number]);
     await expect(pins()).toHaveCount(12);
-    await expect(page.getByRole("button", { name: "Send again, as a new curve" })).toBeVisible();
-    await expect(page.locator("#send-note")).toContainText("earlier curve");
-    await desktop.close();                             // the computer's page is closed
-    await expect(page.locator("#link-text")).toHaveText("Computer not open");
-    await tapButton("Send again, as a new curve");
-    await expect(page.locator("#send-note")).toHaveText(/Queued: the computer's page is not open/);
+    await expect(page.locator("#send-note")).toHaveText(/Queued: the computer's page is not open. The change goes/);
     await expect(page.locator('#outbox li[data-state="queued-no-computer"]')).toHaveCount(1);
-    desktop = await desk.newPage();
-    await desktop.goto(demo.desktop);
-    await expect(desktop.locator("#curves li")).toHaveCount(2);
+    await expect(page.locator('#outbox li button')).toHaveCount(0);       // a change to a delivered curve is not held back
+    desktop = await openDesktop();
+    await expect.poll(async () => (await received()).map((c) => [c.id, c.rev, c.diagnostics.missing_pins])).toEqual([[id, 3, 1]]);
     await expect(page.locator("#send-note")).toHaveText(/Delivered/);
-    const curves = await received();
-    expect(new Set(curves.map((c) => c.id)).size).toBe(2);
-    // Undo: the first curve again, which the computer already has; nothing new is offered.
     await tapButton("Undo the last pin change");
     await expect(pins()).toHaveCount(13);
-    await expect(page.getByRole("button", { name: /^Send/ })).toBeHidden();
-    await expect(page.locator("#send-note")).toHaveText(/Delivered/);
+    await expect.poll(async () => (await received()).map((c) => [c.rev, c.diagnostics.missing_pins])).toEqual([[4, 0]]);
+    await expect(items()).toHaveCount(1);
     await page.screenshot({ path: path.join(SHOTS, "paired-light.png"), fullPage: true });
+  });
+
+  test("a photo taken while paired goes by itself; stars and deletions stay in step both ways", async () => {
+    const curveOf = async (photo: string) => (await received()).find((c) => c.photo === path.basename(pipe.photo) && c.id !== photo);
+    const first = (await received())[0]!.id;
+    const b = await addPhoto();                         // no button: it goes once measured
+    await expect(items()).toHaveCount(2, { timeout: 30_000 });
+    await expect(page.locator("#send-note")).toHaveText(/Delivered to the computer/);
+    const bCurve = (await curveOf(first))!.id;
+
+    // A star set on the phone shows on the computer; one taken off there goes off on the phone.
+    await phoneItem(photoId).locator("button.star").tap();
+    await expect(desktop.locator(`button.item[data-id="${first}"] .starred`)).toHaveCount(1);
+    await desktop.locator(`button.item[data-id="${first}"]`).click();
+    await expect(desktop.locator('[data-act="star"]')).toHaveAttribute("aria-pressed", "true");
+    await desktop.locator('[data-act="star"]').click();
+    await expect(phoneItem(photoId).locator("button.star")).toHaveAttribute("aria-pressed", "false");
+    // Starred on the computer while the phone's page is closed: the phone has it when it opens.
+    await desktop.locator('[data-act="star"]').click();
+    await page.goto("phone/");                          // the phone's page reloaded, paired
+    await page.goto(`phone/?relay=${encodeURIComponent(demo.relay.url)}`);
+    await expect(page.locator("#link-text")).toHaveText("Computer connected");
+    await expect(phoneItem(photoId).locator("button.star")).toHaveAttribute("aria-pressed", "true");
+    await phoneItem(photoId).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, "paired-star.png") });
+    await desktop.screenshot({ path: path.join(SHOTS, "desktop-star.png") });
+
+    // Deleted on the computer: the photo goes from the phone.
+    await desktop.locator(`button.item[data-id="${bCurve}"]`).click();
+    await desktop.locator('[data-act="delete"]').click();
+    await expect(desktop.locator("#confirm-body")).toContainText("the photo goes from the phone too");
+    await desktop.locator("#confirm-yes").click();
+    await expect(phoneItem(b)).toHaveCount(0);
+    await expect(page.locator("#toast")).toContainText("Deleted on the computer");
+
+    // Deleted on the phone: the curve goes from the computer, also while its page is closed.
+    const c = await addPhoto();
+    await expect(items()).toHaveCount(2, { timeout: 30_000 });
+    await desktop.close();
+    page.once("dialog", (d) => {
+      expect(d.message()).toContain("from this phone and the computer");
+      void d.accept();
+    });
+    await phoneItem(c).locator("button.del").tap();
+    await expect(phoneItem(c)).toHaveCount(0);
+    desktop = await openDesktop();
+    await expect(items()).toHaveCount(1);
+    expect((await received()).map((x) => x.id)).toEqual([first]);
+    await desktop.close();
+  });
+
+  test("a name given on either side shows on both, and the files take it", async () => {
+    desktop = await openDesktop();
+    const first = (await received())[0]!.id;
+    const row = desktop.locator(`button.item[data-id="${first}"]`);
+    await row.click();
+    // Renamed on the phone, in the photo's header.
+    await phoneItem(photoId).locator("button.open").tap();
+    await tapButton("Rename");
+    const field = page.getByRole("textbox", { name: "Name of the curve" });
+    await field.fill("Pipe 1.5in, left");
+    await field.press("Enter");
+    await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
+    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe 1.5in, left");
+    await expect(row.locator(".name")).toHaveText("Pipe 1.5in, left");
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe 1.5in, left");
+    await expect(desktop.locator(".view .meta")).toContainText("pipe.jpg");          // the photo's name, for reference
+    await expect(desktop.locator('#exp a[data-kind="dxf"]')).toHaveAttribute("download", "Pipe 1.5in, left-curve.dxf");
+    // Renamed on the computer: Enter keeps it.
+    await desktop.getByRole("button", { name: "Rename" }).click();
+    await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Pipe, left");
+    await desktop.keyboard.press("Enter");
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe, left");
+    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe, left");
+    await expect(page.locator("#r-name")).toHaveText("Pipe, left");
+    // Escape does not; a click elsewhere does, and the click still goes where it was meant.
+    await desktop.getByRole("button", { name: "Rename" }).click();
+    await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Not this");
+    await desktop.keyboard.press("Escape");
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe, left");
+    await desktop.getByRole("button", { name: "Rename" }).click();
+    await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Pipe bend");
+    await desktop.getByRole("button", { name: /Star/ }).click();
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe bend");
+    await expect(desktop.getByRole("button", { name: /Star/ })).toHaveAttribute("aria-pressed", "false");   // starred before: the click unstarred it
+    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe bend");
+    // The phone's own files take the name too.
+    const download = page.waitForEvent("download");
+    await page.locator("#downloads button", { hasText: "CSV" }).first().tap();
+    expect((await download).suggestedFilename()).toBe("Pipe bend-curve.csv");
+    // An empty name gives the photo's back, on both.
+    await tapButton("Rename");
+    await field.fill("");
+    await field.press("Enter");
+    await expect(page.locator("#r-name")).toHaveText("pipe.jpg");
+    await expect(row.locator(".name")).toHaveText("pipe.jpg");
     await desktop.close();
   });
 
@@ -391,9 +507,8 @@ test.describe("paired with a computer", () => {
     // of the open page (same document), as Safari does for a scanned link.
     const other = await browser.newContext();
     try {
-      const otherDesktop = await other.newPage();
-      await otherDesktop.goto(demo.desktop);
-      const secret = new URL((await otherDesktop.locator("#pair").textContent())!).hash;
+      const otherDesktop = await openDesktop(other);
+      const secret = new URL((await otherDesktop.locator("[data-pair-link]").first().textContent())!).hash;
       const marker = await page.evaluate(() => ((window as unknown as { loadMark: number }).loadMark = Math.random()));
       await page.goto(`phone/?relay=${encodeURIComponent(demo.relay.url)}${secret}`);
       expect(await page.evaluate(() => (window as unknown as { loadMark?: number }).loadMark)).toBe(marker);  // not reloaded

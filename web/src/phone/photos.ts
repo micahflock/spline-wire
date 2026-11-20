@@ -16,12 +16,14 @@
 import type { Failure } from "../core/protocol";
 import type { Edits, MeasurementDocument, Point, Side } from "../core/types";
 import type { Exif } from "./exif";
+import type { Name, Star } from "../relay/sync";
+import type { CurveSync } from "./send";
 import type { Shade } from "./settings";
 
 export type Status = "queued" | "loading" | "measuring" | "done" | "error";
 export type BlobKind = "original" | "preview" | "thumb";
 
-/** A curve sent from this photo (send.ts). */
+/** A curve sent from this photo before revisions (D26): each send a curve of its own. Read by send.ts syncOf. */
 export interface SentCurve {
   id: string;
   /** curveKey of what was sent, to tell whether the curve changed since. */
@@ -56,7 +58,16 @@ export interface PhotoRecord {
   pixels: { width: number; height: number } | null;
   /** The preview's size in px; null without one. */
   preview: { width: number; height: number } | null;
-  sent: SentCurve[];
+  /** Before D26; records since have `sync`. */
+  sent?: SentCurve[];
+  /** Its curve on the paired computer (send.ts). */
+  sync?: CurveSync | null;
+  /** Added while paired: its curve goes to the computer by itself once measured. */
+  autoSend?: boolean;
+  /** Starred, kept in step with the computer (relay/sync.ts). */
+  star?: Star;
+  /** The person's name for it, in place of `name` (the file's), kept in step the same way. */
+  title?: Name;
   /** The focal length settings the document was measured with (main.ts focalKey):
    * a photo measured before they changed is measured again when opened. */
   measuredWith: string | null;

@@ -22,7 +22,8 @@ import { deriveKeys } from "../relay/crypto";
 import { deviceName } from "../relay/device";
 import { pack } from "../relay/files";
 import { RelayLink, type LinkStatus } from "../relay/link";
-import { pointsTsv } from "../relay/messages";
+import { pointsTsv, type Message } from "../relay/messages";
+import { DeletedIds } from "../relay/sync";
 import { Outbox } from "../relay/outbox";
 import { codeMeaning } from "../camera/qr";
 import { forgetPairing, phoneSecret, secretFromHash } from "../relay/pairing";
@@ -33,7 +34,8 @@ import { NO_EXIF, exifOfFile, type Exif } from "./exif";
 import { focalOffer, isFront, learn, lensFocal, lensName, offerKey } from "./lenses";
 import { Measurer, type Update } from "./measurer";
 import { PhotoStore, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord } from "./photos";
-import { curveKey, delivery, deliveryText, sendOffer } from "./send";
+import { applyState, curveKey, delivery, deliveryText, displayName, nameOf, nextRevision, phoneState, sendOffer, setName, setStar, starOf, syncOf } from "./send";
+import { renamedFile } from "../desktop/names";
 import {
   chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
   type Settings, type Shade,
@@ -142,6 +144,7 @@ function onUpdate(r: PhotoRecord, u: Update): void {
     editing.delete(r.id);
     if (r.id === selected) pending = null;
     persist(r);
+    if (u.doc?.ok) void syncCurve(r);
   }
   renderList();
   if (r.id === selected) renderResult();
@@ -155,7 +158,7 @@ async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | n
     const r: PhotoRecord = {
       id, name: file.name || "photo.jpg", type: file.type, size: file.size, added: Date.now() + i, via,
       chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), shade: settings.shade, side: settings.side, edits: NO_EDITS,
-      status: "queued", doc: null, failure: null, pixels: made?.pixels ?? null, preview: made?.previewSize ?? null, sent: [],
+      status: "queued", doc: null, failure: null, pixels: made?.pixels ?? null, preview: made?.previewSize ?? null, autoSend: paired(),
       measuredWith: null, exif, focal,
       camera: still ? { label: still.camera, still: still.kind, frameChain: still.frameChain, frameSize: still.frameSize, fov: null, ms: Math.round(still.ms) } : null,
     };
@@ -211,10 +214,73 @@ function learnFrom(exif: Exif, size: { width: number; height: number } | null, s
 
 async function deletePhoto(id: string): Promise<void> {
   const r = records.get(id);
-  if (!r || !confirm(`Delete ${r.name} from this phone?`)) return;
+  const s = r && room ? syncOf(r, room) : null;
+  if (!r || !confirm(s ? `Delete ${displayName(r)} from this phone and the computer?` : `Delete ${displayName(r)} from this phone?`)) return;
+  if (s) {
+    // The computer deletes its copy when it hears this: now if it is open, else when next it is.
+    deletedIds.add([s.id]);
+    outbox?.forget(s.id);
+    sendChange([], [s.id]);
+  }
+  await removePhoto(id);
+}
+
+/** A photo gone from this phone: deleted here or on the computer. */
+async function removePhoto(id: string): Promise<void> {
   await photos?.delete(id).catch(() => {});
   drop(id);
   void core.call("close", { photo: id }).catch(() => {});
+}
+
+/** The photo whose name is being edited in the result's header, if any. */
+let renaming: string | null = null;
+
+$("rename").onclick = () => {
+  const r = selected ? records.get(selected) : undefined;
+  if (!r) return;
+  renaming = r.id;
+  const input = document.createElement("input");
+  Object.assign(input, { className: "rename", value: displayName(r), maxLength: 100, placeholder: r.name, enterKeyHint: "done" });
+  input.setAttribute("aria-label", "Name of the curve");
+  input.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      endRename(e.key === "Enter");
+    }
+  };
+  input.onblur = () => endRename(true);
+  $("r-name").replaceChildren(input);
+  $("rename").style.visibility = "hidden";             // its place kept: the header does not move under a tap
+  input.focus();
+  input.select();
+};
+
+/** Enter or leaving the field keeps the name, Escape does not; empty gives the file's name back.
+ * The header and the list's entry change in place: a tap that left the field must not lose its target. */
+function endRename(keep: boolean): void {
+  const r = renaming ? records.get(renaming) : undefined;
+  const input = $("r-name").querySelector("input");
+  renaming = null;
+  if (!r || !input) return;
+  if (keep && setName(r, input.value)) {
+    persist(r);
+    const s = room ? syncOf(r, room) : null;
+    if (s) sendChange([s.id]);
+  }
+  $("r-name").textContent = displayName(r);
+  $("rename").style.visibility = "";
+  const item = document.querySelector(`#photos li[data-id="${CSS.escape(r.id)}"] .name`);
+  if (item) item.textContent = displayName(r);
+}
+
+function toggleStar(id: string): void {
+  const r = records.get(id);
+  if (!r) return;
+  setStar(r, !starOf(r).on);
+  persist(r);
+  const s = room ? syncOf(r, room) : null;
+  if (s) sendChange([s.id]);
+  renderList();
 }
 
 function drop(id: string): void {
@@ -454,7 +520,8 @@ function renderResult(): void {
   if (!r) return;
   const doc = r.doc;
   const busy = measurer.busy(r.id);
-  $("r-name").textContent = r.name;
+  if (renaming !== r.id) $("r-name").textContent = displayName(r);
+  $("rename").style.visibility = renaming === r.id ? "hidden" : "";
   const info = doc?.info;
   const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
   const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
@@ -558,18 +625,23 @@ function renderList(): void {
     void thumbInto(th, id);
     const when = new Date(r.added).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const open = el("button", { type: "button", className: "open" }, th,
-      el("span", { className: "who" }, el("span", { className: "name", textContent: r.name }),
+      el("span", { className: "who" }, el("span", { className: "name", textContent: displayName(r) }),
         el("span", { className: "meta mono", textContent: `${when} · ${r.pins} pins` })),
       el("span", { className: `tag ${tag}`, textContent: label }));
-    open.setAttribute("aria-label", `Open ${r.name}, ${label}`);
+    open.setAttribute("aria-label", `Open ${displayName(r)}, ${label}`);
     open.onclick = () => {
       void select(id);
       $("result").scrollIntoView({ behavior: "smooth", block: "start" });
     };
+    const starred = starOf(r).on;
+    const star = el("button", { type: "button", className: `star${starred ? " on" : ""}`, textContent: starred ? "★" : "☆" });
+    star.setAttribute("aria-label", `Star ${displayName(r)}`);
+    star.setAttribute("aria-pressed", String(starred));
+    star.onclick = () => toggleStar(id);
     const del = el("button", { type: "button", className: "del", textContent: "×" });
-    del.setAttribute("aria-label", `Delete ${r.name}`);
+    del.setAttribute("aria-label", `Delete ${displayName(r)}`);
     del.onclick = () => void deletePhoto(id);
-    const li = el("li", { className: id === selected ? "on" : "" }, open, del);
+    const li = el("li", { className: id === selected ? "on" : "" }, open, star, del);
     li.dataset.id = id;
     li.dataset.status = r.status;
     return li;
@@ -631,8 +703,14 @@ const TYPES: Partial<Record<OutputKind, string>> = {
   dxf: "application/dxf", svg: "image/svg+xml", csv: "text/csv", json: "application/json", fusion_csv: "text/csv",
 };
 
-function fileOf(out: Commands["outputs"]["result"], kind: OutputKind): File {
-  return new File([out.files[kind]], out.names[kind] ?? `curve.${kind}`, { type: TYPES[kind] ?? "text/plain" });
+/** A file's name: the core's (after the photo's), or after the person's name for the curve. */
+function fileName(id: string, out: Commands["outputs"]["result"], kind: OutputKind): string {
+  const r = records.get(id), given = out.names[kind] ?? `curve.${kind}`;
+  return r ? renamedFile(given, r.name, nameOf(r).text) : given;
+}
+
+function fileOf(id: string, out: Commands["outputs"]["result"], kind: OutputKind): File {
+  return new File([out.files[kind]], fileName(id, out, kind), { type: TYPES[kind] ?? "text/plain" });
 }
 
 $("share").onclick = async () => {
@@ -642,10 +720,11 @@ $("share").onclick = async () => {
     const out = await outputsOf(id);
     // Not every phone shares every file type (Chrome on Android refuses .dxf):
     // try the DXF with the CSV, then the CSV alone.
-    const tries = [[fileOf(out, "csv"), fileOf(out, "dxf")], [fileOf(out, "csv")]];
+    const tries = [[fileOf(id, out, "csv"), fileOf(id, out, "dxf")], [fileOf(id, out, "csv")]];
     const files = tries.find((f) => navigator.canShare?.({ files: f }));
     if (!files) throw new Error("this phone can't share these files; use the downloads");
-    await navigator.share({ files, title: records.get(id)?.name ?? "Curve" });
+    const r = records.get(id);
+    await navigator.share({ files, title: r ? displayName(r) : "Curve" });
   } catch (e) {
     if ((e as Error).name !== "AbortError") toast(`Couldn't share: ${(e as Error).message}`);
   }
@@ -654,8 +733,8 @@ $("share").onclick = async () => {
 async function download(id: string, kind: OutputKind): Promise<void> {
   try {
     const out = await outputsOf(id);
-    const url = URL.createObjectURL(fileOf(out, kind));
-    const a = el("a", { href: url, download: out.names[kind] ?? `curve.${kind}` });
+    const url = URL.createObjectURL(fileOf(id, out, kind));
+    const a = el("a", { href: url, download: fileName(id, out, kind) });
     document.body.append(a);
     a.click();
     a.remove();
@@ -672,8 +751,12 @@ let outbox: Outbox | null = null;
 let linkStatus: LinkStatus = { state: "off", peers: 0 };
 const relayUrl = relayAddress(pageRelaySetting());
 let secret: string | null = null;
-/** Names of curves delivered this visit, for the list (the outbox forgets them once acknowledged). */
-const sentNames = new Map<string, string>();
+/** The pairing's room: what a photo's curve is synced with (send.ts CurveSync). */
+let room: string | null = null;
+/** Curves deleted on this phone or on the computer (relay/sync.ts). */
+const deletedIds = new DeletedIds(store, "deleted");
+/** The photos are read from storage: until then a full state would say nothing. */
+let recordsLoaded = false;
 
 const paired = () => outbox !== null;
 
@@ -691,6 +774,7 @@ async function startPairing(hash = location.hash): Promise<void> {
   }
   const keys = await deriveKeys(secret);
   if (run !== pairingRun) return;
+  room = keys.room;
   const hello = () => void link?.send({ type: "hello", role: "phone", device: deviceName(navigator.userAgent), app: import.meta.env.APP_VERSION });
   link = new RelayLink({
     relayUrl, keys, role: "phone",
@@ -700,11 +784,18 @@ async function startPairing(hash = location.hash): Promise<void> {
         linkStatus = s;
         debug.link.push({ ...s, t: Math.round(performance.now()) });
         outbox?.onStatus(s, before);
-        if (s.state === "open" && (before.state !== "open" || s.peers > before.peers)) hello();
+        if (s.state === "open" && (before.state !== "open" || s.peers > before.peers)) {
+          hello();
+          sendFullState();
+        }
         renderPairing();
         renderResult();
       },
-      message: (m) => outbox?.onMessage(m),
+      message: (m) => {
+        outbox?.onMessage(m);
+        if (m.type === "hello" && m.role === "desktop") sendFullState();
+        if (m.type === "state") onState(m);
+      },
     },
   });
   outbox = new Outbox(store, link, outboxChanged);
@@ -714,37 +805,85 @@ async function startPairing(hash = location.hash): Promise<void> {
 }
 const history_ = window.history;
 
+/** Everything this phone holds of its curves: the computer answers with all it holds. */
+function sendFullState(): void {
+  if (!link || !room || !recordsLoaded) return;
+  void link.send(phoneState(records.values(), deletedIds.recent(), room, true));
+}
+
+/** A change to some curves (a star, a deletion), at once; the next meeting repeats it if it is lost. */
+function sendChange(ids: string[], deleted: string[] = []): void {
+  if (!link || !room) return;
+  void link.send(phoneState(records.values(), deleted, room, false, ids));
+}
+
+/** What the computer holds: revisions it has, stars set there, curves deleted there. */
+function onState(m: Extract<Message, { type: "state" }>): void {
+  if (!room) return;
+  const { changed, deleted } = applyState(records.values(), m, room);
+  for (const r of changed) persist(r);
+  for (const r of deleted) {
+    deletedIds.add([r.sync!.id]);
+    outbox?.forget(r.sync!.id);
+    void removePhoto(r.id);
+    toast(`Deleted on the computer: ${displayName(r)}`);
+  }
+  if (changed.length || deleted.length) {
+    renderList();
+    if (selected) renderResult();
+  }
+}
+
+/** After a measurement: the photo's curve to the computer, when it goes there (send.ts). */
+async function syncCurve(r: PhotoRecord): Promise<void> {
+  const doc = r.doc;
+  if (!outbox || !room || !doc?.ok) return;
+  const next = nextRevision(r, room);
+  if (!next) return;
+  try {
+    const out = await outputsOf(r.id);
+    // Measured again meanwhile (another tap): that measurement sends its own.
+    if (r.doc !== doc || !records.has(r.id) || !outbox) return;
+    const spec = chainSpec(chains, r.chain, r.pins, r.shade);
+    const curve = curveFrom(doc, { chainName: chainLabel(r.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm, n_pins: r.pins },
+      await pack(out.files));
+    if (!curve || r.doc !== doc) return;
+    curve.id = next.id;
+    curve.rev = next.rev;
+    r.sync = { ...next, remoteRev: syncOf(r, room)?.remoteRev ?? 0 };
+    r.autoSend = true;
+    persist(r);
+    await outbox.put(curve);
+  } catch (e) {
+    toast(`Couldn't send: ${(e as Error).message}`);
+  } finally {
+    renderPairing();
+    if (r.id === selected) renderResult();
+  }
+}
+
 function outboxChanged(): void {
   if (!outbox) return;
-  const delivered = new Set(outbox.delivered);
-  for (const r of records.values()) {
-    let changed = false;
-    for (const s of r.sent) {
-      if (!s.delivered && delivered.has(s.id)) {
-        s.delivered = true;
-        changed = true;
-      }
-    }
-    if (changed) persist(r);
-  }
   renderPairing();
   if (selected) renderResult();
 }
 
 function renderSend(r: PhotoRecord, enabled: boolean): void {
-  const offer = sendOffer(paired(), r.doc, r.sent);
+  const offer = sendOffer(paired() ? room : null, r);
   const button = $<HTMLButtonElement>("send");
   const note = $("send-note");
-  button.hidden = offer.kind === "unpaired" || offer.kind === "nothing";
+  button.hidden = offer.kind !== "send";
   button.disabled = !enabled;
+  button.textContent = "Send to computer";
   note.textContent = "";
-  if (offer.kind === "send") button.textContent = "Send to computer";
-  else if (offer.kind === "resend") {
-    button.textContent = "Send again, as a new curve";
-    note.textContent = "You changed this photo after sending it. The computer has the earlier curve; sending adds this one beside it.";
-  } else if (offer.kind === "sent") {
-    button.hidden = true;
-    note.textContent = deliveryText(delivery(offer.curve, outbox?.items ?? [], linkStatus));
+  if (offer.kind === "synced") {
+    const s = offer.sync;
+    const now = r.doc && curveKey(r.doc);
+    note.textContent = now && now !== s.key && (r.status === "done" || r.status === "error")
+      ? "The computer has the last curve this photo gave."
+      : deliveryText(delivery(s, outbox?.items ?? [], linkStatus), s.rev);
+  } else if (offer.kind === "send") {
+    note.textContent = "Taken before this phone was paired: send it, and the computer follows your changes from then on.";
   } else if (offer.kind === "unpaired" && r.status === "done") {
     note.textContent = "To send curves to a computer, pair this phone with it (see Computer below).";
   }
@@ -752,29 +891,11 @@ function renderSend(r: PhotoRecord, enabled: boolean): void {
 
 $("send").onclick = async () => {
   const r = selected ? records.get(selected) : undefined;
-  const doc = r?.doc;
-  if (!r || !doc?.ok || !outbox) return;
-  const offer = sendOffer(true, doc, r.sent);
-  if (offer.kind !== "send" && offer.kind !== "resend") return;
-  const button = $<HTMLButtonElement>("send");
-  button.disabled = true;
-  try {
-    const out = await outputsOf(r.id);
-    const spec = chainSpec(chains, r.chain, r.pins, r.shade);
-    const curve = curveFrom(doc, { chainName: chainLabel(r.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm, n_pins: r.pins },
-      await pack(out.files));
-    if (!curve) return;
-    r.sent.push({ id: curve.id, key: curveKey(doc)!, at: curve.measured_at, delivered: false });
-    sentNames.set(curve.id, r.name);
-    persist(r);
-    await outbox.send(curve);
-    toast(offer.kind === "resend" ? "Sent as a new curve. The computer keeps the earlier one too." : "Sent to the computer.");
-  } catch (e) {
-    toast(`Couldn't send: ${(e as Error).message}`);
-  } finally {
-    renderResult();
-    renderPairing();
-  }
+  if (!r?.doc?.ok || !outbox) return;
+  $<HTMLButtonElement>("send").disabled = true;
+  r.autoSend = true;
+  await syncCurve(r);
+  toast("Sent to the computer. Changes you make to it here follow.");
 };
 
 function renderPairing(): void {
@@ -793,9 +914,9 @@ function renderPairing(): void {
   } else {
     const s = linkStatus;
     const [cls, short, long] =
-      s.state === "open" && s.peers > 0 ? ["ok", "Computer connected", "Paired. The computer's page is open: curves you send arrive at once."]
-      : s.state === "open" ? ["chk", "Computer not open", "Paired. The computer's page is not open: curves you send wait here until it is."]
-      : s.state === "waiting" ? ["bad", "Can't reach relay", `Paired, but the relay can't be reached${s.problem ? ` (${s.problem})` : ""}. Curves you send wait here and go when it is back.`]
+      s.state === "open" && s.peers > 0 ? ["ok", "Computer connected", "Paired. The computer's page is open: each photo's curve goes there once measured, and your changes follow."]
+      : s.state === "open" ? ["chk", "Computer not open", "Paired. The computer's page is not open: curves wait here until it is."]
+      : s.state === "waiting" ? ["bad", "Can't reach relay", `Paired, but the relay can't be reached${s.problem ? ` (${s.problem})` : ""}. Curves wait here and go when it is back.`]
       : ["", "Connecting…", "Paired. Connecting to the relay…"];
     lamp.className = `lamp ${cls}`;
     chip.textContent = short;
@@ -804,19 +925,28 @@ function renderPairing(): void {
   // Curves still on their way, then those delivered during this visit.
   const items = outbox?.items ?? [];
   const rows = [
-    ...items.map((i) => ({ id: i.curve.id, name: i.curve.photo, at: i.curve.measured_at, d: delivery({ id: i.curve.id, key: "", at: "", delivered: false }, items, linkStatus) })),
-    ...(outbox?.delivered ?? []).slice(-10).reverse().map((id) => ({ id, name: sentNames.get(id) ?? nameOfSent(id), at: "", d: "delivered" as const })),
+    ...items.map((i) => ({ id: i.curve.id, name: i.curve.photo, rev: i.curve.rev ?? 1,
+      d: delivery({ id: i.curve.id, room: "", rev: 1, key: "", remoteRev: 0 }, items, linkStatus) })),
+    ...[...new Set(outbox?.delivered ?? [])].slice(-10).reverse().filter((id) => !items.some((i) => i.curve.id === id))
+      .map((id) => ({ id, name: nameOfSent(id), rev: 1, d: "delivered" as const })),
   ];
   $("outbox").replaceChildren(...rows.map((row) => {
-    const state = el("div", { className: `state${row.d === "delivered" ? " ok" : ""}`, textContent: deliveryText(row.d) });
+    const state = el("div", { className: `state${row.d === "delivered" ? " ok" : ""}`, textContent: deliveryText(row.d, row.rev) });
     const li = el("li", {}, el("div", { className: "what" }, el("b", { textContent: row.name }), state));
     li.dataset.curve = row.id;
     li.dataset.state = row.d;
-    if (row.d !== "delivered") {
+    const r = recordOfCurve(row.id);
+    // A curve the computer has never had can be held back; a change to one it has goes with the next.
+    if (row.d !== "delivered" && (!r?.sync || r.sync.remoteRev === 0)) {
       const b = el("button", { type: "button", className: "btn plain", textContent: "Don't send" });
       b.setAttribute("aria-label", `Don't send the curve from ${row.name}`);
       b.onclick = () => {
         outbox?.forget(row.id);
+        if (r) {
+          r.sync = null;
+          r.autoSend = false;
+          persist(r);
+        }
         renderPairing();
         if (selected) renderResult();
       };
@@ -826,9 +956,13 @@ function renderPairing(): void {
   }));
 }
 
+function recordOfCurve(id: string): PhotoRecord | undefined {
+  for (const r of records.values()) if (r.sync?.id === id || r.sent?.some((s) => s.id === id)) return r;
+  return undefined;
+}
+
 function nameOfSent(id: string): string {
-  for (const r of records.values()) if (r.sent.some((s) => s.id === id)) return r.name;
-  return "a curve";
+  return recordOfCurve(id)?.name ?? "a curve";
 }
 
 $("unpair").onclick = () => {
@@ -839,6 +973,7 @@ $("unpair").onclick = () => {
   link = null;
   outbox = null;
   secret = null;
+  room = null;
   linkStatus = { state: "off", peers: 0 };
   renderPairing();
   renderResult();
@@ -1087,6 +1222,8 @@ async function main(): Promise<void> {
     photos = null;
     toast(`Photos can't be kept on this phone (${(e as Error).message}); they last for this visit.`, 6000);
   }
+  recordsLoaded = true;
+  sendFullState();
   renderList();
   // Photos the last visit left half measured are measured again.
   for (const id of [...order].reverse()) {

@@ -21,6 +21,7 @@ export function curveFrom(doc: MeasurementDocument, ctx: CurveContext, files?: P
   const curve: Curve = {
     v: CURVE_VERSION,
     id: newCurveId(now.getTime()),
+    rev: 1,
     measured_at: now.toISOString(),
     photo: doc.name.slice(0, 200),
     chain: { name: ctx.chainName.slice(0, 200), pitch_mm: ctx.pitch_mm, half_width_mm: ctx.half_width_mm, n_pins: ctx.n_pins },

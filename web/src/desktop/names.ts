@@ -27,7 +27,20 @@ export function stemOf(photo: string): string {
   return stem || "photo";
 }
 
-export function downloadName(kind: DownloadKind, photo: string): string {
+/** `photo`'s download, or with `title` (a person's name for the curve) the name's. */
+export function downloadName(kind: DownloadKind, photo: string, title = ""): string {
   const d = DOWNLOADS.find((x) => x.kind === kind)!;
-  return d.name.replace("{stem}", stemOf(photo));
+  return d.name.replace("{stem}", title ? fileStem(title) : stemOf(photo));
+}
+
+/** A person's name for a curve as a file's stem: what file systems refuse
+ * replaced, whole otherwise (a name's dot is not an extension: "Pipe 1.5in"). */
+export function fileStem(title: string): string {
+  return title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").replace(/[. ]+$/, "").trim().slice(0, 100) || "curve";
+}
+
+/** A file named after `photo` (the phone's names, from the core) renamed after `title`. */
+export function renamedFile(file: string, photo: string, title: string): string {
+  const stem = stemOf(photo);
+  return title && file.startsWith(stem) ? fileStem(title) + file.slice(stem.length) : file;
 }

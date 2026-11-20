@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fixture from "../test-data/measurement.json";
 import type { Point } from "../relay/messages";
-import { DOWNLOADS, downloadName, stemOf } from "./names";
+import { DOWNLOADS, downloadName, fileStem, renamedFile, stemOf } from "./names";
 import { plotGeometry, plotSvg } from "./plot";
 import { qrSvg } from "./qr";
 import { HOLD_MS, Selection } from "./selection";
@@ -95,6 +95,17 @@ describe("download names", () => {
     expect(downloadName("fusion_csv", "IMG_0001.jpg")).toBe("IMG_0001-fusion-cm.csv");
     expect(downloadName("tsv", "IMG_0001.jpg")).toBe("IMG_0001-points.tsv");
     expect(DOWNLOADS.map((d) => d.kind).sort()).toEqual(["csv", "dxf", "fusion_csv", "json", "svg", "tsv"]);
+  });
+
+  it("follow a person's name for the curve, whole, with what file systems refuse replaced", () => {
+    expect(downloadName("dxf", "IMG_0001.jpg", "Pipe 1.5in")).toBe("Pipe 1.5in-curve.dxf");     // a dot in a name is no extension
+    expect(downloadName("json", "IMG_0001.jpg", "a/b: c?")).toBe("a-b- c-.json");
+    expect(fileStem("Knob...")).toBe("Knob");
+    expect(fileStem("??")).toBe("-");
+    expect(fileStem(" . ")).toBe("curve");
+    // The phone's files, named by the core after the photo, renamed after the curve.
+    expect(renamedFile("IMG_0001-curve.dxf", "IMG_0001.jpg", "Door knob")).toBe("Door knob-curve.dxf");
+    expect(renamedFile("IMG_0001.json", "IMG_0001.jpg", "")).toBe("IMG_0001.json");
   });
 
   // Each pair is Python 3.12's bridge._stem(name).

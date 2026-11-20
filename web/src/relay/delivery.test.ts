@@ -12,7 +12,7 @@ import { MemoryStore } from "./store";
 
 function curve(id = newCurveId()): Curve {
   return {
-    v: 1, id, measured_at: "2026-11-18T08:00:00Z", photo: "IMG_0001.jpg",
+    v: 1, id, rev: 1, measured_at: "2026-11-18T08:00:00Z", photo: "IMG_0001.jpg",
     chain: { name: "O-ring chain", pitch_mm: 10, half_width_mm: 4, n_pins: 13 },
     points_mm: [[0, 0], [9.5, 1.25], [19, 3]], pins_mm: [[0, 4], [10, 5], [20, 7]],
     object_side: "inside", warnings: [], notes: ["ignored 2 look-alike detection(s) not on the chain"],
@@ -44,7 +44,7 @@ function page(role: Role, store = new MemoryStore()) {
     },
   });
   if (role === "phone") outbox = new Outbox(store, link);
-  else inbox = new Inbox(store, link, (c) => arrived.push(c));
+  else inbox = new Inbox(store, link, { arrived: (c) => arrived.push(c) });
   return { link, outbox: outbox!, inbox: inbox!, arrived, store };
 }
 
@@ -75,7 +75,7 @@ describe("delivery", () => {
     await settle();
     expect(phone.link.current).toEqual({ state: "open", peers: 1 });
     const c = curve();
-    await phone.outbox.send(c);
+    await phone.outbox.put(c);
     await settle();
     expect(desktop.arrived).toEqual([c]);
     expect(phone.outbox.items).toEqual([]);
@@ -89,8 +89,8 @@ describe("delivery", () => {
     phone.link.start();
     await settle();
     const a = curve(), b = curve();
-    await phone.outbox.send(a);
-    await phone.outbox.send(b);
+    await phone.outbox.put(a);
+    await phone.outbox.put(b);
     expect(phone.outbox.items.map((i) => i.state)).toEqual(["queued", "queued"]);
     const desktop = page("desktop");
     desktop.link.start();
@@ -103,7 +103,7 @@ describe("delivery", () => {
     const store = new MemoryStore();
     const before = page("phone", store);
     const c = curve();
-    await before.outbox.send(c);                  // never connected
+    await before.outbox.put(c);                  // never connected
     const phone = page("phone", store), desktop = page("desktop");
     expect(phone.outbox.items.map((i) => i.curve.id)).toEqual([c.id]);
     phone.link.start();
@@ -112,18 +112,19 @@ describe("delivery", () => {
     expect(desktop.arrived.map((x) => x.id)).toEqual([c.id]);
   });
 
-  it("sends again after a lost ack, and the desktop shows the curve once", async () => {
+  it("sends again after a lost reply, and the desktop shows the curve once", async () => {
     const phone = page("phone"), desktop = page("desktop");
     phone.link.start();
     desktop.link.start();
     await settle();
     let dropped = 0;
-    relay.lose = () => relay.forwarded.length === 1 && dropped++ === 0;     // the first ack
+    // The desktop's replies (an ack and a state) to the curve, the first frame forwarded.
+    relay.lose = () => relay.forwarded.length >= 1 && dropped++ < 2;
     const c = curve();
-    await phone.outbox.send(c);
+    await phone.outbox.put(c);
     await settle();
     expect(desktop.arrived.length).toBe(1);
-    expect(phone.outbox.items.map((i) => i.state)).toEqual(["sent"]);       // no ack heard
+    expect(phone.outbox.items.map((i) => i.state)).toEqual(["sent"]);       // no reply heard
     relay.cutAll();                                                          // both reconnect
     await advance(3000);
     expect(phone.outbox.items).toEqual([]);
@@ -138,7 +139,7 @@ describe("delivery", () => {
     desktop.link.start();
     await settle();
     expect(phone.link.current.state).toBe("waiting");
-    await phone.outbox.send(curve());
+    await phone.outbox.put(curve());
     await advance(10_000);
     expect(phone.link.current.state).toBe("waiting");
     expect(phone.link.current.retryInMs).toBeGreaterThan(1000);              // backed off
@@ -167,8 +168,8 @@ describe("delivery", () => {
     for (const p of [phone, phone2, desktop, stranger]) p.link.start();
     await settle();
     const a = curve(), b = curve();
-    await phone.outbox.send(a);
-    await phone2.outbox.send(b);
+    await phone.outbox.put(a);
+    await phone2.outbox.put(b);
     await settle();
     expect(desktop.arrived.map((c) => c.id).sort()).toEqual([a.id, b.id].sort());
     expect(stranger.arrived).toEqual([]);

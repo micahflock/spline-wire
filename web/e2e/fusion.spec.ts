@@ -90,7 +90,8 @@ test("in Fusion's palette: pairing, curves into the open sketch or waiting, Inse
   await expect(page.locator("#addin-name")).toHaveText("add-in 0.2.0");
   await expect(page.locator("#pick-label")).toBeHidden();
   await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
-  const phone = await phoneFrom((await page.locator("[data-pair-link]").first().textContent())!);
+  const link = (await page.locator("[data-pair-link]").first().textContent())!;
+  const phone = await phoneFrom(link);
 
   // No sketch open: the curve arrives and waits.
   const first = curve("IMG_0001.jpg");
@@ -139,6 +140,34 @@ test("in Fusion's palette: pairing, curves into the open sketch or waiting, Inse
   await expect(page.locator(`[data-id="${first.id}"] .tag-in`)).toHaveText("Spline Wire · IMG_0001");
   await expect(page.getByLabel("Put new curves into the open sketch")).not.toBeChecked();
   await expect(page.getByRole("heading", { name: "Pair your phone" })).toHaveCount(0);
+
+  // A curve changed on the phone comes as a new revision of the same curve: one
+  // already in a sketch is not put in twice (Insert puts the change in); one
+  // not in any sketch goes in as a new curve would.
+  await page.getByLabel("Put new curves into the open sketch").check();
+  await setSketch(page, "Sketch3");                     // the stubbed add-in starts again with no sketch
+  await expect(page.locator("#fusion-sketch")).toHaveText("Editing Sketch3", { timeout: 5000 });
+  const again = await phoneFrom(link);
+  const calls0 = (await calls(page)).length;
+  await again.send({ ...second, rev: 2, object_side: "outside" });
+  await expect(page.locator("#toast")).toContainText("Sketch3 has the earlier curve");
+  await expect(page.locator(`[data-id="${second.id}"] .tag-in`)).toHaveCount(0);
+  expect((await calls(page)).length).toBe(calls0);
+  await again.send({ ...third, rev: 2, object_side: "outside" });
+  await expect(page.locator(`[data-id="${third.id}"] .tag-in`)).toHaveText("Sketch3");
+  expect((await calls(page)).length).toBe(calls0 + 1);
+  await expect(page.locator("#list button.item")).toHaveCount(3);
+
+  // A renamed curve's new sketch takes the name, whole (a dot in it is not an extension).
+  await page.locator(`[data-id="${first.id}"]`).click();
+  await page.getByRole("button", { name: "Rename" }).click();
+  await page.getByRole("textbox", { name: "Name of the curve" }).fill("Pipe 1.5in");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(`[data-id="${first.id}"] .name`)).toHaveText("Pipe 1.5in");
+  await setSketch(page, null);
+  await page.getByRole("button", { name: "Insert into a new sketch…" }).click({ timeout: 5000 });
+  await expect(page.locator(`[data-id="${first.id}"] .tag-in`)).toHaveText("Spline Wire · Pipe 1.5in");
+  again.stop();
 });
 
 test("opened outside Fusion, the page says where it belongs", async ({ page }) => {

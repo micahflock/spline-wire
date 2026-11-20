@@ -86,6 +86,8 @@ let blobUrls: string[] = [];
 let draft: Draft | null = null;
 /** Whether the draft, rather than a curve, is on show. */
 let showingDraft = false;
+/** The curve whose name is being edited in its heading, if any. */
+let renaming: string | null = null;
 /** The add-in, once adsk has appeared (Fusion mode). */
 let bridge: FusionBridge | null = null;
 let fusionStatus: FusionStatus | null = null;
@@ -143,7 +145,7 @@ async function connect(): Promise<void> {
 
 /** The inbox reads its list from the store, so a new one keeps every curve. */
 function loadInbox(): void {
-  inbox = new Inbox(store, { send: (m) => link?.send(m) ?? Promise.resolve(false) }, arrived);
+  inbox = new Inbox(store, { send: (m) => link?.send(m) ?? Promise.resolve(false) }, { arrived, removed: removedOnPhone, edited: editedOnPhone });
 }
 
 function onStatus(s: LinkStatus): void {
@@ -165,11 +167,14 @@ function onMessage(m: Message): void {
     renderStatus();
   }
   inbox.onMessage(m);
+  // A phone that says all it holds hears all this computer holds: stars set and curves deleted here while it was away.
+  if (m.type === "state" && m.full) void link?.send(inbox.fullState());
 }
 
-function arrived(curve: Curve): void {
+function arrived(curve: Curve, updated: boolean): void {
   if (!phoneHere) phoneHere = { device: "" };
   rememberPhone(phoneHere.device);
+  if (updated) return changedOnPhone(curve);
   // A photo being measured here is the person's own pick: a curve arriving does not take its place.
   const shown = !showingDraft && selection.arrived(curve.id, Date.now());
   unseen.arrived(document.hidden);
@@ -184,7 +189,125 @@ function arrived(curve: Curve): void {
     void insertCurve(curve, "auto");
     return;
   }
-  toast(shown ? `New curve: ${curve.photo}` : `New curve: ${curve.photo}, at the top of the list`);
+  toast(shown ? `New curve: ${title(curve)}` : `New curve: ${title(curve)}, at the top of the list`);
+}
+
+/** A newer revision of a curve in the list: the person changed it on the phone (a pin, the side). */
+function changedOnPhone(curve: Curve): void {
+  flashId = curve.id;
+  renderList();
+  if (current()?.id === curve.id) renderMain();
+  if (FUSION) {
+    const mark = marks.get(curve.id);
+    if (mark?.state === "inserted") {
+      // The sketch keeps what was inserted; this revision is not in it.
+      marks.forget(curve.id);
+      renderMark(curve.id);
+      toast(`Changed on the phone: ${title(curve)}. ${mark.sketch} has the earlier curve; Insert puts this one in.`, 6000);
+      return;
+    }
+    if (bridge && autoInsert(store) && mark?.state !== "inserting") {
+      void insertCurve(curve, "auto");
+      return;
+    }
+  }
+  toast(`Changed on the phone: ${title(curve)}`);
+}
+
+/** The phone deleted these. */
+function removedOnPhone(curves: Curve[]): void {
+  marks.keepOnly(ids());
+  selection.keepIn(ids());
+  renderAll();
+  // Their names went with them (the inbox forgets a deleted curve's name): the photos' names.
+  toast(curves.length === 1 ? `Deleted on the phone: ${curves[0]!.photo}` : `${curves.length} curves deleted on the phone`);
+}
+
+function editedOnPhone(): void {
+  renderList();
+  if (!renaming) renderMain();
+}
+
+/** What a curve is called: the person's name for it, else its photo's. */
+function title(c: Curve): string {
+  return inbox.nameOf(c.id) || c.photo;
+}
+
+function startRename(): void {
+  const c = current();
+  if (!c) return;
+  renaming = c.id;
+  renderMain();
+  const input = document.querySelector<HTMLInputElement>("#rename-input");
+  input?.focus();
+  input?.select();
+}
+
+/** Enter or leaving the field keeps the name; Escape does not. An empty name gives the photo's back.
+ * The heading and the list's entry change in place, and when a press elsewhere
+ * ended the edit, only once it is released: the heading's row reflows, and the
+ * press's click must still reach what was pressed. */
+function endRename(keep: boolean): void {
+  const id = renaming;
+  const input = document.querySelector<HTMLInputElement>("#rename-input");
+  const c = inbox.curves.find((x) => x.id === id);
+  renaming = null;
+  if (!id || !c || !input) return;
+  if (keep) inbox.setName(id, input.value);
+  const name = $("list").querySelector(`[data-id="${CSS.escape(id)}"] .name`);
+  if (name) name.textContent = title(c);
+  if (!pressing) return showName(c, input);
+  // On release, or soon at the latest (a press the browser took over, to scroll, never ends in a pointerup).
+  const show = () => {
+    clearTimeout(late);
+    removeEventListener("pointerup", soon);
+    showName(c, input);
+  };
+  const soon = () => setTimeout(show);
+  const late = setTimeout(show, 1500);
+  addEventListener("pointerup", soon, { once: true });
+}
+
+/** Whether a mouse button or finger is down. */
+let pressing = false;
+addEventListener("pointerdown", () => (pressing = true), true);
+addEventListener("pointerup", () => (pressing = false), true);
+
+/** The heading again in place of the name's field. */
+function showName(c: Curve, input: HTMLInputElement): void {
+  if (!input.isConnected) return;                // the view was drawn again meanwhile
+  input.insertAdjacentHTML("afterend", titleHtml(c));
+  input.remove();
+  const head = document.querySelector(".view .head");
+  head?.querySelector<HTMLElement>('[data-act="rename"]')?.style.removeProperty("visibility");
+  const meta = head?.querySelector(".meta");
+  if (meta) meta.innerHTML = metaHtml(c);
+  document.querySelector(".view")?.setAttribute("aria-label", title(c));
+  void fillDownloads(c);                      // their names follow the curve's
+  if (document.activeElement === document.body) head?.querySelector<HTMLElement>('[data-act="rename"]')?.focus();
+}
+
+function titleHtml(c: Curve): string {
+  return `<h2 id="curve-title">${esc(title(c))}</h2>`;
+}
+
+/** Hidden, not left out, while the name is edited: the buttons beside it stay put for a click that ends the edit. */
+function renameButtonHtml(c: Curve, hidden = false): string {
+  return `<button type="button" class="btn plain small" data-act="rename"${hidden ? ` style="visibility: hidden"` : ""}
+    title="${inbox.isLocal(c.id) ? "Renamed here" : "Renamed here and on the phone"}">Rename</button>`;
+}
+
+function metaHtml(c: Curve): string {
+  const t = Date.parse(c.measured_at);
+  return `${inbox.isLocal(c.id) ? "measured here" : "measured"} <time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, Date.now()))}</time> · ${esc(c.chain.name)}${inbox.nameOf(c.id) ? ` · ${esc(c.photo)}` : ""}`;
+}
+
+function toggleStar(): void {
+  const c = current();
+  if (!c) return;
+  inbox.setStar(c.id, !inbox.isStarred(c.id));
+  renderList();
+  renderMain();
 }
 
 // ---- Fusion (?fusion) -----------------------------------------------------
@@ -226,9 +349,12 @@ async function insertCurve(c: Curve, how: How): Promise<void> {
   marks.set(c.id, { state: "inserting" });
   renderMark(c.id);
   try {
-    if (await bridge.insert(c, how) === "no-sketch") {
+    // A new sketch is named after the photo with its extension cut off (palette.py
+    // sketch_name): a person's name gets a final dot, so all of it is kept.
+    const named = inbox.nameOf(c.id);
+    if (await bridge.insert(named ? { ...c, photo: `${named}.` } : c, how) === "no-sketch") {
       marks.set(c.id, { state: "waiting" });
-      toast(`New curve: ${c.photo}. Open a sketch and press Insert to put it there.`, 5000);
+      toast(`New curve: ${title(c)}. Open a sketch and press Insert to put it there.`, 5000);
     }
   } catch (e) {
     const error = (e as Error).message;
@@ -349,7 +475,7 @@ function renderList(): void {
     const mine = inbox.isLocal(c.id);
     return `<li><button type="button" class="item${c.id === flashId ? " flash" : ""}" data-id="${esc(c.id)}"
       aria-current="${!showingDraft && c.id === selection.id}">
-      <span class="row1"><span class="name">${esc(c.photo)}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
+      <span class="row1">${inbox.isStarred(c.id) ? `<span class="starred" title="Starred">★</span>` : ""}<span class="name">${esc(title(c))}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
       <span class="sub"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, now))}</time>
         <span>· ${esc(c.chain.name)}</span><span>· ${c.chain.n_pins} pins</span></span>
     </button></li>`;
@@ -492,10 +618,15 @@ function curveHtml(c: Curve): string {
   ];
   const notes = [...c.warnings.map((w) => readWarning(w, mine)), ...c.notes.map(readNote)]
     .map((r) => `<div class="note ${r.level}"><b>${esc(r.title)}</b>${esc(r.text)}</div>`).join("");
-  return `<section class="view" aria-labelledby="curve-title">
-    <div class="head"><h2 id="curve-title">${esc(c.photo)}</h2>
-      <span class="meta">${mine ? "measured here" : "measured"} <time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, Date.now()))}</time> · ${esc(c.chain.name)}</span>
+  return `<section class="view" aria-label="${esc(title(c))}">
+    <div class="head">${renaming === c.id
+      ? `<input id="rename-input" class="rename" value="${esc(title(c))}" maxlength="100" aria-label="Name of the curve" placeholder="${esc(c.photo)}">`
+      : titleHtml(c)}
+      <span class="meta">${metaHtml(c)}</span>
       <span class="spacer"></span>
+      <button type="button" class="btn plain small star${inbox.isStarred(c.id) ? " on" : ""}" data-act="star" aria-pressed="${inbox.isStarred(c.id)}"
+        title="${mine ? "Starred here" : "Starred here and on the phone"}">${inbox.isStarred(c.id) ? "★ Starred" : "☆ Star"}</button>
+      ${renameButtonHtml(c, renaming === c.id)}
       <button type="button" class="btn plain small" data-act="delete">Delete…</button></div>
     <div class="plot">${plot}</div>
     <div class="legend" aria-hidden="true">
@@ -512,6 +643,7 @@ function curveHtml(c: Curve): string {
       ${notes ? `<div class="notes">${notes}</div>` : ""}
       <details class="about"><summary>About this curve</summary>
         <div class="kv"><span>Measured</span><span>${esc(exactTime(t))}${mine ? ", on this computer" : ""}</span></div>
+        <div class="kv"><span>Photo</span><span>${esc(c.photo)}</span></div>
         <div class="kv"><span>Chain</span><span>${esc(c.chain.name)}</span></div>
         <div class="kv"><span>Link length</span><span>${c.chain.pitch_mm} mm</span></div>
         <div class="kv"><span>Pin to edge</span><span>${c.chain.half_width_mm} mm</span></div>
@@ -535,7 +667,7 @@ async function fillDownloads(c: Curve): Promise<void> {
   const links = DOWNLOADS.filter((d) => texts[d.kind] !== undefined).map((d) => {
     const url = URL.createObjectURL(new Blob([texts[d.kind]!], { type: d.type }));
     blobUrls.push(url);
-    const name = downloadName(d.kind, c.photo);
+    const name = downloadName(d.kind, c.photo, inbox.nameOf(c.id));
     return `<a class="btn" href="${url}" download="${esc(name)}" data-kind="${d.kind}" title="${esc(name)}">${d.label}</a>`;
   });
   const missing = c.files ? "" : `<span>The phone sent this curve without its files (too long for one message): only the points can be saved.</span>`;
@@ -649,8 +781,10 @@ function showDraft(): void {
 async function remove(): Promise<void> {
   const c = current();
   if (!c) return;
-  const sure = await confirmBox(`Delete ${c.photo}?`,
-    "Its points and files go from this computer. Save them first if you need them; the phone does not keep a copy.", "Delete");
+  const sure = await confirmBox(`Delete ${title(c)}?`, inbox.isLocal(c.id)
+    ? "Its points and files go from this computer. Save them first if you need them."
+    : "Its points and files go from this computer, and the photo goes from the phone too (when the phone's page next opens, if it is closed). Save them first if you need them.",
+    "Delete");
   if (!sure) return;
   const at = ids().indexOf(c.id);
   inbox.remove(c.id);
@@ -661,7 +795,7 @@ async function remove(): Promise<void> {
   renderMain();
   const next = selection.id && $("list").querySelector<HTMLElement>(`[data-id="${CSS.escape(selection.id)}"]`);
   (next || $("main")).focus();
-  toast(`Deleted ${c.photo}`);
+  toast(`Deleted ${title(c)}`);
 }
 
 async function unpair(): Promise<void> {
@@ -718,6 +852,8 @@ document.addEventListener("click", (ev) => {
   if (act === "copy") void copyPoints();
   else if (act === "copy-link") void copyLink();
   else if (act === "delete") void remove();
+  else if (act === "star") toggleStar();
+  else if (act === "rename") startRename();
   else if (act === "unpair") void unpair();
   else if (act === "pick") $("pick").click();
   else if (act === "insert" && current()) void insertCurve(current()!, "ask");
@@ -766,6 +902,18 @@ $("retry").addEventListener("click", () => link?.retryNow());
 $<HTMLInputElement>("auto-insert").addEventListener("change", (ev) => {
   store.set(AUTO_KEY, (ev.target as HTMLInputElement).checked ? "on" : "off");
   renderFusion();
+});
+
+// The name being edited: Enter keeps it, Escape does not, leaving the field keeps it.
+document.addEventListener("keydown", (ev) => {
+  if ((ev.target as HTMLElement).id !== "rename-input") return;
+  if (ev.key === "Enter" || ev.key === "Escape") {
+    ev.preventDefault();
+    endRename(ev.key === "Enter");
+  }
+});
+document.addEventListener("focusout", (ev) => {
+  if ((ev.target as HTMLElement).id === "rename-input" && renaming) endRename(true);
 });
 
 // Arrow keys move through the list, as in a file list; Delete deletes.
