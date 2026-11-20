@@ -96,6 +96,7 @@ export function rectifyChain(
     residual_max_mm: worst,
     link_residuals_mm: res,
     depth_mm: X.map((p) => p[2]),
+    normal: [n[0]!, n[1]!, n[2]!],
   };
 }
 

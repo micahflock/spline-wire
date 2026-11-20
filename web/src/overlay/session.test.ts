@@ -32,7 +32,7 @@ function workFrame(shift = 0): { frame: GrayFrame; pins: Point[] } {
 /** Stands in for splinewire.live.analyse: orders the points left to right. */
 async function analyse(p: FramePoints) {
   const order = p.points.map((_, i) => i).sort((a, b) => p.points[a]![0] - p.points[b]![0]);
-  return { order, gaps: [], tilt_deg: 8, link_residual_max_mm: 0.05 };
+  return { order, gaps: [], tilt_deg: 8, link_residual_max_mm: 0.05, tilt_dir: [1, 0] as [number, number] };
 }
 
 const chain = { pitch_mm: 10, half_width_mm: 4, fiducial_mm: 5, n_pins: 9 };

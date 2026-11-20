@@ -46,6 +46,8 @@ export interface Rectification {
   residual_max_mm: number;
   link_residuals_mm: number[];
   depth_mm: number[];
+  /** The plane's unit normal in camera axes (x right, y down, z ahead), away from the camera. */
+  normal: [number, number, number];
 }
 
 export type Side = "inside" | "outside";

@@ -119,7 +119,7 @@ export class OverlaySession {
   }
 
   private async analyse(blobs: Blob[], width: number, height: number, t: number): Promise<void> {
-    let analysis: FrameAnalysis = { order: [], gaps: [], tilt_deg: null, link_residual_max_mm: null };
+    let analysis: FrameAnalysis = { order: [], gaps: [], tilt_deg: null, link_residual_max_mm: null, tilt_dir: null };
     if (blobs.length >= 3) {
       const t0 = performance.now();
       try {

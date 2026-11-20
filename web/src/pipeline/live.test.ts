@@ -29,6 +29,13 @@ it("analyses frames as Python does", { timeout: 60_000 }, () => {
       else expect(Math.abs(got.tilt_deg! - c.result.tilt_deg)).toBeLessThanOrEqual(0.1 + 1e-9);
       if (c.result.link_residual_max_mm === null) expect(got.link_residual_max_mm).toBeNull();
       else expect(Math.abs(got.link_residual_max_mm! - c.result.link_residual_max_mm)).toBeLessThanOrEqual(0.001 + 1e-9);
+      // A unit vector rounded to 0.001: within 0.002 a component, or about 0.1 degree.
+      if (c.result.tilt_dir === null) expect(got.tilt_dir, sc.id).toBeNull();
+      else {
+        expect(got.tilt_dir, sc.id).not.toBeNull();
+        expect(Math.abs(got.tilt_dir![0] - c.result.tilt_dir[0]), sc.id).toBeLessThanOrEqual(0.002);
+        expect(Math.abs(got.tilt_dir![1] - c.result.tilt_dir[1]), sc.id).toBeLessThanOrEqual(0.002);
+      }
       if (got.tilt_deg !== null) tilted++;
       n++;
     }

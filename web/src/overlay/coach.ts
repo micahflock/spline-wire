@@ -7,7 +7,7 @@
 // make the hold flicker. A problem must persist for PROBLEM_MS before it is
 // shown, so one bad frame does not flash a message.
 
-import type { CoachState, FrameReading, Problem } from "./types";
+import type { CoachState, FrameReading, Point, Problem } from "./types";
 
 export interface Limits {
   enter: number;
@@ -40,6 +40,25 @@ export const COACH = {
    * above 25°, and nudge toward straighter above 12°. */
   tiltDeg: { enter: 25, keep: 30 } as Limits,
   straighterDeg: 12,
+  /** The arrow showing which way to move the phone (CoachState.arrow). Its
+   * direction is a running average of the readings' unit vectors, each
+   * counting `arrowWeight`; the average's length is how well they agree (1 all
+   * the same, near 0 scattered). It shows above `arrowDeg` of tilt with the
+   * readings agreeing to `arrowAgree`, and stays down to the looser limits, so
+   * it does not blink on the borderline.
+   * One reading's direction is sound on a curved chain from about 12 degrees, on
+   * a near-straight one from about 20: a straight line says little about a tilt
+   * round itself (experiments/live_view/tilt_direction.py, pin centres off by
+   * 0.014 pitch; without noise it is right to 2 degrees at any tilt). Through
+   * these limits, 8 readings a pose, from 12 degrees of tilt: an arrow in
+   * 54-88% of readings (never on the first), more than 45 degrees off in at
+   * most 3% of those (10% on the near-straight chain with twice the noise),
+   * typically 1-8 degrees off. Below 12 degrees it shows in 5-38% of
+   * readings and may point anywhere near straight-on, where the tilt costs
+   * nothing (2026-11-19). */
+  arrowDeg: { enter: 12, keep: 9 } as Limits,
+  arrowAgree: { enter: 0.6, keep: 0.4 } as Limits,
+  arrowWeight: 0.4,
   /** The chain's extent (its pins') as a fraction of the frame's shorter side.
    * Recalibrated 2026-11-19 for the snap-fit chain, now that the live view
    * reads the region round the chain at its own scale (region.ts) rather than
@@ -84,6 +103,7 @@ export class Coach {
   private since = new Map<Problem, number>();        // when each current problem began
   private done = false;
   private state: CoachState = blank(0);
+  private arrow: ArrowTrack = NO_ARROW;
 
   get current(): CoachState {
     return this.state;
@@ -95,12 +115,14 @@ export class Coach {
     this.goodSince = null;
     this.lastT = null;
     this.since.clear();
+    this.arrow = NO_ARROW;
     this.state = blank(this.state.pinsExpected);
   }
 
   update(r: FrameReading): CoachState {
-    const base = { pinsFound: r.chain.length, pinsExpected: r.pinsExpected };
-    if (this.done) return (this.state = { ...this.state, ...base, phase: "captured" });
+    if (this.done) return (this.state = { ...this.state, pinsFound: r.chain.length, pinsExpected: r.pinsExpected, phase: "captured", arrow: null });
+    this.arrow = nextArrow(this.arrow, r);
+    const base = { pinsFound: r.chain.length, pinsExpected: r.pinsExpected, arrow: this.arrow.shown };
 
     const holding = this.goodSince !== null;
     const found = check(r, holding);
@@ -126,10 +148,33 @@ export class Coach {
     const hold = Math.min(1, (r.t - this.goodSince) / COACH.HOLD_MS);
     if (hold >= 1) {
       this.done = true;
-      return (this.state = { ...base, phase: "capture", problems: [], hold: 1, straighter });
+      return (this.state = { ...base, phase: "capture", problems: [], hold: 1, straighter, arrow: null });
     }
     return (this.state = { ...base, phase: "steady", problems: [], hold, straighter });
   }
+}
+
+/** The arrow's running state: the average of the readings' directions
+ * (not normalised: its length is their agreement) and what is shown. */
+export interface ArrowTrack {
+  mean: Point;
+  shown: CoachState["arrow"];
+}
+
+export const NO_ARROW: ArrowTrack = { mean: [0, 0], shown: null };
+
+/** The arrow after reading `r` (COACH.arrowDeg, arrowAgree, arrowWeight).
+ * Gone with the chain or the tilt; a reading straight on (no direction) leaves
+ * the average as it was. */
+export function nextArrow(prev: ArrowTrack, r: FrameReading): ArrowTrack {
+  if (r.chain.length < 3 || r.tiltDeg === null) return NO_ARROW;
+  if (r.tiltDir === null) return { mean: prev.mean, shown: null };
+  const w = COACH.arrowWeight;
+  const mean: Point = [(1 - w) * prev.mean[0] + w * r.tiltDir[0], (1 - w) * prev.mean[1] + w * r.tiltDir[1]];
+  const agree = Math.hypot(mean[0], mean[1]);
+  const lim = (l: Limits) => (prev.shown ? l.keep : l.enter);
+  const show = r.tiltDeg > lim(COACH.arrowDeg) && agree > lim(COACH.arrowAgree);
+  return { mean, shown: show ? { dir: [mean[0] / agree, mean[1] / agree], tiltDeg: r.tiltDeg } : null };
 }
 
 /** The problems of one reading. `holding` applies the looser `keep` limits. */
@@ -164,5 +209,5 @@ export function extent(r: Pick<FrameReading, "chain" | "width" | "height">): { s
 }
 
 function blank(pinsExpected: number): CoachState {
-  return { phase: "searching", problems: [], hold: 0, pinsFound: 0, pinsExpected, straighter: false };
+  return { phase: "searching", problems: [], hold: 0, pinsFound: 0, pinsExpected, straighter: false, arrow: null };
 }
