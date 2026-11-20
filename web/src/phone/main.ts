@@ -34,7 +34,8 @@ import { NO_EXIF, exifOfFile, type Exif } from "./exif";
 import { focalOffer, isFront, learn, lensFocal, lensName, offerKey } from "./lenses";
 import { Measurer, type Update } from "./measurer";
 import { PhotoStore, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord } from "./photos";
-import { applyState, curveKey, delivery, deliveryText, nextRevision, phoneState, sendOffer, setStar, starOf, syncOf } from "./send";
+import { applyState, curveKey, delivery, deliveryText, displayName, nameOf, nextRevision, phoneState, sendOffer, setName, setStar, starOf, syncOf } from "./send";
+import { renamedFile } from "../desktop/names";
 import {
   chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
   type Settings, type Shade,
@@ -214,7 +215,7 @@ function learnFrom(exif: Exif, size: { width: number; height: number } | null, s
 async function deletePhoto(id: string): Promise<void> {
   const r = records.get(id);
   const s = r && room ? syncOf(r, room) : null;
-  if (!r || !confirm(s ? `Delete ${r.name} from this phone and the computer?` : `Delete ${r.name} from this phone?`)) return;
+  if (!r || !confirm(s ? `Delete ${displayName(r)} from this phone and the computer?` : `Delete ${displayName(r)} from this phone?`)) return;
   if (s) {
     // The computer deletes its copy when it hears this: now if it is open, else when next it is.
     deletedIds.add([s.id]);
@@ -229,6 +230,47 @@ async function removePhoto(id: string): Promise<void> {
   await photos?.delete(id).catch(() => {});
   drop(id);
   void core.call("close", { photo: id }).catch(() => {});
+}
+
+/** The photo whose name is being edited in the result's header, if any. */
+let renaming: string | null = null;
+
+$("rename").onclick = () => {
+  const r = selected ? records.get(selected) : undefined;
+  if (!r) return;
+  renaming = r.id;
+  const input = document.createElement("input");
+  Object.assign(input, { className: "rename", value: displayName(r), maxLength: 100, placeholder: r.name, enterKeyHint: "done" });
+  input.setAttribute("aria-label", "Name of the curve");
+  input.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      endRename(e.key === "Enter");
+    }
+  };
+  input.onblur = () => endRename(true);
+  $("r-name").replaceChildren(input);
+  $("rename").style.visibility = "hidden";             // its place kept: the header does not move under a tap
+  input.focus();
+  input.select();
+};
+
+/** Enter or leaving the field keeps the name, Escape does not; empty gives the file's name back.
+ * The header and the list's entry change in place: a tap that left the field must not lose its target. */
+function endRename(keep: boolean): void {
+  const r = renaming ? records.get(renaming) : undefined;
+  const input = $("r-name").querySelector("input");
+  renaming = null;
+  if (!r || !input) return;
+  if (keep && setName(r, input.value)) {
+    persist(r);
+    const s = room ? syncOf(r, room) : null;
+    if (s) sendChange([s.id]);
+  }
+  $("r-name").textContent = displayName(r);
+  $("rename").style.visibility = "";
+  const item = document.querySelector(`#photos li[data-id="${CSS.escape(r.id)}"] .name`);
+  if (item) item.textContent = displayName(r);
 }
 
 function toggleStar(id: string): void {
@@ -478,7 +520,8 @@ function renderResult(): void {
   if (!r) return;
   const doc = r.doc;
   const busy = measurer.busy(r.id);
-  $("r-name").textContent = r.name;
+  if (renaming !== r.id) $("r-name").textContent = displayName(r);
+  $("rename").style.visibility = renaming === r.id ? "hidden" : "";
   const info = doc?.info;
   const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
   const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
@@ -582,21 +625,21 @@ function renderList(): void {
     void thumbInto(th, id);
     const when = new Date(r.added).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const open = el("button", { type: "button", className: "open" }, th,
-      el("span", { className: "who" }, el("span", { className: "name", textContent: r.name }),
+      el("span", { className: "who" }, el("span", { className: "name", textContent: displayName(r) }),
         el("span", { className: "meta mono", textContent: `${when} · ${r.pins} pins` })),
       el("span", { className: `tag ${tag}`, textContent: label }));
-    open.setAttribute("aria-label", `Open ${r.name}, ${label}`);
+    open.setAttribute("aria-label", `Open ${displayName(r)}, ${label}`);
     open.onclick = () => {
       void select(id);
       $("result").scrollIntoView({ behavior: "smooth", block: "start" });
     };
     const starred = starOf(r).on;
     const star = el("button", { type: "button", className: `star${starred ? " on" : ""}`, textContent: starred ? "★" : "☆" });
-    star.setAttribute("aria-label", `Star ${r.name}`);
+    star.setAttribute("aria-label", `Star ${displayName(r)}`);
     star.setAttribute("aria-pressed", String(starred));
     star.onclick = () => toggleStar(id);
     const del = el("button", { type: "button", className: "del", textContent: "×" });
-    del.setAttribute("aria-label", `Delete ${r.name}`);
+    del.setAttribute("aria-label", `Delete ${displayName(r)}`);
     del.onclick = () => void deletePhoto(id);
     const li = el("li", { className: id === selected ? "on" : "" }, open, star, del);
     li.dataset.id = id;
@@ -660,8 +703,14 @@ const TYPES: Partial<Record<OutputKind, string>> = {
   dxf: "application/dxf", svg: "image/svg+xml", csv: "text/csv", json: "application/json", fusion_csv: "text/csv",
 };
 
-function fileOf(out: Commands["outputs"]["result"], kind: OutputKind): File {
-  return new File([out.files[kind]], out.names[kind] ?? `curve.${kind}`, { type: TYPES[kind] ?? "text/plain" });
+/** A file's name: the core's (after the photo's), or after the person's name for the curve. */
+function fileName(id: string, out: Commands["outputs"]["result"], kind: OutputKind): string {
+  const r = records.get(id), given = out.names[kind] ?? `curve.${kind}`;
+  return r ? renamedFile(given, r.name, nameOf(r).text) : given;
+}
+
+function fileOf(id: string, out: Commands["outputs"]["result"], kind: OutputKind): File {
+  return new File([out.files[kind]], fileName(id, out, kind), { type: TYPES[kind] ?? "text/plain" });
 }
 
 $("share").onclick = async () => {
@@ -671,10 +720,11 @@ $("share").onclick = async () => {
     const out = await outputsOf(id);
     // Not every phone shares every file type (Chrome on Android refuses .dxf):
     // try the DXF with the CSV, then the CSV alone.
-    const tries = [[fileOf(out, "csv"), fileOf(out, "dxf")], [fileOf(out, "csv")]];
+    const tries = [[fileOf(id, out, "csv"), fileOf(id, out, "dxf")], [fileOf(id, out, "csv")]];
     const files = tries.find((f) => navigator.canShare?.({ files: f }));
     if (!files) throw new Error("this phone can't share these files; use the downloads");
-    await navigator.share({ files, title: records.get(id)?.name ?? "Curve" });
+    const r = records.get(id);
+    await navigator.share({ files, title: r ? displayName(r) : "Curve" });
   } catch (e) {
     if ((e as Error).name !== "AbortError") toast(`Couldn't share: ${(e as Error).message}`);
   }
@@ -683,8 +733,8 @@ $("share").onclick = async () => {
 async function download(id: string, kind: OutputKind): Promise<void> {
   try {
     const out = await outputsOf(id);
-    const url = URL.createObjectURL(fileOf(out, kind));
-    const a = el("a", { href: url, download: out.names[kind] ?? `curve.${kind}` });
+    const url = URL.createObjectURL(fileOf(id, out, kind));
+    const a = el("a", { href: url, download: fileName(id, out, kind) });
     document.body.append(a);
     a.click();
     a.remove();
@@ -776,7 +826,7 @@ function onState(m: Extract<Message, { type: "state" }>): void {
     deletedIds.add([r.sync!.id]);
     outbox?.forget(r.sync!.id);
     void removePhoto(r.id);
-    toast(`Deleted on the computer: ${r.name}`);
+    toast(`Deleted on the computer: ${displayName(r)}`);
   }
   if (changed.length || deleted.length) {
     renderList();

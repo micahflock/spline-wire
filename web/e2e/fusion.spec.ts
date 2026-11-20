@@ -157,6 +157,16 @@ test("in Fusion's palette: pairing, curves into the open sketch or waiting, Inse
   await expect(page.locator(`[data-id="${third.id}"] .tag-in`)).toHaveText("Sketch3");
   expect((await calls(page)).length).toBe(calls0 + 1);
   await expect(page.locator("#list button.item")).toHaveCount(3);
+
+  // A renamed curve's new sketch takes the name, whole (a dot in it is not an extension).
+  await page.locator(`[data-id="${first.id}"]`).click();
+  await page.getByRole("button", { name: "Rename" }).click();
+  await page.getByRole("textbox", { name: "Name of the curve" }).fill("Pipe 1.5in");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(`[data-id="${first.id}"] .name`)).toHaveText("Pipe 1.5in");
+  await setSketch(page, null);
+  await page.getByRole("button", { name: "Insert into a new sketch…" }).click({ timeout: 5000 });
+  await expect(page.locator(`[data-id="${first.id}"] .tag-in`)).toHaveText("Spline Wire · Pipe 1.5in");
   again.stop();
 });
 

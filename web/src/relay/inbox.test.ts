@@ -33,7 +33,7 @@ describe("a curve measured on this computer", () => {
     expect(box.isLocal(here.id)).toBe(true);
     expect(box.isLocal(phone.id)).toBe(false);
     expect(sent).toEqual([{ type: "ack", ids: [phone.id] },
-      { type: "state", full: false, curves: [{ id: phone.id, rev: 1, star: false, star_at: 0 }], deleted: [] }]);
+      { type: "state", full: false, curves: [{ id: phone.id, rev: 1, star: false, star_at: 0, name: "", name_at: 0 }], deleted: [] }]);
     expect(arrived).toEqual([phone]);
     // A new page reads the same list and marks.
     const again = new Inbox(store, { send: async () => true });

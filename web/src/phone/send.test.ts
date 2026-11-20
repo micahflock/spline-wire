@@ -3,7 +3,7 @@ import type { MeasurementDocument, Point } from "../core/types";
 import type { OutboxItem } from "../relay/outbox";
 import type { Curve } from "../relay/messages";
 import type { PhotoRecord } from "./photos";
-import { applyState, curveKey, delivery, deliveryText, nextRevision, phoneState, sendOffer, setStar, starOf, type CurveSync } from "./send";
+import { applyState, curveKey, delivery, deliveryText, displayName, nameOf, nextRevision, phoneState, sendOffer, setName, setStar, starOf, type CurveSync } from "./send";
 
 function doc(points: Point[], side: "inside" | "outside" = "inside", ok = true): MeasurementDocument {
   return {
@@ -76,8 +76,9 @@ describe("the state a phone keeps in step", () => {
     const a = synced("c1", 3), b = record(null, { id: "p2" }), c = synced("c3");
     c.sync!.room = "another room";
     setStar(a, true, 1000);
+    setName(a, "Door knob", 2000);
     expect(phoneState([a, b, c], ["c9"], ROOM, true)).toEqual({ type: "state", full: true, deleted: ["c9"],
-      curves: [{ id: "c1", rev: 3, star: true, star_at: 1000 }] });
+      curves: [{ id: "c1", rev: 3, star: true, star_at: 1000, name: "Door knob", name_at: 2000 }] });
     expect(phoneState([a], [], ROOM, false, []).curves).toEqual([]);
   });
 
@@ -95,6 +96,34 @@ describe("the state a phone keeps in step", () => {
     expect(starOf(b)).toEqual({ on: true, at: 5000 });            // set here later: kept
     expect(b.sync!.remoteRev).toBe(1);
     expect(deleted).toEqual([c]);
+  });
+
+  it("takes the desktop's later names, and keeps its own later ones", () => {
+    const a = synced("c1"), b = synced("c2"), c = synced("c3");
+    setName(b, "Mine", 5000);
+    const { changed } = applyState([a, b, c], {
+      type: "state", full: true, deleted: [],
+      curves: [{ id: "c1", rev: 1, star: false, star_at: 0, name: "  Pipe\n1.5in ", name_at: 10 },
+        { id: "c2", rev: 1, star: false, star_at: 0, name: "Theirs", name_at: 4000 },
+        { id: "c3", rev: 1, star: false, star_at: 0 }],                // a desktop from before names
+    }, ROOM);
+    expect(changed).toContain(a);
+    expect(nameOf(a)).toEqual({ text: "Pipe 1.5in", at: 10 });
+    expect(nameOf(b)).toEqual({ text: "Mine", at: 5000 });
+    expect(nameOf(c)).toEqual({ text: "", at: 0 });       // tidied as typed names are
+    expect(displayName(a)).toBe("Pipe 1.5in");
+    expect(displayName(b)).toBe("Mine");
+    expect(displayName(c)).toBe("a.jpg");                            // no name: the file's
+  });
+
+  it("renames only on a change, and an empty name gives the file's name back", () => {
+    const r = synced("c1");
+    expect(setName(r, "  ", 100)).toBe(false);
+    expect(setName(r, "Bracket", 100)).toBe(true);
+    expect(setName(r, "Bracket ", 200)).toBe(false);
+    expect(setName(r, "", 300)).toBe(true);
+    expect(nameOf(r)).toEqual({ text: "", at: 300 });
+    expect(displayName(r)).toBe("a.jpg");
   });
 
   it("stamps a star later than the last, even if the clock is behind", () => {

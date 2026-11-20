@@ -454,6 +454,54 @@ test.describe("paired with a computer", () => {
     await desktop.close();
   });
 
+  test("a name given on either side shows on both, and the files take it", async () => {
+    desktop = await openDesktop();
+    const first = (await received())[0]!.id;
+    const row = desktop.locator(`button.item[data-id="${first}"]`);
+    await row.click();
+    // Renamed on the phone, in the photo's header.
+    await phoneItem(photoId).locator("button.open").tap();
+    await tapButton("Rename");
+    const field = page.getByRole("textbox", { name: "Name of the curve" });
+    await field.fill("Pipe 1.5in, left");
+    await field.press("Enter");
+    await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
+    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe 1.5in, left");
+    await expect(row.locator(".name")).toHaveText("Pipe 1.5in, left");
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe 1.5in, left");
+    await expect(desktop.locator(".view .meta")).toContainText("pipe.jpg");          // the photo's name, for reference
+    await expect(desktop.locator('#exp a[data-kind="dxf"]')).toHaveAttribute("download", "Pipe 1.5in, left-curve.dxf");
+    // Renamed on the computer: Enter keeps it.
+    await desktop.getByRole("button", { name: "Rename" }).click();
+    await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Pipe, left");
+    await desktop.keyboard.press("Enter");
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe, left");
+    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe, left");
+    await expect(page.locator("#r-name")).toHaveText("Pipe, left");
+    // Escape does not; a click elsewhere does, and the click still goes where it was meant.
+    await desktop.getByRole("button", { name: "Rename" }).click();
+    await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Not this");
+    await desktop.keyboard.press("Escape");
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe, left");
+    await desktop.getByRole("button", { name: "Rename" }).click();
+    await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Pipe bend");
+    await desktop.getByRole("button", { name: /Star/ }).click();
+    await expect(desktop.locator("#curve-title")).toHaveText("Pipe bend");
+    await expect(desktop.getByRole("button", { name: /Star/ })).toHaveAttribute("aria-pressed", "false");   // starred before: the click unstarred it
+    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe bend");
+    // The phone's own files take the name too.
+    const download = page.waitForEvent("download");
+    await page.locator("#downloads button", { hasText: "CSV" }).first().tap();
+    expect((await download).suggestedFilename()).toBe("Pipe bend-curve.csv");
+    // An empty name gives the photo's back, on both.
+    await tapButton("Rename");
+    await field.fill("");
+    await field.press("Enter");
+    await expect(page.locator("#r-name")).toHaveText("pipe.jpg");
+    await expect(row.locator(".name")).toHaveText("pipe.jpg");
+    await desktop.close();
+  });
+
   test("a code scanned while the page is open pairs it, without loading the page again", async ({ browser }) => {
     // Another computer, so another secret. The browser only changes the #fragment
     // of the open page (same document), as Safari does for a scanned link.

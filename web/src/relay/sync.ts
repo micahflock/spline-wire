@@ -1,5 +1,5 @@
 // What the phone and the desktop keep in step about each curve, beside the
-// curve itself: its star and whether it was deleted.
+// curve itself: its star, its name and whether it was deleted.
 //
 // The relay keeps nothing and the pages are seldom open together, so each page
 // keeps its own copy and they merge whenever they meet (messages.ts `state`):
@@ -9,6 +9,8 @@
 //     a state from the desktop shows it (outbox.ts);
 //   - the star: either side sets it. The later setting wins (by the clock of
 //     the device that set it; a tie: starred). Setting it twice is harmless;
+//   - the name: the same, a person's name for the curve in place of the photo's
+//     file name ("" gives the file name back). A tie: the greater text;
 //   - deletion: either side deletes. A deleted curve stays deleted on both, and
 //     its id is remembered (DELETED_CAP) so a late copy of it is not taken back in.
 //
@@ -35,6 +37,35 @@ export function laterStar(a: Star, b: Star): Star {
 
 export function sameStar(a: Star, b: Star): boolean {
   return a.on === b.on && a.at === b.at;
+}
+
+/** A person's name for a curve; "" (and at 0) when none was given. */
+export interface Name {
+  text: string;
+  at: number;
+}
+
+export const NO_NAME: Name = { text: "", at: 0 };
+/** The longest name kept. */
+export const NAME_CHARS = 100;
+
+export function laterName(a: Name, b: Name): Name {
+  if (a.at !== b.at) return a.at > b.at ? a : b;
+  return a.text >= b.text ? a : b;
+}
+
+export function sameName(a: Name, b: Name): boolean {
+  return a.text === b.text && a.at === b.at;
+}
+
+/** A name as typed, tidied: one line, no control characters, at most NAME_CHARS. */
+export function cleanName(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, NAME_CHARS);
+}
+
+/** A time for a new setting, later than `before`'s even when this device's clock is behind. */
+export function stamp<T extends { at: number }>(before: T, now = Date.now()): number {
+  return Math.max(now, before.at + 1);
 }
 
 /** Deleted ids remembered. */

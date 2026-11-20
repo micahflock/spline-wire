@@ -1,14 +1,14 @@
 // The desktop's side of delivery: store the highest revision of each curve,
 // and say what it holds every time a curve arrives (the phone repeats a curve
-// until it hears that, and a reply can be lost too). Stars and deletions are
-// kept in step with the phone (sync.ts). Curves measured on the desktop itself,
+// until it hears that, and a reply can be lost too). Stars, names and
+// deletions are kept in step with the phone (sync.ts). Curves measured on the desktop itself,
 // from a photo dropped on the page (D9), join the same list, marked as made
-// there; no phone knows them, so their stars and deletions stay here.
+// there; no phone knows them, so their stars, names and deletions stay here.
 
 import type { RelayLink } from "./link";
 import { STATE_LIMITS, type Curve, type CurveState, type Message } from "./messages";
 import { readJson, type KeyValueStore } from "./store";
-import { DeletedIds, laterStar, NO_STAR, sameStar, type Star } from "./sync";
+import { cleanName, DeletedIds, laterName, laterStar, NO_NAME, NO_STAR, sameName, sameStar, stamp, type Name, type Star } from "./sync";
 
 /** Curves the desktop keeps. Older ones go, but their revisions are remembered
  * (SEEN_CAP) so a late repeat is not shown as new. */
@@ -22,14 +22,15 @@ const SEEN_KEY = "inbox-seen";
 /** Ids of the curves in the list that were measured on this computer. */
 const HERE_KEY = "inbox-here";
 const STARS_KEY = "inbox-stars";
+const NAMES_KEY = "inbox-names";
 
 export interface InboxEvents {
   /** A curve arrived: new, or a newer revision of one in the list (`updated`). */
   arrived(curve: Curve, updated: boolean): void;
   /** The phone deleted these. */
   removed(curves: Curve[]): void;
-  /** The phone starred or unstarred these. */
-  starred(ids: string[]): void;
+  /** The phone starred, unstarred or renamed these. */
+  edited(ids: string[]): void;
 }
 
 export class Inbox {
@@ -37,6 +38,7 @@ export class Inbox {
   private revs: Record<string, number>;
   private here: string[];
   private stars: Record<string, Star>;
+  private names: Record<string, Name>;
   private readonly deleted: DeletedIds;
   private readonly events: InboxEvents;
 
@@ -45,12 +47,13 @@ export class Inbox {
     private readonly link: Pick<RelayLink, "send">,
     events: Partial<InboxEvents> = {},
   ) {
-    this.events = { arrived: () => {}, removed: () => {}, starred: () => {}, ...events };
+    this.events = { arrived: () => {}, removed: () => {}, edited: () => {}, ...events };
     this.list = readJson<Curve[]>(store, KEY, []);
     this.revs = readJson<Record<string, number> | null>(store, REVS_KEY, null)
       ?? Object.fromEntries(readJson<string[]>(store, SEEN_KEY, []).map((id) => [id, 1]));
     this.here = readJson<string[]>(store, HERE_KEY, []);
     this.stars = readJson<Record<string, Star>>(store, STARS_KEY, {});
+    this.names = readJson<Record<string, Name>>(store, NAMES_KEY, {});
     this.deleted = new DeletedIds(store, "inbox-deleted");
   }
 
@@ -96,8 +99,28 @@ export class Inbox {
   setStar(id: string, on: boolean, now = Date.now()): void {
     if (!this.list.some((c) => c.id === id)) return;
     // Later than anything seen for it, even if this computer's clock is behind the phone's.
-    this.stars[id] = { on, at: Math.max(now, (this.stars[id]?.at ?? 0) + 1) };
+    this.stars[id] = { on, at: stamp(this.stars[id] ?? NO_STAR, now) };
     this.saveStars();
+    this.tell(id);
+  }
+
+  /** The person's name for a curve ("" when none): what the page shows in place of the photo's. */
+  nameOf(id: string): string {
+    return (this.names[id] ?? NO_NAME).text;
+  }
+
+  /** The person renamed a curve here ("" gives back the photo's name). */
+  setName(id: string, text: string, now = Date.now()): void {
+    if (!this.list.some((c) => c.id === id)) return;
+    const name = cleanName(text);
+    if (name === this.nameOf(id)) return;
+    this.names[id] = { text: name, at: stamp(this.names[id] ?? NO_NAME, now) };
+    this.saveStars();
+    this.tell(id);
+  }
+
+  /** A change to one curve, to the phone at once (the next meeting repeats it if it is lost). */
+  private tell(id: string): void {
     if (!this.isLocal(id)) void this.link.send({ type: "state", full: false, curves: [this.stateOf(id)], deleted: [] });
   }
 
@@ -129,10 +152,20 @@ export class Inbox {
       }
       // Stored before the reply goes out: a curve the phone settles is never lost.
       this.saveList();
-      this.events.arrived(curve, at >= 0);
+      try {
+        this.events.arrived(curve, at >= 0);
+      } finally {
+        // Stored is stored: the phone hears so even if the page fails to show it.
+        this.reply(curve.id);
+      }
+      return;
     }
-    void this.link.send({ type: "ack", ids: [curve.id] });
-    void this.link.send({ type: "state", full: false, curves: [this.stateOf(curve.id)], deleted: [] });
+    this.reply(curve.id);
+  }
+
+  private reply(id: string): void {
+    void this.link.send({ type: "ack", ids: [id] });
+    void this.link.send({ type: "state", full: false, curves: [this.stateOf(id)], deleted: [] });
   }
 
   private merge(curves: readonly CurveState[], deleted: readonly string[]): void {
@@ -142,30 +175,34 @@ export class Inbox {
       this.drop(gone.map((c) => c.id));
       this.events.removed(gone);
     }
-    const starred: string[] = [];
+    const edited: string[] = [];
     for (const s of curves) {
       if (!this.list.some((c) => c.id === s.id) || this.isLocal(s.id)) continue;
       const mine = this.stars[s.id] ?? NO_STAR;
       const won = laterStar(mine, { on: s.star, at: s.star_at });
-      if (!sameStar(won, mine)) {
-        this.stars[s.id] = won;
-        starred.push(s.id);
-      }
+      if (!sameStar(won, mine)) this.stars[s.id] = won;
+      const myName = this.names[s.id] ?? NO_NAME;
+      const named = laterName(myName, { text: cleanName(s.name ?? ""), at: s.name_at ?? 0 });
+      if (!sameName(named, myName)) this.names[s.id] = named;
+      if (!sameStar(won, mine) || !sameName(named, myName)) edited.push(s.id);
     }
-    if (starred.length) {
+    if (edited.length) {
       this.saveStars();
-      this.events.starred(starred);
+      this.events.edited(edited);
     }
   }
 
   private stateOf(id: string): CurveState {
-    const star = this.stars[id] ?? NO_STAR;
-    return { id, rev: this.revs[id] ?? 1, star: star.on, star_at: star.at };
+    const star = this.stars[id] ?? NO_STAR, name = this.names[id] ?? NO_NAME;
+    return { id, rev: this.revs[id] ?? 1, star: star.on, star_at: star.at, name: name.text, name_at: name.at };
   }
 
   private drop(ids: readonly string[]): void {
     this.list = this.list.filter((c) => !ids.includes(c.id));
-    for (const id of ids) delete this.stars[id];
+    for (const id of ids) {
+      delete this.stars[id];
+      delete this.names[id];
+    }
     this.saveList();
     this.saveStars();
     this.saveHere();
@@ -186,10 +223,13 @@ export class Inbox {
     this.store.set(REVS_KEY, JSON.stringify(this.revs));
   }
 
+  /** The stars and the names, of curves still in the list. */
   private saveStars(): void {
     const ids = new Set(this.list.map((c) => c.id));
     for (const id of Object.keys(this.stars)) if (!ids.has(id)) delete this.stars[id];
+    for (const id of Object.keys(this.names)) if (!ids.has(id)) delete this.names[id];
     this.store.set(STARS_KEY, JSON.stringify(this.stars));
+    this.store.set(NAMES_KEY, JSON.stringify(this.names));
   }
 
   /** Only ids still in the list are kept, so the cap and deletes tidy this too. */

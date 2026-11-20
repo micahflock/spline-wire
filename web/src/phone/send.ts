@@ -9,13 +9,13 @@
 //
 // A photo from before the pairing (or before D26) is sent with a button, once;
 // from then on it follows the same way. The computer and the phone keep each
-// curve's star in step, and a curve deleted on one goes on the other.
+// curve's star and name in step, and a curve deleted on one goes on the other.
 
 import type { LinkStatus } from "../relay/link";
 import type { CurveState, Message } from "../relay/messages";
 import { newCurveId, pointsTsv } from "../relay/messages";
 import type { OutboxItem } from "../relay/outbox";
-import { laterStar, NO_STAR, sameStar, type Star } from "../relay/sync";
+import { cleanName, laterName, laterStar, NO_NAME, NO_STAR, sameName, sameStar, stamp, type Name, type Star } from "../relay/sync";
 import type { MeasurementDocument } from "../core/types";
 import type { PhotoRecord } from "./photos";
 
@@ -108,6 +108,9 @@ export function deliveryText(d: Delivery, rev = 1): string {
 }
 
 export const starOf = (r: PhotoRecord): Star => r.star ?? NO_STAR;
+export const nameOf = (r: PhotoRecord): Name => r.title ?? NO_NAME;
+/** What the photo is called: the person's name for it, else its file name. */
+export const displayName = (r: PhotoRecord): string => nameOf(r).text || r.name;
 
 /** What this phone holds of its curves on this pairing (all of them with `full`, else `only`). */
 export function phoneState(records: Iterable<PhotoRecord>, deleted: string[], room: string, full: boolean, only?: readonly string[]):
@@ -116,8 +119,8 @@ export function phoneState(records: Iterable<PhotoRecord>, deleted: string[], ro
   for (const r of records) {
     const s = syncOf(r, room);
     if (!s || (only && !only.includes(s.id))) continue;
-    const star = starOf(r);
-    curves.push({ id: s.id, rev: s.rev, star: star.on, star_at: star.at });
+    const star = starOf(r), name = nameOf(r);
+    curves.push({ id: s.id, rev: s.rev, star: star.on, star_at: star.at, name: name.text, name_at: name.at });
   }
   return { type: "state", full, curves, deleted };
 }
@@ -149,11 +152,24 @@ export function applyState(records: Iterable<PhotoRecord>, m: Extract<Message, {
       r.star = won;
       changed.add(r);
     }
+    const named = laterName(nameOf(r), { text: cleanName(c.name ?? ""), at: c.name_at ?? 0 });
+    if (!sameName(named, nameOf(r))) {
+      r.title = named;
+      changed.add(r);
+    }
   }
   return { changed: [...changed], deleted };
 }
 
 /** The person starred or unstarred a photo here. */
 export function setStar(r: PhotoRecord, on: boolean, now = Date.now()): void {
-  r.star = { on, at: Math.max(now, starOf(r).at + 1) };
+  r.star = { on, at: stamp(starOf(r), now) };
+}
+
+/** The person renamed a photo's curve here ("" gives back the file name). False if nothing changed. */
+export function setName(r: PhotoRecord, text: string, now = Date.now()): boolean {
+  const name = cleanName(text);
+  if (name === nameOf(r).text) return false;
+  r.title = { text: name, at: stamp(nameOf(r), now) };
+  return true;
 }

@@ -16,7 +16,7 @@
 import type { Failure } from "../core/protocol";
 import type { Edits, MeasurementDocument, Point, Side } from "../core/types";
 import type { Exif } from "./exif";
-import type { Star } from "../relay/sync";
+import type { Name, Star } from "../relay/sync";
 import type { CurveSync } from "./send";
 import type { Shade } from "./settings";
 
@@ -66,6 +66,8 @@ export interface PhotoRecord {
   autoSend?: boolean;
   /** Starred, kept in step with the computer (relay/sync.ts). */
   star?: Star;
+  /** The person's name for it, in place of `name` (the file's), kept in step the same way. */
+  title?: Name;
   /** The focal length settings the document was measured with (main.ts focalKey):
    * a photo measured before they changed is measured again when opened. */
   measuredWith: string | null;

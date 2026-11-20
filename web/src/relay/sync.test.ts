@@ -6,11 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRelay } from "../../relay/memory-relay";
 import type { MeasurementDocument, Point } from "../core/types";
 import type { PhotoRecord } from "../phone/photos";
-import { applyState, nextRevision, phoneState, setStar, starOf, syncOf } from "../phone/send";
+import { applyState, displayName, nextRevision, phoneState, setName, setStar, starOf, syncOf } from "../phone/send";
 import { deriveKeys, newSecret, type Keys } from "./crypto";
 import { Inbox } from "./inbox";
 import { RelayLink, type LinkStatus } from "./link";
-import { type Curve, type Message } from "./messages";
+import { parseMessage, type Curve, type Message } from "./messages";
 import { Outbox } from "./outbox";
 import { MemoryStore } from "./store";
 import { DeletedIds, laterStar } from "./sync";
@@ -87,6 +87,10 @@ function phonePage(store = new MemoryStore(), photos = new Map<string, PhotoReco
       setStar(r, on);
       void link.send(phoneState(photos.values(), [], keys.room, false, [r.sync!.id]));
     },
+    rename(r: PhotoRecord, text: string): void {
+      setName(r, text);
+      void link.send(phoneState(photos.values(), [], keys.room, false, [r.sync!.id]));
+    },
     remove(r: PhotoRecord): void {
       deleted.add([r.sync!.id]);
       outbox.forget(r.sync!.id);
@@ -112,7 +116,7 @@ function desktopPage(store = new MemoryStore()) {
   inbox = new Inbox(store, link, {
     arrived: (c, updated) => events.push(`${updated ? "updated" : "new"} ${c.id} rev ${c.rev} ${c.object_side}`),
     removed: (cs) => events.push(...cs.map((c) => `removed ${c.id}`)),
-    starred: (ids) => events.push(...ids.map((id) => `starred ${id}`)),
+    edited: (ids) => events.push(...ids.map((id) => `edited ${id}`)),
   });
   return { link, inbox, events, store };
 }
@@ -245,6 +249,66 @@ describe("stars", () => {
     expect(laterStar(y, x)).toBe(y);
     expect(laterStar(x, tie)).toBe(x);
     expect(laterStar(tie, x)).toBe(x);
+  });
+});
+
+describe("names", () => {
+  it("go both ways while both pages are open, and when they meet", async () => {
+    const pStore = new MemoryStore(), photos = new Map<string, PhotoRecord>();
+    let phone = phonePage(pStore, photos);
+    const desktop = desktopPage();
+    phone.link.start();
+    desktop.link.start();
+    await settle();
+    const r = await phone.take(line);
+    await settle();
+    const id = r.sync!.id;
+    expect(desktop.inbox.nameOf(id)).toBe("");
+    phone.rename(r, "Door knob");
+    await settle();
+    expect(desktop.inbox.nameOf(id)).toBe("Door knob");
+    expect(desktop.events).toContain(`edited ${id}`);
+    desktop.inbox.setName(id, "Door knob, front");
+    await settle();
+    expect(displayName(r)).toBe("Door knob, front");
+    // Renamed on the desktop while the phone's page is closed, then on the phone, offline, later: the phone's wins on both.
+    phone.link.stop();
+    await advance(1000);
+    desktop.inbox.setName(id, "Knob A");
+    await advance(1000);
+    setName(r, "Knob B");
+    phone = phonePage(pStore, photos);
+    phone.link.start();
+    await settle();
+    expect(displayName(r)).toBe("Knob B");
+    expect(desktop.inbox.nameOf(id)).toBe("Knob B");
+    // A name cleared gives the photo's name back on both.
+    phone.rename(r, "");
+    await settle();
+    expect(desktop.inbox.nameOf(id)).toBe("");
+    expect(displayName(r)).toBe(r.name);
+  });
+
+  it("go with a deleted curve, and stay on this computer for one measured here", () => {
+    const sent: Message[] = [];
+    const box = new Inbox(new MemoryStore(), { send: async (m) => (sent.push(m), true) });
+    const here = curveOf({ name: "here.jpg", doc: doc(line, "inside") } as PhotoRecord, "c-here00001", 1);
+    box.addLocal(here);
+    box.setName(here.id, "Bracket");
+    expect(box.nameOf(here.id)).toBe("Bracket");
+    expect(sent).toEqual([]);
+    box.remove(here.id);
+    expect(box.nameOf(here.id)).toBe("");
+  });
+
+  it("are checked on arrival: a state from a page before names, and one too long", () => {
+    const state = (c: Record<string, unknown>) => ({ type: "state", full: false, deleted: [],
+      curves: [{ id: "c-000000001", rev: 1, star: false, star_at: 0, ...c }] });
+    expect(parseMessage(state({}))).toEqual(state({}));
+    expect(parseMessage(state({ name: "Knob", name_at: 5 }))).toEqual(state({ name: "Knob", name_at: 5 }));
+    expect(parseMessage(state({ name: "x".repeat(201), name_at: 5 }))).toBeNull();
+    expect(parseMessage(state({ name: "Knob" }))).toBeNull();
+    expect(parseMessage(state({ name: 3, name_at: 5 }))).toBeNull();
   });
 });
 

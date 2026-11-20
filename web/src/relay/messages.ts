@@ -73,11 +73,17 @@ export interface CurveState {
   /** Starred, and when that was last set (ms since 1970): the later setting wins. */
   star: boolean;
   star_at: number;
+  /** A person's name for it ("": the photo's file name) and when it was set; the later wins.
+   * Absent from pages before names: no name, never set. */
+  name?: string;
+  name_at?: number;
 }
 
 /** Entries a state message may carry (a full state of a hundred curves and the
  * last deletions is ~15 KB, well inside the relay's 64 K frame). */
 export const STATE_LIMITS = { curves: 500, deleted: 500 };
+/** The longest name a state may carry (sync.ts NAME_CHARS keeps names shorter). */
+const NAME_LIMIT = 200;
 
 /** A new curve id: time-ordered, so a list sorted by id is in order of measuring. */
 export function newCurveId(now: number = Date.now()): string {
@@ -107,7 +113,9 @@ export function parseMessage(body: unknown): Message | null {
       const out: CurveState[] = [];
       for (const c of curves) {
         if (!isObject(c) || !isId(c.id) || !isRev(c.rev) || typeof c.star !== "boolean" || !isNum(c.star_at)) return null;
-        out.push({ id: c.id, rev: c.rev, star: c.star, star_at: c.star_at });
+        const named = c.name !== undefined || c.name_at !== undefined;
+        if (named && (typeof c.name !== "string" || c.name.length > NAME_LIMIT || !isNum(c.name_at))) return null;
+        out.push({ id: c.id, rev: c.rev, star: c.star, star_at: c.star_at, ...(named ? { name: c.name as string, name_at: c.name_at as number } : {}) });
       }
       return { type: "state", full: body.full === true, curves: out, deleted: deleted as string[] };
     }
