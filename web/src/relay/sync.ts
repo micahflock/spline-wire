@@ -11,6 +11,8 @@
 //     the device that set it; a tie: starred). Setting it twice is harmless;
 //   - the name: the same, a person's name for the curve in place of the photo's
 //     file name ("" gives the file name back). A tie: the greater text;
+//   - the corners: the same, the points a person marked as sharp corners on the
+//     desktop's drawing (desktop/corners.ts), as one list. A tie: the longer;
 //   - deletion: either side deletes. A deleted curve stays deleted on both, and
 //     its id is remembered (DELETED_CAP) so a late copy of it is not taken back in.
 //
@@ -56,6 +58,44 @@ export function laterName(a: Name, b: Name): Name {
 
 export function sameName(a: Name, b: Name): boolean {
   return a.text === b.text && a.at === b.at;
+}
+
+/** The points marked as sharp corners (mm, on the curve), and when the list was set; [] and 0: none. */
+export interface Corners {
+  marks: [number, number][];
+  at: number;
+}
+
+export const NO_CORNERS: Corners = { marks: [], at: 0 };
+/** The most marks kept on one curve. With marks to 0.1 mm a full state of a
+ * hundred curves each with this many stays inside the relay's frame. */
+export const CORNER_MARKS = 20;
+
+export function laterCorners(a: Corners, b: Corners): Corners {
+  if (a.at !== b.at) return a.at > b.at ? a : b;
+  return JSON.stringify(a.marks) >= JSON.stringify(b.marks) ? a : b;
+}
+
+export function sameCorners(a: Corners, b: Corners): boolean {
+  return a.at === b.at && JSON.stringify(a.marks) === JSON.stringify(b.marks);
+}
+
+/** Marks as kept and sent: to 0.1 mm (a mark finds its point within 3 mm), no
+ * repeats, at most CORNER_MARKS. Anything that is not a pair of finite numbers
+ * within 1e5 mm is dropped. */
+export function cleanCorners(marks: unknown): [number, number][] {
+  if (!Array.isArray(marks)) return [];
+  const out: [number, number][] = [];
+  for (const m of marks) {
+    if (!Array.isArray(m) || m.length !== 2) continue;
+    const [x, y] = m as unknown[];
+    if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (Math.abs(x) > 1e5 || Math.abs(y) > 1e5) continue;
+    const p: [number, number] = [Math.round(x * 10) / 10 + 0, Math.round(y * 10) / 10 + 0];
+    if (!out.some((q) => q[0] === p[0] && q[1] === p[1])) out.push(p);
+    if (out.length === CORNER_MARKS) break;
+  }
+  return out;
 }
 
 /** A name as typed, tidied: one line, no control characters, at most NAME_CHARS. */

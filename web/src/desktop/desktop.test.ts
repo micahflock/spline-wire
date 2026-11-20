@@ -154,6 +154,21 @@ describe("the curve drawing", () => {
     expect(g.x1).toBe(250);
   });
 
+  it("draws sharp corners: the pieces, a marker at each, the points they replaced faint, and a target per point", () => {
+    const targets: Point[] = [[0, 0], [10, 0], [12, 2], [14, 10], [14, 20]];
+    const pts: Point[] = [[0, 0], [10, 0], [14, 0], [14, 10], [14, 20]];
+    const svg = plotSvg(pts, targets, [], "x", {
+      pieces: [[[0, 0], [10, 0], [14, 0]], [[14, 0], [14, 10], [14, 20]]],
+      corners: [{ at: [14, 0], source: 2 }], targets, replaced: [2],
+    });
+    expect(svg.match(/class="trace"/g)).toHaveLength(2);
+    expect(svg.match(/class="corner"/g)).toHaveLength(1);
+    expect(svg.match(/class="pt"/g)).toHaveLength(4);            // the corner is drawn as a corner
+    expect(svg.match(/class="pt-was"/g)).toHaveLength(1);
+    // Every point but the ends is a target, and so is the corner (its marked point's).
+    expect([...svg.matchAll(/data-act="corner" data-i="(\d+)"/g)].map((m) => m[1])).toEqual(["1", "2", "3", "2"]);
+  });
+
   it("escapes the label", () => {
     expect(plotSvg([[0, 0], [1, 1]], [], [[0, 0], [1, 1]], '<b>"x"</b>')).toContain('aria-label="&lt;b&gt;&quot;x&quot;&lt;/b&gt;"');
   });

@@ -16,7 +16,7 @@
 import type { Failure } from "../core/protocol";
 import type { Edits, MeasurementDocument, Point, Side } from "../core/types";
 import type { Exif } from "./exif";
-import type { Name, Star } from "../relay/sync";
+import type { Corners, Name, Star } from "../relay/sync";
 import type { CurveSync } from "./send";
 import type { Shade } from "./settings";
 
@@ -68,6 +68,8 @@ export interface PhotoRecord {
   star?: Star;
   /** The person's name for it, in place of `name` (the file's), kept in step the same way. */
   title?: Name;
+  /** Points marked as sharp corners on the computer's drawing; the phone only keeps them in step. */
+  corners?: Corners;
   /** The focal length settings the document was measured with (main.ts focalKey):
    * a photo measured before they changed is measured again when opened. */
   measuredWith: string | null;

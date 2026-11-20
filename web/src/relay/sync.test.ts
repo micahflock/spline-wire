@@ -55,7 +55,9 @@ function phonePage(store = new MemoryStore(), photos = new Map<string, PhotoReco
         outbox.onMessage(m);
         if (m.type === "hello" && m.role === "desktop") full();
         if (m.type !== "state") return;
-        for (const r of applyState(photos.values(), m, keys.room).deleted) {
+        const applied = applyState(photos.values(), m, keys.room);
+        if (applied.behind.length) void link.send(phoneState(photos.values(), [], keys.room, false, applied.behind));
+        for (const r of applied.deleted) {
           deleted.add([r.sync!.id]);
           outbox.forget(r.sync!.id);
           photos.delete(r.id);
@@ -312,6 +314,54 @@ describe("names", () => {
   });
 });
 
+describe("corners", () => {
+  it("marked on one desktop reach the phone and, through it, another desktop", async () => {
+    const photos = new Map<string, PhotoRecord>();
+    const phone = phonePage(new MemoryStore(), photos);
+    const desktop = desktopPage();
+    phone.link.start();
+    desktop.link.start();
+    await settle();
+    const r = await phone.take(line);
+    await settle();
+    const id = r.sync!.id;
+    expect(desktop.inbox.cornersOf(id)).toEqual([]);
+    desktop.inbox.setCorners(id, [[13.04, 0.06], [26, 0]]);
+    await settle();
+    expect(r.corners?.marks).toEqual([[13, 0.1], [26, 0]]);
+    expect(desktop.events).not.toContain(`edited ${id}`);
+    // Another desktop (the Fusion palette's page) opened later hears them from the phone.
+    const other = desktopPage();
+    await phone.outbox.put(curveOf(r, id, r.sync!.rev + 1));
+    r.sync!.rev += 1;
+    other.link.start();
+    await settle();
+    expect(other.inbox.cornersOf(id)).toEqual([[13, 0.1], [26, 0]]);
+    // Unmarked there, later: gone everywhere.
+    await advance(1000);
+    other.inbox.setCorners(id, []);
+    await settle();
+    expect(r.corners?.marks).toEqual([]);
+    // The first desktop hears it when it next meets the phone.
+    desktop.link.stop();
+    await advance(1000);
+    desktop.link.start();
+    await settle();
+    expect(desktop.inbox.cornersOf(id)).toEqual([]);
+  });
+
+  it("are checked on arrival: a state from a page before corners, bad marks, too many", () => {
+    const state = (c: Record<string, unknown>) => ({ type: "state", full: false, deleted: [],
+      curves: [{ id: "c-000000001", rev: 1, star: false, star_at: 0, ...c }] });
+    expect(parseMessage(state({}))).toEqual(state({}));
+    expect(parseMessage(state({ corners: [[1, 2]], corners_at: 5 }))).toEqual(state({ corners: [[1, 2]], corners_at: 5 }));
+    expect(parseMessage(state({ corners: [[1, 2], ["x", 3], [1e9, 0]], corners_at: 5 }))).toEqual(state({ corners: [[1, 2]], corners_at: 5 }));
+    expect(parseMessage(state({ corners: [[1, 2]] }))).toBeNull();
+    expect(parseMessage(state({ corners: "1,2", corners_at: 5 }))).toBeNull();
+    expect(parseMessage(state({ corners: Array.from({ length: 21 }, (_, i) => [i, 0]), corners_at: 5 }))).toBeNull();
+  });
+});
+
 describe("deleting", () => {
   it("on the desktop deletes the photo on the phone, now or when it next opens", async () => {
     const pStore = new MemoryStore(), photos = new Map<string, PhotoRecord>();
@@ -388,5 +438,21 @@ describe("deleting", () => {
     box.remove(here.id);
     expect(sent).toEqual([]);
     expect(desktop.inbox.fullState()).toEqual({ type: "state", full: true, curves: [], deleted: [] });
+  });
+});
+
+describe("a computer behind the phone", () => {
+  it("is told again: a state with an older star, name or corners than the phone's", () => {
+    const r = { id: "p1", name: "a.jpg", doc: doc(line, "inside"), sync: { room: keys.room, id: "c-000000001", rev: 1, remoteRev: 1 },
+      star: { on: true, at: 5 }, corners: { marks: [[13, 0]], at: 7 } } as unknown as PhotoRecord;
+    const state = (c: Record<string, unknown>) => ({ type: "state" as const, full: false, deleted: [],
+      curves: [{ id: "c-000000001", rev: 1, star: true, star_at: 5, ...c }] });
+    expect(applyState([r], state({ corners: [[13, 0]], corners_at: 7 }), keys.room).behind).toEqual([]);
+    expect(applyState([r], state({}), keys.room).behind).toEqual(["c-000000001"]);
+    expect(applyState([r], state({ corners: [[13, 0]], corners_at: 7, star: false, star_at: 1 }), keys.room).behind).toEqual(["c-000000001"]);
+    // A computer that is ahead updates the phone instead.
+    const ahead = applyState([r], state({ corners: [], corners_at: 9 }), keys.room);
+    expect(ahead.behind).toEqual([]);
+    expect(r.corners).toEqual({ marks: [], at: 9 });
   });
 });

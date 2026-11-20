@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../relay/store";
 import {
-  FUSION_PROTOCOL, FusionBridge, FusionError, InsertLog, autoInsert, findSend, fusionMode, markText, waitForSend,
+  FUSION_PROTOCOL, FusionBridge, FusionError, InsertLog, addinHasCorners, autoInsert, findSend, fusionMode, markText, waitForSend,
   type Inserted, type Send,
 } from "./fusion";
 
@@ -38,6 +38,21 @@ describe("FusionBridge", () => {
     expect(await bridge.insert(CURVE, "auto")).toBe("no-sketch");
     expect(await bridge.insert(CURVE, "ask")).toBe("queued");
     expect(calls[1]).toEqual({ action: "insert", msg: { v: 1, id: CURVE.id, photo: CURVE.photo, points_mm: CURVE.points_mm, how: "ask" } });
+  });
+
+  it("sends a curve's sharp corners only when it has some", async () => {
+    const { send, calls } = addin(() => ({ ok: true, queued: true }));
+    const bridge = new FusionBridge(send, () => {});
+    const three = { ...CURVE, points_mm: [[0, 0], [10, 5], [20, 0]] as [number, number][] };
+    await bridge.insert({ ...three, corners: [1] }, "ask");
+    await bridge.insert({ ...three, corners: [] }, "ask");
+    expect(calls[0]!.msg.corners).toEqual([1]);
+    expect("corners" in calls[1]!.msg).toBe(false);
+  });
+
+  it("knows which add-ins break the spline at corners", () => {
+    expect(["0.2.0", "0.2.9", "", "x"].map(addinHasCorners)).toEqual([false, false, false, false]);
+    expect(["0.3.0", "0.3.1", "0.10.0", "1.0.0"].map(addinHasCorners)).toEqual([true, true, true, true]);
   });
 
   it("gives the add-in's refusal as a message for the person", async () => {

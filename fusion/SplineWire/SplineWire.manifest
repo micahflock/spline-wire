@@ -6,7 +6,7 @@
   "description": {
     "": "Curves measured with Spline Wire into a sketch: Add from phone (a palette paired with your phone) and Paste points."
   },
-  "version": "0.2.0",
+  "version": "0.3.0",
   "runOnStartup": true,
   "supportedOS": "windows|mac",
   "editEnabled": true

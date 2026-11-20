@@ -35,7 +35,7 @@ Writing that software (computer vision, perspective geometry, a web app, a CAD a
 1. **Wrap.** Press the chain around the curve. Its joints are stiff enough to keep the shape.
 2. **Lift and lay flat.** Take it off and lay it on any table, dots up.
 3. **Photograph.** Open the website on the phone (scan the QR code on the computer's page to pair them) and take one photo, straight on or tilted. The phone measures it and sends only the curve to the computer's page; the photo stays on the phone, and there is no phone app to install.
-4. **Paste into CAD.** Click **Copy points** on the computer's page, then **Paste points** in Autodesk Fusion. The add-in drops the points and a fitted spline into the sketch you're editing, in millimetres. DXF, SVG (1:1) and CSV files are there for other CAD tools or LLM integration.
+4. **Paste into CAD.** Click **Copy points** on the computer's page, then **Paste points** in Autodesk Fusion. The add-in drops the points and a fitted spline into the sketch you're editing, in millimetres. Where the object has a sharp corner (a step, a ledge) that the curve rounds off, click the point at the corner on the computer's page first: the curve gets a real corner there. DXF, SVG (1:1) and CSV files are there for other CAD tools or LLM integration.
 
 No ruler or reference card goes in the photo. The chain is its own scale.
 

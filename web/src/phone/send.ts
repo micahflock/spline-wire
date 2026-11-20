@@ -15,7 +15,10 @@ import type { LinkStatus } from "../relay/link";
 import type { CurveState, Message } from "../relay/messages";
 import { newCurveId, pointsTsv } from "../relay/messages";
 import type { OutboxItem } from "../relay/outbox";
-import { cleanName, laterName, laterStar, NO_NAME, NO_STAR, sameName, sameStar, stamp, type Name, type Star } from "../relay/sync";
+import {
+  cleanCorners, cleanName, laterCorners, laterName, laterStar, NO_CORNERS, NO_NAME, NO_STAR,
+  sameCorners, sameName, sameStar, stamp, type Corners, type Name, type Star,
+} from "../relay/sync";
 import type { MeasurementDocument } from "../core/types";
 import type { PhotoRecord } from "./photos";
 
@@ -109,6 +112,7 @@ export function deliveryText(d: Delivery, rev = 1): string {
 
 export const starOf = (r: PhotoRecord): Star => r.star ?? NO_STAR;
 export const nameOf = (r: PhotoRecord): Name => r.title ?? NO_NAME;
+export const cornersOf = (r: PhotoRecord): Corners => r.corners ?? NO_CORNERS;
 /** What the photo is called: the person's name for it, else its file name. */
 export const displayName = (r: PhotoRecord): string => nameOf(r).text || r.name;
 
@@ -120,21 +124,27 @@ export function phoneState(records: Iterable<PhotoRecord>, deleted: string[], ro
     const s = syncOf(r, room);
     if (!s || (only && !only.includes(s.id))) continue;
     const star = starOf(r), name = nameOf(r);
-    curves.push({ id: s.id, rev: s.rev, star: star.on, star_at: star.at, name: name.text, name_at: name.at });
+    curves.push({
+      id: s.id, rev: s.rev, star: star.on, star_at: star.at, name: name.text, name_at: name.at,
+      ...(r.corners ? { corners: r.corners.marks, corners_at: r.corners.at } : {}),
+    });
   }
   return { type: "state", full, curves, deleted };
 }
 
 /** A state from the computer, applied to the photos: the revisions it holds,
- * the stars that win, and the photos whose curves it deleted (to delete here). */
+ * the stars that win, and the photos whose curves it deleted (to delete here).
+ * `behind`: curves whose star, name or corners the computer holds an older
+ * setting of than this phone (it got the curve after this phone's last state,
+ * or another computer changed them): the phone tells it again. */
 export function applyState(records: Iterable<PhotoRecord>, m: Extract<Message, { type: "state" }>, room: string):
-  { changed: PhotoRecord[]; deleted: PhotoRecord[] } {
+  { changed: PhotoRecord[]; deleted: PhotoRecord[]; behind: string[] } {
   const byId = new Map<string, PhotoRecord>();
   for (const r of records) {
     const s = syncOf(r, room);
     if (s) byId.set(s.id, r);
   }
-  const changed = new Set<PhotoRecord>(), deleted: PhotoRecord[] = [];
+  const changed = new Set<PhotoRecord>(), deleted: PhotoRecord[] = [], behind: string[] = [];
   for (const id of m.deleted) {
     const r = byId.get(id);
     if (r) deleted.push(r);
@@ -157,8 +167,16 @@ export function applyState(records: Iterable<PhotoRecord>, m: Extract<Message, {
       r.title = named;
       changed.add(r);
     }
+    const theirCorners = { marks: cleanCorners(c.corners ?? []), at: c.corners_at ?? 0 };
+    const cornered = laterCorners(cornersOf(r), theirCorners);
+    if (!sameCorners(cornered, cornersOf(r))) {
+      r.corners = cornered;
+      changed.add(r);
+    }
+    if (!sameStar(won, { on: c.star, at: c.star_at }) || !sameCorners(cornered, theirCorners)
+      || (c.name !== undefined && !sameName(named, { text: cleanName(c.name), at: c.name_at ?? 0 }))) behind.push(c.id);
   }
-  return { changed: [...changed], deleted };
+  return { changed: [...changed], deleted, behind };
 }
 
 /** The person starred or unstarred a photo here. */

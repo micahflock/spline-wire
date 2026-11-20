@@ -7,7 +7,7 @@ inserts. The contract, version curvedata.PROTOCOL, is written out in web/src/des
 
   page -> add-in   adsk.fusionSendData(action, json) -> returnData (json)
     "status" {v}                                -> {ok, v, addin, sketch: name | null}
-    "insert" {v, id, photo, points_mm, how}     -> {ok, queued: true}; for how "auto" with no
+    "insert" {v, id, photo, points_mm, corners?, how} -> {ok, queued: true}; for how "auto" with no
                                                    sketch being edited, {ok, queued: false, sketch: null}
     anything refused                            -> {ok: false, error: <a message for a person>}
   add-in -> page   palette.sendInfoToHTML("inserted", json)
@@ -27,7 +27,7 @@ import adsk.fusion
 
 from . import curvedata, sketch
 
-VERSION = "0.2.0"          # the manifest's; the page shows it
+VERSION = "0.3.0"          # the manifest's; the page shows it
 PAGE_URL = "https://micahflock.github.io/spline-wire/?fusion"
 PALETTE_ID, PALETTE_NAME = "SplineWirePhone", "Spline Wire"
 SHOW_ID, SHOW_NAME = "SplineWireAddFromPhone", "Add from phone"
@@ -233,7 +233,7 @@ def _insert(args, req, target):
     try:
         sketch.design_of(app)
         made = target()
-        sketch.add_curve(made, req["points"])
+        sketch.add_curve(made, req["points"], req.get("corners", []))
         _report(app, req, into=made.name)
     except Exception as err:
         message = str(err) if isinstance(err, ValueError) else "Inserting failed:\n" + traceback.format_exc()

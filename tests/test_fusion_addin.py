@@ -39,7 +39,7 @@ class SketchPoint:
 
 class FakeSketch:
     def __init__(self, accept_sketch_points=True, name="Sketch1"):
-        self.points, self.splines, self.name = [], [], name
+        self.points, self.splines, self.lines, self.name = [], [], [], name
         self.accept_sketch_points = accept_sketch_points
         sketch = self
         self.sketchPoints = types.SimpleNamespace(add=self._add_point)
@@ -49,7 +49,8 @@ class FakeSketch:
                 if isinstance(fit_points[0], SketchPoint) and not sketch.accept_sketch_points:
                     raise RuntimeError("fit points must be Point3D")
                 sketch.splines.append(list(fit_points))
-        self.sketchCurves = types.SimpleNamespace(sketchFittedSplines=Splines())
+        lines = types.SimpleNamespace(addByTwoPoints=lambda a, b: sketch.lines.append((a, b)))
+        self.sketchCurves = types.SimpleNamespace(sketchFittedSplines=Splines(), sketchLines=lines)
 
     def _add_point(self, xyz):
         p = SketchPoint(xyz)
@@ -295,6 +296,30 @@ def test_parse_points_formats(addin, text, expected):
     np.testing.assert_allclose(curvedata.parse_points(text), expected)
 
 
+CORNER_TABLE = ("x_mm\ty_mm\tcorner\n0.0000\t0.0000\t0\n10.0000\t0.0000\t0\n20.0000\t0.0000\t1\n"
+                "20.0000\t10.0000\t1\n30.0000\t12.0000\t0\n40.0000\t10.0000\t0\n")
+
+
+def test_a_corner_column_breaks_the_curve(addin):
+    from SplineWire import curvedata
+    points, corners = curvedata.parse_table(CORNER_TABLE)
+    assert len(points) == 6 and corners == [2, 3]
+    # Without the header's "corner" a third number is z, and the ends are never corners.
+    assert curvedata.parse_table("1 2 1\n3 4 1\n5 6 1\n")[1] == []
+    assert curvedata.parse_table("x\ty\tcorner\n1\t2\t1\n3\t4\t1\n5\t6\t1\n")[1] == [1]
+    assert curvedata.parse_points(CORNER_TABLE) == points
+
+
+def test_paste_with_corners_puts_one_spline_per_piece_joined_at_the_corners(addin):
+    module, app, _ = addin
+    sketch = app.activeEditObject = FakeSketch()
+    module.paste_points(app, CORNER_TABLE)
+    assert len(sketch.points) == 6
+    # 0-1-2 and 3-4-5 are splines; 2-3, two points, is a line; each starts where the last ended.
+    assert [[sketch.points.index(p) for p in s] for s in sketch.splines] == [[0, 1, 2], [3, 4, 5]]
+    assert [(sketch.points.index(a), sketch.points.index(b)) for a, b in sketch.lines] == [(2, 3)]
+
+
 def test_copied_table_round_trips_through_the_addin_parser():
     import numpy as np
 
@@ -389,6 +414,16 @@ def test_a_curve_goes_into_the_sketch_being_edited_as_one_command(phone):
     assert _pushed(app) == [("inserted", {"v": 1, "id": "0mi4x2-ab12", "ok": True, "sketch": "Sketch3", "points": 3})]
 
 
+def test_a_curve_with_a_sharp_corner_goes_in_as_two_splines(phone):
+    _, app, _ = phone
+    sketch = app.activeEditObject = FakeSketch(name="Sketch3")
+    curve = (CURVE % "ask").replace('"how"', '"corners": [1], "how"')
+    assert _request(app, "insert", curve) == {"ok": True, "queued": True}
+    _deliver(app)
+    assert len(sketch.points) == 3 and sketch.splines == [] and len(sketch.lines) == 2
+    assert sketch.lines[0][1] is sketch.lines[1][0]
+
+
 def test_an_arriving_curve_waits_when_no_sketch_is_open(phone):
     _, app, _ = phone
     assert _request(app, "insert", CURVE % "auto") == {"ok": True, "queued": False, "sketch": None}
@@ -470,6 +505,11 @@ def test_a_failed_insert_is_undone_and_reported(phone):
     ("insert", (CURVE % "auto").replace("[10, 5]", "[1e6, 5]"), "2 to 2000"),
     ("insert", (CURVE % "auto").replace("[10, 5]", "[true, 5]"), "2 to 2000"),
     ("insert", (CURVE % "auto").replace("[10, 5]", '["10", 5]'), "2 to 2000"),
+    ("insert", (CURVE % "auto").replace('"how"', '"corners": [0], "how"'), "corners must be"),
+    ("insert", (CURVE % "auto").replace('"how"', '"corners": [2], "how"'), "corners must be"),
+    ("insert", (CURVE % "auto").replace('"how"', '"corners": [1, 1], "how"'), "corners must be"),
+    ("insert", (CURVE % "auto").replace('"how"', '"corners": [true], "how"'), "corners must be"),
+    ("insert", (CURVE % "auto").replace('"how"', '"corners": "1", "how"'), "corners must be"),
 ])
 def test_requests_are_checked_before_anything_happens(phone, action, data, message):
     _, app, _ = phone

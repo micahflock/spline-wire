@@ -16,6 +16,7 @@
 
 import type { Role } from "./crypto";
 import { parseFiles, type PackedFiles } from "./files";
+import { CORNER_MARKS, cleanCorners } from "./sync";
 
 export const CURVE_VERSION = 1;
 
@@ -77,6 +78,10 @@ export interface CurveState {
    * Absent from pages before names: no name, never set. */
   name?: string;
   name_at?: number;
+  /** The points marked as sharp corners, mm (sync.ts Corners), and when they were set.
+   * Absent from pages before corners, and when none were ever marked. */
+  corners?: [number, number][];
+  corners_at?: number;
 }
 
 /** Entries a state message may carry (a full state of a hundred curves and the
@@ -115,7 +120,13 @@ export function parseMessage(body: unknown): Message | null {
         if (!isObject(c) || !isId(c.id) || !isRev(c.rev) || typeof c.star !== "boolean" || !isNum(c.star_at)) return null;
         const named = c.name !== undefined || c.name_at !== undefined;
         if (named && (typeof c.name !== "string" || c.name.length > NAME_LIMIT || !isNum(c.name_at))) return null;
-        out.push({ id: c.id, rev: c.rev, star: c.star, star_at: c.star_at, ...(named ? { name: c.name as string, name_at: c.name_at as number } : {}) });
+        const cornered = c.corners !== undefined || c.corners_at !== undefined;
+        if (cornered && (!Array.isArray(c.corners) || c.corners.length > CORNER_MARKS || !isNum(c.corners_at))) return null;
+        out.push({
+          id: c.id, rev: c.rev, star: c.star, star_at: c.star_at,
+          ...(named ? { name: c.name as string, name_at: c.name_at as number } : {}),
+          ...(cornered ? { corners: cleanCorners(c.corners), corners_at: c.corners_at as number } : {}),
+        });
       }
       return { type: "state", full: body.full === true, curves: out, deleted: deleted as string[] };
     }
@@ -174,9 +185,14 @@ export function parseCurve(c: unknown): Curve | null {
 }
 
 /** The clipboard table the Fusion add-in's Paste points reads (decision D6).
- * Must stay byte for byte what splinewire/output.py points_tsv writes. */
-export function pointsTsv(points_mm: readonly Point[]): string {
-  return ["x_mm\ty_mm", ...points_mm.map(([x, y]) => `${fixed4(x)}\t${fixed4(y)}`)].join("\n") + "\n";
+ * Must stay byte for byte what splinewire/output.py points_tsv writes.
+ * `corners`: indices of sharp corners (desktop/corners.ts), given as a third
+ * column, 1 on a corner, headed "corner"; an add-in that does not know it
+ * reads the column as z and ignores it, and fits one spline. */
+export function pointsTsv(points_mm: readonly Point[], corners: readonly number[] = []): string {
+  if (!corners.length) return ["x_mm\ty_mm", ...points_mm.map(([x, y]) => `${fixed4(x)}\t${fixed4(y)}`)].join("\n") + "\n";
+  const rows = points_mm.map(([x, y], i) => `${fixed4(x)}\t${fixed4(y)}\t${corners.includes(i) ? 1 : 0}`);
+  return ["x_mm\ty_mm\tcorner", ...rows].join("\n") + "\n";
 }
 
 // Python's f"{x:.4f}" and toFixed(4) both round the exact binary value

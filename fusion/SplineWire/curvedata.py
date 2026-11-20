@@ -16,30 +16,44 @@ _UNIT = re.compile(r"(?<![a-z])(mm|cm|in|inch|inches)(?![a-z])")
 
 
 def parse_points(text: str) -> list[tuple[float, float]]:
-    """Points in mm from a pasted table.
+    """Points in mm from a pasted table (parse_table, without its corners)."""
+    return parse_table(text)[0]
+
+
+def parse_table(text: str) -> tuple[list[tuple[float, float]], list[int]]:
+    """Points in mm from a pasted table, and the indices of its sharp corners.
 
     One point per line: two or three numbers separated by tabs, commas,
-    semicolons or spaces (a z value is ignored). Other lines, like a header,
-    are skipped. Units default to mm; a header mentioning cm or in (e.g.
-    "x_cm", "X (in)", "inches") switches them.
+    semicolons or spaces. Other lines, like a header, are skipped. Units default
+    to mm; a header mentioning cm or in (e.g. "x_cm", "X (in)", "inches")
+    switches them. A third number is a z value and is ignored, unless the
+    header names that column "corner" (Spline Wire's Copy points with sharp
+    corners): then 1 marks a corner, where the curve breaks into two splines.
     """
     scale = 1.0
+    corner_column = False
     points: list[tuple[float, float]] = []
+    corners: list[int] = []
     for line in (text or "").splitlines():
         fields = [f for f in _SEPARATORS.split(line.strip()) if f]
         values = _floats(fields)
         if values is None or not 2 <= len(values) <= 3:
-            unit = _unit_scale(line)
-            if unit is not None and not points:
-                scale = unit
+            if not points:
+                unit = _unit_scale(line)
+                if unit is not None:
+                    scale = unit
+                if len(fields) == 3 and fields[2].lower() == "corner":
+                    corner_column = True
             continue
+        if corner_column and len(values) == 3 and values[2] == 1:
+            corners.append(len(points))
         points.append((values[0] * scale, values[1] * scale))
     if len(points) < 2:
         raise ValueError(
             "The clipboard doesn't hold a list of points. In Spline Wire, select a "
             "processed photo and click \u201cCopy points\u201d, then try again."
         )
-    return points
+    return points, [i for i in corners if 0 < i < len(points) - 1]
 
 
 def _unit_scale(line: str) -> float | None:
@@ -129,7 +143,10 @@ def parse_request(action, data) -> dict:
 
 
 def parse_insert(msg: dict) -> dict:
-    """An insert request: {"id", "photo", "points" (mm), "how": "auto" | "ask"}."""
+    """An insert request: {"id", "photo", "points" (mm), "corners", "how": "auto" | "ask"}.
+
+    "corners" (optional; pages before sharp corners send none) are indices into
+    the points where the curve breaks: ascending, never the first or last point."""
     curve_id = msg.get("id")
     if not isinstance(curve_id, str) or not _ID.match(curve_id):
         raise ValueError("The curve has no usable id.")
@@ -138,7 +155,13 @@ def parse_insert(msg: dict) -> dict:
         raise ValueError("The Spline Wire page asked for an insert this add-in doesn't know.")
     photo = msg.get("photo")
     photo = _CONTROL.sub(" ", photo).strip()[:MAX_NAME_CHARS] if isinstance(photo, str) else ""
-    return {"id": curve_id, "photo": photo, "points": points_mm(msg.get("points_mm")), "how": how}
+    points = points_mm(msg.get("points_mm"))
+    corners = msg.get("corners", [])
+    ok = isinstance(corners, list) and all(type(i) is int and 0 < i < len(points) - 1 for i in corners) \
+        and all(a < b for a, b in zip(corners, corners[1:]))
+    if not ok:
+        raise ValueError("The curve's corners must be points of it, in order, and not its ends.")
+    return {"id": curve_id, "photo": photo, "points": points, "corners": corners, "how": how}
 
 
 def points_mm(value) -> list[tuple[float, float]]:
