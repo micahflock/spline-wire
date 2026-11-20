@@ -20,6 +20,7 @@
 // closed or the page is hidden: iOS keeps the camera light on otherwise.
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
+import { QrScan } from "../camera/qr-scan";
 import { compareGrays, FrameGrab, grayCorrelation, grayDifference, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
@@ -65,6 +66,8 @@ export interface CameraDeps {
   teach(): void;
   /** The view closed by itself (not the person's Close, Upload or back gesture): why, in a few words. */
   closedBy?(why: string): void;
+  /** A QR code seen in the frames (once per code while the view is open): the desktop page's pairing code. */
+  code?(text: string): void;
 }
 
 interface PhotoCaps {
@@ -119,6 +122,8 @@ export interface CameraStats {
   focal: string;
   /** Which work canvas was chosen, and the trial's medians. */
   work: string;
+  /** The QR scan beside the overlay: frames decoded × the page's draw + the worker's decode of the last (ms). */
+  qr: string;
   imageCapture: boolean;
   takePhotoMs: number | null;
   takePhotoError: string | null;
@@ -160,6 +165,8 @@ export class CameraView {
   private switching = false;
   /** The frame grab in a worker, when this browser can (camera/grab.ts). */
   private grab: FrameGrab | null = null;
+  /** Looks for the desktop page's pairing code in the frames (camera/qr-scan.ts). */
+  private qr: QrScan | null = null;
   private shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
   private infoAt = 0;
   private readonly el: Record<string, HTMLElement>;
@@ -295,6 +302,7 @@ export class CameraView {
     this.grab = new FrameGrab(() => new Worker(new URL("../camera/grab-worker.ts", import.meta.url), { type: "module" }) as unknown as GrabWorkerLike,
       whyNotWorker(location.search));
     this.stats.grab = this.grabText();
+    this.qr = new QrScan((text) => this.deps.code?.(text));
     this.setShutter(true);
     this.loop(gen);
   }
@@ -318,6 +326,8 @@ export class CameraView {
     this.session = null;
     this.grab?.close();
     this.grab = null;
+    this.qr?.close();
+    this.qr = null;
     this.video.srcObject = null;
     for (const w of Object.values(this.work)) w.canvas.width = w.canvas.height = 0;
     this.work = {};
@@ -443,6 +453,15 @@ export class CameraView {
     // Only the part of the frame round the chain while it is tracked, drawn
     // finely; else the whole frame, or a quarter of it (overlay/region.ts).
     const r = this.session.region(v.videoWidth, v.videoHeight);
+    // A pairing code (camera/qr-scan.ts), looked for while no chain is tracked.
+    // A frame it takes is the overlay's frame skipped, under the same budget.
+    if (this.qr && r.kind !== "track" && this.qr.frame(v, now)) {
+      const cost = this.qr.grabMs;
+      this.stats.qr = `${this.qr.frames + 1} × ${cost.toFixed(0)}+${this.qr.lastMs.toFixed(0)} ms`;
+      this.lastWork = now;
+      this.gap = cost / BUSY_SHARE - cost;
+      return;
+    }
     // In a worker when the browser can (camera/grab.ts); a check frame is
     // grabbed here as well, and the two copies compared.
     let check: VideoFrame | null = null;
@@ -694,6 +713,7 @@ export class CameraView {
       `region ${st.region || "–"}`,
       `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
       `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`,
+      `qr ${st.qr || "–"}`,
       this.grab?.describe() ?? "grab –"];
     const text = lines.join("\n");
     if (text !== this.shown.info) {
@@ -884,6 +904,6 @@ function median(v: number[]): number {
 }
 
 function blankStats(): CameraStats {
-  return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "",
+  return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "", qr: "",
     imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null, browser: "", arrow: null };
 }
