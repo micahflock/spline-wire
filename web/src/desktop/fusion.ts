@@ -8,11 +8,15 @@
 //   page -> add-in   adsk.fusionSendData(action, JSON) -> the reply's JSON text, in a Promise
 //                    (S6: a Promise in Fusion 2705; older Fusions returned the text itself)
 //     "status" {v}                              -> {ok, v, addin, sketch: name | null}
-//     "insert" {v, id, photo, points_mm, how}   -> {ok, queued: true}; for how "auto" with no
+//     "insert" {v, id, photo, points_mm, corners?, how} -> {ok, queued: true}; for how "auto" with no
 //                                                  sketch being edited, {ok, queued: false, sketch: null}
 //     refused                                   -> {ok: false, error: <a message for a person>}
 //   add-in -> page   palette.sendInfoToHTML("inserted", JSON) -> window.fusionJavaScriptHandler.handle
 //     {v, id, ok: true, sketch, points} | {v, id, ok: false, error, cancelled}
+//
+// "corners" are indices into points_mm where the curve has a sharp corner
+// (corners.ts): the add-in breaks the spline there. Sent only when there are
+// some; an add-in before them (VERSION 0.3.0) ignores it and fits one spline.
 //
 // "auto" is a curve that has just arrived: it goes into the sketch being
 // edited, or waits. "ask" is the person's Insert: with no sketch open, Fusion
@@ -26,6 +30,16 @@ import type { Curve } from "../relay/messages";
 import { readJson, type KeyValueStore } from "../relay/store";
 
 export const FUSION_PROTOCOL = 1;
+/** The first add-in that breaks the spline at sharp corners. */
+export const CORNERS_ADDIN = "0.3.0";
+
+/** Whether an add-in of this version breaks the spline at corners. */
+export function addinHasCorners(version: string): boolean {
+  const v = version.split(".").map((x) => parseInt(x, 10) || 0);
+  const w = CORNERS_ADDIN.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== w[i]) return (v[i] ?? 0) > w[i]!;
+  return true;
+}
 
 export type Send = (action: string, data: string) => unknown;
 export type How = "auto" | "ask";
@@ -93,8 +107,9 @@ export class FusionBridge {
 
   /** "queued": the add-in will insert it and say how it went (`inserted`);
    * "no-sketch": an arrived curve with no sketch being edited, which waits. */
-  async insert(curve: Pick<Curve, "id" | "photo" | "points_mm">, how: How): Promise<"queued" | "no-sketch"> {
-    const r = await this.call("insert", { id: curve.id, photo: curve.photo, points_mm: curve.points_mm, how });
+  async insert(curve: Pick<Curve, "id" | "photo" | "points_mm"> & { corners?: readonly number[] }, how: How): Promise<"queued" | "no-sketch"> {
+    const corners = curve.corners?.length ? { corners: curve.corners } : {};
+    const r = await this.call("insert", { id: curve.id, photo: curve.photo, points_mm: curve.points_mm, ...corners, how });
     return r.queued === true ? "queued" : "no-sketch";
   }
 

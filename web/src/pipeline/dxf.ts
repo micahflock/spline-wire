@@ -22,8 +22,17 @@ const H = {
 
 type Tag = [number, string];
 
-/** The DXF file's text for a curve through the points (mm). */
-export function dxfText(points: readonly Vec2[]): string {
+/** The DXF file's text for a curve through the points (mm). `corners`
+ * (indices of points, desktop/corners.ts) break it into one spline per piece,
+ * neighbours sharing the corner point; without them it is Python's file. */
+export function dxfText(points: readonly Vec2[], corners: readonly number[] = []): string {
+  const pieces: Vec2[][] = [];
+  let start = 0;
+  for (const c of [...corners, points.length - 1]) {
+    pieces.push(points.slice(start, c + 1));
+    start = c;
+  }
+  const splines = points.length >= 2 ? pieces.filter((p) => p.length >= 2) : [];
   const tags: Tag[] = [];
   const add = (code: number, value: string) => tags.push([code, value]);
   const section = (name: string) => {
@@ -47,7 +56,7 @@ export function dxfText(points: readonly Vec2[]): string {
   };
   const many = (list: Tag[]) => list.forEach(([c, v]) => add(c, v));
 
-  const entityCount = points.length >= 2 ? 1 + points.length : points.length;
+  const entityCount = splines.length + points.length;
   section("HEADER");
   for (const [name, code, value] of [["$ACADVER", 1, "AC1015"], ["$HANDSEED", 5, hex(ENTITY_HANDLE + entityCount)],
     ["$INSUNITS", 70, "4"], ["$MEASUREMENT", 70, "1"]] as const) {
@@ -108,8 +117,8 @@ export function dxfText(points: readonly Vec2[]): string {
 
   section("ENTITIES");
   let handle = ENTITY_HANDLE;
-  if (points.length >= 2) {
-    const { knots, control } = cadSpline(points);
+  for (const piece of splines) {
+    const { knots, control } = cadSpline(piece);
     many([[0, "SPLINE"], [5, hex(handle)], [330, H.model_record], [100, "AcDbEntity"], [8, "CURVE"], [100, "AcDbSpline"],
       [210, "0.0"], [220, "0.0"], [230, "1.0"], [70, "8"], [71, "3"], [72, String(knots.length)],
       [73, String(control.length)], [74, "0"]]);

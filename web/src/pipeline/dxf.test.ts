@@ -17,3 +17,30 @@ describe("the DXF, as Python writes it", () => {
     });
   });
 });
+
+describe("the DXF with sharp corners", () => {
+  const pts: Vec2[] = [[0, 0], [10, 1], [20, 0], [20, 10], [30, 12], [40, 10], [50, 10]];
+
+  it("is Python's file without corners", () => {
+    expect(dxfText(pts, [])).toBe(dxfText(pts));
+  });
+
+  it("has one spline per piece, joined at the corners, and every point", () => {
+    const text = dxfText(pts, [2, 5]);
+    expect(text.match(/\nSPLINE\n/g)).toHaveLength(3);
+    expect(text.match(/\nPOINT\n/g)).toHaveLength(pts.length);
+    // The pieces' control points start and end on the corners.
+    const controls = text.split("\nSPLINE\n").slice(1).map((e) => {
+      const xs = [...e.matchAll(/ 10\n([-\d.]+)\n 20\n([-\d.]+)\n/g)].map((m) => [Number(m[1]), Number(m[2])]);
+      return xs.slice(0, xs.length - (e.includes("POINT") ? (e.match(/\nPOINT\n/g)?.length ?? 0) : 0));
+    });
+    expect(controls[0]![0]).toEqual([0, 0]);
+    expect(controls[0]!.at(-1)).toEqual([20, 0]);
+    expect(controls[1]![0]).toEqual([20, 0]);
+    expect(controls[2]!.at(-1)).toEqual([50, 10]);
+  });
+
+  it("takes a piece of two points (a straight wall)", () => {
+    expect(dxfText([[0, 0], [10, 0], [10, 10], [20, 12]], [1, 2]).match(/\nSPLINE\n/g)).toHaveLength(3);
+  });
+});

@@ -820,8 +820,9 @@ function sendChange(ids: string[], deleted: string[] = []): void {
 /** What the computer holds: revisions it has, stars set there, curves deleted there. */
 function onState(m: Extract<Message, { type: "state" }>): void {
   if (!room) return;
-  const { changed, deleted } = applyState(records.values(), m, room);
+  const { changed, deleted, behind } = applyState(records.values(), m, room);
   for (const r of changed) persist(r);
+  if (behind.length) sendChange(behind);
   for (const r of deleted) {
     deletedIds.add([r.sync!.id]);
     outbox?.forget(r.sync!.id);

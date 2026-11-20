@@ -84,7 +84,7 @@ class _Execute(adsk.core.CommandEventHandler):
 
 def paste_points(app, clipboard_text):
     """Add the clipboard's points (mm) and a spline through them to a sketch."""
-    points_mm = curvedata.parse_points(clipboard_text)
+    points_mm, corners = curvedata.parse_table(clipboard_text)
     sketch.design_of(app)
     target = sketch.active_sketch(app) or sketch.new_sketch(app)
-    return sketch.add_curve(target, points_mm)
+    return sketch.add_curve(target, points_mm, corners)

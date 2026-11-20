@@ -130,11 +130,16 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .plot .pin { fill: none; stroke: var(--screen-ink); stroke-opacity: .55; stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .plot .trace { fill: none; stroke: var(--trace); stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .plot .pt { fill: var(--plot-pt); }
+.plot .pt-was { fill: none; stroke: var(--plot-pt); stroke-opacity: .6; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.plot .corner { fill: var(--plot-pt); stroke: var(--screen); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.plot .hit { fill: var(--plot-pt); fill-opacity: 0; cursor: pointer; }
+.plot .hit:hover { fill-opacity: .18; }
 .plot .bar { stroke: var(--screen-ink); stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .plot .bar-label { fill: var(--screen-ink); font-family: var(--f-data); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 8px 14px 12px; font-size: 12px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { width: 14px; height: 14px; flex: none; }
+.corner-hint { margin: -6px 0 0; padding: 0 14px 12px; font-size: 12px; color: var(--muted); }
 
 .read { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
 .read .scroll { flex: 1; overflow: auto; min-height: 0; padding-bottom: 12px; }

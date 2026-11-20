@@ -1,14 +1,18 @@
 // The desktop's side of delivery: store the highest revision of each curve,
 // and say what it holds every time a curve arrives (the phone repeats a curve
 // until it hears that, and a reply can be lost too). Stars, names and
-// deletions are kept in step with the phone (sync.ts). Curves measured on the desktop itself,
+// deletions are kept in step with the phone (sync.ts), and so are the corners
+// marked on the drawing. Curves measured on the desktop itself,
 // from a photo dropped on the page (D9), join the same list, marked as made
 // there; no phone knows them, so their stars, names and deletions stay here.
 
 import type { RelayLink } from "./link";
 import { STATE_LIMITS, type Curve, type CurveState, type Message } from "./messages";
 import { readJson, type KeyValueStore } from "./store";
-import { cleanName, DeletedIds, laterName, laterStar, NO_NAME, NO_STAR, sameName, sameStar, stamp, type Name, type Star } from "./sync";
+import {
+  cleanCorners, cleanName, DeletedIds, laterCorners, laterName, laterStar, NO_CORNERS, NO_NAME, NO_STAR,
+  sameCorners, sameName, sameStar, stamp, type Corners, type Name, type Star,
+} from "./sync";
 
 /** Curves the desktop keeps. Older ones go, but their revisions are remembered
  * (SEEN_CAP) so a late repeat is not shown as new. */
@@ -23,13 +27,14 @@ const SEEN_KEY = "inbox-seen";
 const HERE_KEY = "inbox-here";
 const STARS_KEY = "inbox-stars";
 const NAMES_KEY = "inbox-names";
+const CORNERS_KEY = "inbox-corners";
 
 export interface InboxEvents {
   /** A curve arrived: new, or a newer revision of one in the list (`updated`). */
   arrived(curve: Curve, updated: boolean): void;
   /** The phone deleted these. */
   removed(curves: Curve[]): void;
-  /** The phone starred, unstarred or renamed these. */
+  /** The phone starred, unstarred, renamed or marked corners on these. */
   edited(ids: string[]): void;
 }
 
@@ -39,6 +44,7 @@ export class Inbox {
   private here: string[];
   private stars: Record<string, Star>;
   private names: Record<string, Name>;
+  private corners: Record<string, Corners>;
   private readonly deleted: DeletedIds;
   private readonly events: InboxEvents;
 
@@ -54,6 +60,7 @@ export class Inbox {
     this.here = readJson<string[]>(store, HERE_KEY, []);
     this.stars = readJson<Record<string, Star>>(store, STARS_KEY, {});
     this.names = readJson<Record<string, Name>>(store, NAMES_KEY, {});
+    this.corners = readJson<Record<string, Corners>>(store, CORNERS_KEY, {});
     this.deleted = new DeletedIds(store, "inbox-deleted");
   }
 
@@ -115,6 +122,21 @@ export class Inbox {
     const name = cleanName(text);
     if (name === this.nameOf(id)) return;
     this.names[id] = { text: name, at: stamp(this.names[id] ?? NO_NAME, now) };
+    this.saveStars();
+    this.tell(id);
+  }
+
+  /** The points marked as sharp corners on a curve, mm (desktop/corners.ts). */
+  cornersOf(id: string): [number, number][] {
+    return (this.corners[id] ?? NO_CORNERS).marks;
+  }
+
+  /** The person marked or unmarked corners on a curve here: the whole list. */
+  setCorners(id: string, marks: readonly [number, number][], now = Date.now()): void {
+    if (!this.list.some((c) => c.id === id)) return;
+    const clean = cleanCorners(marks);
+    if (JSON.stringify(clean) === JSON.stringify(this.cornersOf(id))) return;
+    this.corners[id] = { marks: clean, at: stamp(this.corners[id] ?? NO_CORNERS, now) };
     this.saveStars();
     this.tell(id);
   }
@@ -184,7 +206,10 @@ export class Inbox {
       const myName = this.names[s.id] ?? NO_NAME;
       const named = laterName(myName, { text: cleanName(s.name ?? ""), at: s.name_at ?? 0 });
       if (!sameName(named, myName)) this.names[s.id] = named;
-      if (!sameStar(won, mine) || !sameName(named, myName)) edited.push(s.id);
+      const myCorners = this.corners[s.id] ?? NO_CORNERS;
+      const cornered = laterCorners(myCorners, { marks: cleanCorners(s.corners ?? []), at: s.corners_at ?? 0 });
+      if (!sameCorners(cornered, myCorners)) this.corners[s.id] = cornered;
+      if (!sameStar(won, mine) || !sameName(named, myName) || !sameCorners(cornered, myCorners)) edited.push(s.id);
     }
     if (edited.length) {
       this.saveStars();
@@ -193,8 +218,11 @@ export class Inbox {
   }
 
   private stateOf(id: string): CurveState {
-    const star = this.stars[id] ?? NO_STAR, name = this.names[id] ?? NO_NAME;
-    return { id, rev: this.revs[id] ?? 1, star: star.on, star_at: star.at, name: name.text, name_at: name.at };
+    const star = this.stars[id] ?? NO_STAR, name = this.names[id] ?? NO_NAME, corners = this.corners[id];
+    return {
+      id, rev: this.revs[id] ?? 1, star: star.on, star_at: star.at, name: name.text, name_at: name.at,
+      ...(corners ? { corners: corners.marks, corners_at: corners.at } : {}),
+    };
   }
 
   private drop(ids: readonly string[]): void {
@@ -202,6 +230,7 @@ export class Inbox {
     for (const id of ids) {
       delete this.stars[id];
       delete this.names[id];
+      delete this.corners[id];
     }
     this.saveList();
     this.saveStars();
@@ -223,13 +252,15 @@ export class Inbox {
     this.store.set(REVS_KEY, JSON.stringify(this.revs));
   }
 
-  /** The stars and the names, of curves still in the list. */
+  /** The stars, names and corners, of curves still in the list. */
   private saveStars(): void {
     const ids = new Set(this.list.map((c) => c.id));
     for (const id of Object.keys(this.stars)) if (!ids.has(id)) delete this.stars[id];
     for (const id of Object.keys(this.names)) if (!ids.has(id)) delete this.names[id];
+    for (const id of Object.keys(this.corners)) if (!ids.has(id)) delete this.corners[id];
     this.store.set(STARS_KEY, JSON.stringify(this.stars));
     this.store.set(NAMES_KEY, JSON.stringify(this.names));
+    this.store.set(CORNERS_KEY, JSON.stringify(this.corners));
   }
 
   /** Only ids still in the list are kept, so the cap and deletes tidy this too. */

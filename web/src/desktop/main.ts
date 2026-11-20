@@ -22,11 +22,13 @@ import { pointsTsv, type Curve, type Message } from "../relay/messages";
 import { desktopSecret, forgetPairing, pairingUrl, storedSecret } from "../relay/pairing";
 import { LocalStore, MemoryStore, readJson, type KeyValueStore } from "../relay/store";
 import {
-  AUTO_KEY, FusionBridge, InsertLog, autoInsert, fusionMode, markText, waitForSend,
+  AUTO_KEY, FusionBridge, InsertLog, addinHasCorners, autoInsert, fusionMode, markText, waitForSend,
   type FusionStatus, type How, type Inserted,
 } from "./fusion";
 import { DOWNLOADS, downloadName, type DownloadKind } from "./names";
 import { plotSvg } from "./plot";
+import { dxfText } from "../pipeline/dxf";
+import { pieces, shape, toggleMark, type Shaped } from "./corners";
 import { qrSvg } from "./qr";
 import { Selection } from "./selection";
 import { splineSamples } from "./spline";
@@ -45,6 +47,8 @@ const BUILD = import.meta.env.BUILD_ID;
  * does not have it yet. The zip is fusion/SplineWire, put on the site by
  * `npm run assets`. Fusion runs an add-in from any folder it is pointed at,
  * so nothing has to be copied into its own folders (decision O5). */
+/** Under the drawing: how to mark a corner (corners.ts). */
+const CORNER_HINT = "Step or ledge rounded off? Click the point at its corner to make it sharp.";
 const ADDIN_HELP = `<details class="addin"><summary>No Paste points button in Fusion?</summary>
   <ol>
     <li><a href="SplineWire-fusion-addin.zip" download>Download the add-in</a> and unzip it anywhere you will keep it.</li>
@@ -352,7 +356,12 @@ async function insertCurve(c: Curve, how: How): Promise<void> {
     // A new sketch is named after the photo with its extension cut off (palette.py
     // sketch_name): a person's name gets a final dot, so all of it is kept.
     const named = inbox.nameOf(c.id);
-    if (await bridge.insert(named ? { ...c, photo: `${named}.` } : c, how) === "no-sketch") {
+    const s = shapedOf(c);
+    if (s.corners.length && fusionStatus && !addinHasCorners(fusionStatus.addin)) {
+      toast("This add-in puts in one smooth spline, without the sharp corners: download it again from the Spline Wire website.", 7000);
+    }
+    const shaped = { ...c, points_mm: s.points, corners: s.corners };
+    if (await bridge.insert(named ? { ...shaped, photo: `${named}.` } : shaped, how) === "no-sketch") {
       marks.set(c.id, { state: "waiting" });
       toast(`New curve: ${title(c)}. Open a sketch and press Insert to put it there.`, 5000);
     }
@@ -594,18 +603,29 @@ function measureHereHtml(): string {
     <button type="button" class="btn small" data-act="pick">Choose a photo…</button>, to measure it here.</p>`;
 }
 
+/** The curve with the corners marked on it made sharp (corners.ts). */
+function shapedOf(c: Curve): Shaped {
+  return shape(c.points_mm, c.pins_mm, c.chain.half_width_mm, inbox.cornersOf(c.id));
+}
+
 function curveHtml(c: Curve): string {
   const t = Date.parse(c.measured_at);
   const mine = inbox.isLocal(c.id);
   const d = c.diagnostics;
-  const spline = splineSamples(c.points_mm);
+  const s = shapedOf(c);
+  const splines = pieces(s).map((p) => splineSamples(p));
+  const spline = splines.flat();
   const xs = [...spline, ...c.pins_mm].map((p) => p[0]);
   const ys = [...spline, ...c.pins_mm].map((p) => p[1]);
   const size = `${Math.round(Math.max(...xs) - Math.min(...xs))} × ${Math.round(Math.max(...ys) - Math.min(...ys))} mm`;
-  const plot = plotSvg(c.points_mm, c.pins_mm, spline, `The measured curve, ${plural(c.points_mm.length, "point")}, ${size}, on a millimetre grid`);
+  const sharp = s.corners.length ? `, ${plural(s.corners.length, "sharp corner")}` : "";
+  const plot = plotSvg(s.points, c.pins_mm, spline, `The measured curve, ${plural(s.points.length, "point")}${sharp}, ${size}, on a millimetre grid`, {
+    pieces: splines, targets: c.points_mm, replaced: s.replaced,
+    corners: s.corners.map((i, j) => ({ at: s.points[i]!, source: s.zones[j]!.source })),
+  });
   const found = c.chain.n_pins - d.missing_pins;
   const cells: [string, string, string, boolean][] = [
-    ["Points", `${c.points_mm.length}`, "on the object's edge", false],
+    ["Points", `${s.points.length}`, s.corners.length ? `${plural(s.corners.length, "sharp corner")}` : "on the object's edge", false],
     ["Pins", `${found}<small>/${c.chain.n_pins}</small>`, d.missing_pins ? `${d.missing_pins} missing` : "all found", d.missing_pins > 0],
     ["Tilt", `${d.tilt_deg.toFixed(1)}<small>°</small>`, "camera to table", false],
     ["Link error", d.link_residual_rms_mm.toFixed(3), `rms · max ${d.link_residual_max_mm.toFixed(3)} mm`,
@@ -633,7 +653,9 @@ function curveHtml(c: Curve): string {
       <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--screen-ink)" stroke-opacity=".55"/></svg>Pin of the chain</span>
       <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3.5" fill="var(--plot-pt)"/></svg>Point on the object's edge</span>
       <span><svg viewBox="0 0 14 14"><line x1="1" y1="7" x2="13" y2="7" stroke="var(--trace)" stroke-width="2"/></svg>Spline through the points</span>
+      <span><svg viewBox="0 0 14 14"><rect x="3.5" y="3.5" width="7" height="7" transform="rotate(45 7 7)" fill="var(--plot-pt)"/></svg>Sharp corner</span>
     </div>
+    <p class="corner-hint">${CORNER_HINT}</p>
   </section>
   <aside class="read" aria-label="Measurement">
     <div class="sec"><span>Curve · mm</span><span class="mono">${esc(size)}</span></div>
@@ -659,10 +681,19 @@ function curveHtml(c: Curve): string {
   </aside>`;
 }
 
-/** The downloads: the phone's files unpacked, and the clipboard table. */
+/** The downloads: the phone's files unpacked, and the clipboard table. With
+ * sharp corners, the files of points are made here from the curve with its
+ * corners; the SVG and the Fusion CSV have one smooth spline, so they go. */
 async function fillDownloads(c: Curve): Promise<void> {
   const texts: Partial<Record<DownloadKind, string>> = c.files ? await unpack(c.files) : {};
-  texts.tsv = pointsTsv(c.points_mm);
+  const s = shapedOf(c);
+  texts.tsv = pointsTsv(s.points, s.corners);
+  if (s.corners.length) {
+    texts.dxf = dxfText(s.points, s.corners);
+    texts.csv = pointsTsv(s.points, s.corners).replaceAll("\t", ",").replaceAll("\n", "\r\n");
+    delete texts.svg;
+    delete texts.fusion_csv;
+  }
   if (selection.id !== c.id || !$("exp")) return;      // another curve is on show by now
   const links = DOWNLOADS.filter((d) => texts[d.kind] !== undefined).map((d) => {
     const url = URL.createObjectURL(new Blob([texts[d.kind]!], { type: d.type }));
@@ -670,7 +701,8 @@ async function fillDownloads(c: Curve): Promise<void> {
     const name = downloadName(d.kind, c.photo, inbox.nameOf(c.id));
     return `<a class="btn" href="${url}" download="${esc(name)}" data-kind="${d.kind}" title="${esc(name)}">${d.label}</a>`;
   });
-  const missing = c.files ? "" : `<span>The phone sent this curve without its files (too long for one message): only the points can be saved.</span>`;
+  const missing = c.files ? (s.corners.length ? `<span>With sharp corners: no SVG or Fusion CSV, which hold one smooth spline.</span>` : "")
+    : `<span>The phone sent this curve without its files (too long for one message): only ${s.corners.length ? "the files of points" : "the points"} can be saved.</span>`;
   $("exp").innerHTML = `Save as ${links.join("")}${missing}`;
 }
 
@@ -692,7 +724,8 @@ let copying: string | null = null;
 async function copyPoints(): Promise<void> {
   const c = current();
   if (!c) return;
-  const text = pointsTsv(c.points_mm);
+  const s = shapedOf(c);
+  const text = pointsTsv(s.points, s.corners);
   let ok = false;
   try {
     await navigator.clipboard.writeText(text);
@@ -706,8 +739,26 @@ async function copyPoints(): Promise<void> {
       copying = null;
     }
   }
-  toast(ok ? `Copied ${plural(c.points_mm.length, "point")}. In Fusion, click Paste points while editing a sketch.`
+  const sharp = s.corners.length ? ` and ${plural(s.corners.length, "sharp corner")}` : "";
+  toast(ok ? `Copied ${plural(s.points.length, "point")}${sharp}. In Fusion, click Paste points while editing a sketch.`
     : "Couldn't copy. Use Save as TSV instead.");
+}
+
+function clipboardOf(c: Curve): string {
+  const s = shapedOf(c);
+  return pointsTsv(s.points, s.corners);
+}
+
+/** A click on a point of the drawing: a sharp corner there, or a smooth curve again. */
+function toggleCorner(i: number): void {
+  const c = current();
+  if (!c || !Number.isInteger(i)) return;
+  const marks = inbox.cornersOf(c.id);
+  const before = shapedOf(c).corners.length;
+  inbox.setCorners(c.id, toggleMark(c.points_mm, shapedOf(c), marks, i));
+  renderMain();
+  const after = shapedOf(c).corners.length;
+  if (after !== before) toast(after > before ? "Sharp corner. Click it again to make the curve smooth there." : "Smooth again there.");
 }
 
 async function copyLink(): Promise<void> {
@@ -857,6 +908,7 @@ document.addEventListener("click", (ev) => {
   else if (act === "unpair") void unpair();
   else if (act === "pick") $("pick").click();
   else if (act === "insert" && current()) void insertCurve(current()!, "ask");
+  else if (act === "corner") toggleCorner(Number(t.dataset.i));
 });
 
 $<HTMLInputElement>("pick").addEventListener("change", (ev) => {
@@ -946,7 +998,7 @@ document.addEventListener("keydown", (ev) => {
 });
 document.addEventListener("copy", (ev) => {
   // Edit > Copy with nothing selected, and copyPoints' fallback.
-  const text = copying ?? (nothingSelected() ? (current() && pointsTsv(current()!.points_mm)) : null);
+  const text = copying ?? (nothingSelected() ? (current() && clipboardOf(current()!)) : null);
   if (!text || !ev.clipboardData) return;
   ev.clipboardData.setData("text/plain", text);
   ev.preventDefault();

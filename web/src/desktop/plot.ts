@@ -66,9 +66,23 @@ export function plotGeometry(points: readonly Point[], pins: readonly Point[], s
   };
 }
 
+/** What the drawing adds for sharp corners (corners.ts): the curve as pieces,
+ * the corners, and the curve's own points as targets to click. */
+export interface CornerLayer {
+  /** One spline per piece, in place of `spline`. */
+  pieces: readonly (readonly Point[])[];
+  /** Where each corner is, and the curve's own point it was marked on. */
+  corners: readonly { at: Point; source: number }[];
+  /** The curve's own points: each is a target (data-act="corner", data-i). */
+  targets: readonly Point[];
+  /** Targets a corner replaced, drawn faint. */
+  replaced: readonly number[];
+}
+
 /** The SVG for a curve. Colours come from the page's CSS variables. */
-export function plotSvg(points: readonly Point[], pins: readonly Point[], spline: readonly Point[], label: string): string {
-  const g = plotGeometry(points, pins, spline);
+export function plotSvg(points: readonly Point[], pins: readonly Point[], spline: readonly Point[], label: string,
+  layer?: CornerLayer): string {
+  const g = plotGeometry(points, pins, layer ? [...spline, ...layer.pieces.flat(), ...layer.targets] : spline);
   const w = g.x1 - g.x0;
   const h = g.y1 - g.y0;
   const n = (v: number) => +v.toFixed(3);
@@ -86,8 +100,14 @@ export function plotSvg(points: readonly Point[], pins: readonly Point[], spline
 <g class="grid">${grid}</g>
 <path class="chain" d="${path(pins)}"/>
 ${pins.map((p) => `<circle class="pin" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 1.6)}"/>`).join("")}
-<path class="trace" d="${path(spline)}"/>
-${points.map((p) => `<circle class="pt" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 1.1)}"/>`).join("")}
+${layer ? layer.pieces.map((pc) => `<path class="trace" d="${path(pc)}"/>`).join("") : `<path class="trace" d="${path(spline)}"/>`}
+${layer ? layer.replaced.map((i) => layer.targets[i]!).map((p) => `<circle class="pt-was" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 1.1)}"/>`).join("") : ""}
+${points.filter((p) => !layer?.corners.some((c) => c.at[0] === p[0] && c.at[1] === p[1]))
+    .map((p) => `<circle class="pt" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 1.1)}"/>`).join("")}
+${layer ? layer.corners.map((c) => `<rect class="corner" x="${n(c.at[0] - g.r * 1.6)}" y="${n(c.at[1] - g.r * 1.6)}" width="${n(g.r * 3.2)}" height="${n(g.r * 3.2)}" transform="rotate(45 ${n(c.at[0])} ${n(c.at[1])})"/>`).join("") : ""}
+${layer ? layer.targets.map((p, i) => (i === 0 || i === layer.targets.length - 1 ? "" :
+    `<circle class="hit" data-act="corner" data-i="${i}" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 3)}"><title>${layer.corners.some((c) => c.source === i) || layer.replaced.includes(i) ? "Sharp corner: click to make it smooth" : "Click to make a sharp corner here"}</title></circle>`)).join("") : ""}
+${layer ? layer.corners.map((c) => `<circle class="hit" data-act="corner" data-i="${c.source}" cx="${n(c.at[0])}" cy="${n(c.at[1])}" r="${n(g.r * 3)}"><title>Sharp corner: click to make it smooth</title></circle>`).join("") : ""}
 <line class="bar" x1="${n(g.bar.x1)}" y1="${n(g.bar.y)}" x2="${n(g.bar.x2)}" y2="${n(g.bar.y)}"/>
 </g>
 <text class="bar-label" x="${n((g.bar.x1 + g.bar.x2) / 2)}" y="${n(-(g.bar.y + 2 * g.r))}" text-anchor="middle" font-size="${n(g.r * 3.4)}">${g.bar.label}</text>

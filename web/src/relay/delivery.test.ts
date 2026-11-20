@@ -218,4 +218,9 @@ describe("messages", () => {
       "x_mm\ty_mm\n0.0000\t0.0000\n9.5000\t1.2500\n-0.0000\t123.4567\n0.0000\t-2.5000\n",
     );
   });
+
+  it("adds a corner column to the clipboard table when the curve has sharp corners", () => {
+    expect(pointsTsv([[0, 0], [10, 0], [10, 10]], [1])).toBe("x_mm\ty_mm\tcorner\n0.0000\t0.0000\t0\n10.0000\t0.0000\t1\n10.0000\t10.0000\t0\n");
+    expect(pointsTsv([[0, 0], [10, 0]], [])).toBe(pointsTsv([[0, 0], [10, 0]]));
+  });
 });
