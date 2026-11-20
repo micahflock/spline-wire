@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { followChain } from "./trace";
 import type { CoachState } from "./types";
-import { PROBLEM_WORDS, pinsText, sayFor } from "./words";
+import { ARROW_DETAIL, PROBLEM_WORDS, pinsText, sayFor } from "./words";
 
 const state = (s: Partial<CoachState>): CoachState =>
-  ({ phase: "adjusting", problems: [], hold: 0, pinsFound: 11, pinsExpected: 13, straighter: false, ...s });
+  ({ phase: "adjusting", problems: [], hold: 0, pinsFound: 11, pinsExpected: 13, straighter: false, arrow: null, ...s });
 const ready = { engineReady: true };
 
 describe("what the camera view says", () => {
@@ -21,9 +21,18 @@ describe("what the camera view says", () => {
   it("says hold still while the ring fills, and what it is waiting for", () => {
     expect(sayFor(state({ phase: "steady", hold: 0.5 }), ready)).toEqual({ title: "Hold still…", detail: "" });
     expect(sayFor(state({ phase: "steady", straighter: true }), ready).detail).toMatch(/Straighter/);
+    const arrow = { dir: [1, 0] as [number, number], tiltDeg: 15 };
+    expect(sayFor(state({ phase: "steady", straighter: true, arrow }), ready).detail).toMatch(/arrow/);
     expect(sayFor(state({ phase: "capture" }), ready).title).toBe("Taking the photo…");
     expect(sayFor(state({ problems: [] }), ready).title).toBe("Hold still…");      // a problem not shown yet
     expect(sayFor(state({}), { engineReady: false }).title).toMatch(/engine/);
+  });
+
+  it("points to the arrow when the phone is tilted and there is one", () => {
+    expect(sayFor(state({ problems: ["tilted"] }), ready)).toEqual(PROBLEM_WORDS.tilted);
+    const arrow = { dir: [0, 1] as [number, number], tiltDeg: 30 };
+    expect(sayFor(state({ problems: ["tilted"], arrow }), ready)).toEqual({ title: PROBLEM_WORDS.tilted.title, detail: ARROW_DETAIL });
+    expect(sayFor(state({ problems: ["moving"], arrow }), ready)).toEqual(PROBLEM_WORDS.moving);
   });
 
   it("counts pins once a chain is seen", () => {

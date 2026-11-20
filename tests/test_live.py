@@ -36,12 +36,32 @@ def test_finds_the_chain_and_its_tilt_among_clutter(dot_spec):
 
 
 def test_a_frame_without_a_chain_is_not_an_error(dot_spec):
-    empty = {"order": [], "gaps": [], "tilt_deg": None, "link_residual_max_mm": None}
+    empty = {"order": [], "gaps": [], "tilt_deg": None, "link_residual_max_mm": None, "tilt_dir": None}
     assert analyse([], [], (1920, 1080), dot_spec) == empty
     assert analyse([[1, 1], [5, 5]], [3, 3], (1920, 1080), dot_spec) == empty
     assert analyse(np.zeros((500, 2)), np.ones(500), (1920, 1080), dot_spec) == empty
     part = analyse([[100, 100], [200, 100], [300, 100]], [50, 50, 50], (1920, 1080), dot_spec)
     assert len(part["order"]) == 3 and part["tilt_deg"] is None     # too few links to rectify
+    assert part["tilt_dir"] is None
+
+
+def test_tilt_dir_points_where_the_camera_should_move(dot_spec):
+    """Toward the spot straight above the chain, as the frame shows it, for
+    tilts in every direction (no noise: experiments/live_view/tilt_direction.py
+    has the noisy cases)."""
+    pins = s_curve_pins(dot_spec)
+    target = tuple(pins.mean(axis=0))
+    size = (1920, 1080)
+    f = focal_px_from_35mm(26, size)
+    for k, direction in enumerate(range(0, 360, 45)):
+        cam = look_at_plane(f, size, 260.0, tilt_deg=20.0, tilt_direction_deg=direction, roll_deg=50.0 * k,
+                            target_mm=target)
+        move = cam.R @ (np.array([target[0], target[1], 260.0]) + cam.R.T @ cam.t)
+        truth = move[:2] / np.hypot(*move[:2])
+        pts = cam.project(pins)
+        a = analyse(pts, np.full(len(pts), dot_spec.fiducial_mm * f / 260.0), size, dot_spec, f)
+        assert abs(np.hypot(*a["tilt_dir"]) - 1) < 2e-3
+        assert np.dot(a["tilt_dir"], truth) > np.cos(np.radians(2)), direction
 
 
 def test_is_quick_enough_to_run_a_few_times_a_second(dot_spec):

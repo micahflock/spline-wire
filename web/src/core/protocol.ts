@@ -78,6 +78,10 @@ export interface FrameAnalysis {
   /** null when the chain cannot be rectified (too few pins). */
   tilt_deg: number | null;
   link_residual_max_mm: number | null;
+  /** A unit vector in the frame's pixel axes (x right, y down) toward the
+   * chain's far side: the way to move the phone, still aimed at the chain, to
+   * look straight down on it. null with tilt_deg, or straight on. */
+  tilt_dir: [number, number] | null;
 }
 
 export class CoreError extends Error {

@@ -33,10 +33,13 @@ def analyse(points_px, diameters_px, size: tuple[int, int], spec: ChainSpec,
 
     Returns {"order": indices into points_px in chain order ([] if no chain),
     "gaps": positions in order that skip a missing pin,
-    "tilt_deg", "link_residual_max_mm": None when there are too few links
-    to take the perspective out}. Never raises for a frame without a chain.
+    "tilt_deg", "link_residual_max_mm", "tilt_dir": None when there are too
+    few links to take the perspective out}. tilt_dir is a unit vector in the
+    frame's pixel axes (x right, y down) toward the chain's far side: the way
+    to move the phone, still aimed at the chain, to look straight down on it.
+    Never raises for a frame without a chain.
     """
-    none = {"order": [], "gaps": [], "tilt_deg": None, "link_residual_max_mm": None}
+    none = {"order": [], "gaps": [], "tilt_deg": None, "link_residual_max_mm": None, "tilt_dir": None}
     pts = np.asarray(points_px, dtype=float).reshape(-1, 2)
     d = np.asarray(diameters_px, dtype=float).reshape(-1)
     if not 3 <= len(pts) <= MAX_POINTS or len(d) != len(pts):
@@ -49,7 +52,7 @@ def analyse(points_px, diameters_px, size: tuple[int, int], spec: ChainSpec,
     except ValueError:
         return none
     out = {"order": [int(i) for i in order.indices], "gaps": [int(k) for k in order.gaps],
-           "tilt_deg": None, "link_residual_max_mm": None}
+           "tilt_deg": None, "link_residual_max_mm": None, "tilt_dir": None}
     if len(order.links) >= min_links(focal_known=focal_px is not None):
         try:
             rect = rectify_chain(pts[order.indices], order.links, spec.pitch_mm, size, focal_px)
@@ -57,7 +60,23 @@ def analyse(points_px, diameters_px, size: tuple[int, int], spec: ChainSpec,
             return out
         out["tilt_deg"] = round(float(rect.tilt_deg), 1)
         out["link_residual_max_mm"] = round(float(rect.residual_max_mm), 3)
+        out["tilt_dir"] = far_side(rect.normal)
     return out
+
+
+def far_side(normal) -> list[float] | None:
+    """The way across the image to the plane's far side, a unit vector rounded
+    to 0.001; None when the camera looks straight down the normal.
+
+    The pins lie on m . X = 1 with m along the normal, so a pin's inverse depth
+    is m . (x, y, 1) for its normalised image point (x, y): it falls fastest,
+    the plane receding, along -(n_x, n_y). Moving the camera that way, still
+    aimed at the chain, turns its axis toward the normal."""
+    v = -np.asarray(normal, dtype=float)[:2]
+    length = float(np.hypot(*v))
+    if length < 1e-9:
+        return None
+    return [round(float(v[0] / length), 3), round(float(v[1] / length), 3)]
 
 
 def analyse_json(doc: dict) -> dict:

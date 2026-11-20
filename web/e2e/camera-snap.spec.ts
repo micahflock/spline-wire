@@ -38,12 +38,13 @@ test.afterEach(async () => {
 });
 
 /** A phone page whose fake camera streams the snap chain at `span` (with `dark`,
- * printed the other way round, and Colours set to match). */
-async function phoneAt(span: number, query = "", dark = false): Promise<Page> {
-  const out = path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}${dark ? "-dark" : ""}`);
+ * printed the other way round, and Colours set to match; seen `tilt` degrees
+ * off straight-on, 12 by default). */
+async function phoneAt(span: number, query = "", dark = false, tilt?: number): Promise<Page> {
+  const out = sceneDir(span, dark, tilt);
   fs.mkdirSync(out, { recursive: true });
-  execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, "3024x4032", "snap", String(span), ...(dark ? ["dark"] : [])],
-    { cwd: ROOT, stdio: "inherit" });
+  execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, "3024x4032", "snap", String(span), ...(dark ? ["dark"] : []),
+    ...(tilt !== undefined ? [`tilt=${tilt}`] : [])], { cwd: ROOT, stdio: "inherit" });
   browser = await chromium.launch({
     args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
       `--use-file-for-fake-video-capture=${path.join(out, "camera.y4m")}`],
@@ -57,6 +58,10 @@ async function phoneAt(span: number, query = "", dark = false): Promise<Page> {
   await page.goto(`phone/${query}`);
   await expect(page.locator("#s-chain")).toHaveValue("snap");
   return page;
+}
+
+function sceneDir(span: number, dark = false, tilt?: number): string {
+  return path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}${dark ? "-dark" : ""}${tilt !== undefined ? `-tilt${tilt}` : ""}`);
 }
 
 const stats = (page: Page) => page.evaluate(() => (window as unknown as { phone: { camera: CameraStats } }).phone.camera);
@@ -131,4 +136,22 @@ test("dark rims on light links (Colours: dark): tracked in the worker, every rim
   expect(st.regions.track).toBeGreaterThan(0);
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
   await measured(page);
+});
+
+test("tilted 32 degrees: no still, and an arrow the way to move the phone", async () => {
+  const page = await phoneAt(0.4, "", false, 32);
+  const truth = JSON.parse(fs.readFileSync(path.join(sceneDir(0.4, false, 32), "camera.json"), "utf-8")) as { move_dir: [number, number] };
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-say-title")).toHaveText("Tilt the phone flatter over the chain", { timeout: 30_000 });
+  await expect(page.locator("#cam-say-detail")).toHaveText(/arrow/);
+  await expect.poll(async () => (await stats(page)).arrow, { timeout: 10_000 }).not.toBeNull();
+  await page.waitForTimeout(1500);
+  const arrow = (await stats(page)).arrow!;
+  const off = (Math.acos(Math.min(1, arrow[0] * truth.move_dir[0] + arrow[1] * truth.move_dir[1])) * 180) / Math.PI;
+  log(`tilt 32: arrow (${arrow.map((v) => v.toFixed(3)).join(", ")}), truth (${truth.move_dir.map((v) => v.toFixed(3)).join(", ")}): ${off.toFixed(1)} degrees off`);
+  expect(off).toBeLessThan(15);
+  expect(await page.locator("#photos li").count()).toBe(0);                // too tilted for the still
+  await page.screenshot({ path: path.join(sceneDir(0.4, false, 32), "arrow.png") });
 });

@@ -5,7 +5,7 @@ import type { FrameReading, Point } from "./types";
 /** A 13-pin chain across the middle of a 1920×1080 frame, straight-on, sharp and still. */
 function reading(t: number, change: Partial<FrameReading> = {}): FrameReading {
   const chain: Point[] = Array.from({ length: 13 }, (_, k) => [360 + 100 * k, 540 + 60 * Math.sin(k)]);
-  return { t, width: 1920, height: 1080, chain, pinsExpected: 13, missing: 0, tiltDeg: 5,
+  return { t, width: 1920, height: 1080, chain, pinsExpected: 13, missing: 0, tiltDeg: 5, tiltDir: [1, 0],
     sharpness: 0.8, motion: 0.05, ...change };
 }
 
@@ -78,5 +78,57 @@ describe("coach", () => {
     const coach = new Coach();
     const s = run(coach, 0, 700, { tiltDeg: 18 });
     expect(s).toMatchObject({ phase: "capture", straighter: true });
+  });
+
+  it("shows an arrow the way to move the phone once the readings agree, only while it is tilted", () => {
+    const coach = new Coach();
+    expect(coach.update(reading(0, { tiltDeg: 5, tiltDir: [0, 1] })).arrow).toBeNull();          // straight enough
+    // Readings agreeing builds up: the second tilted reading in the same way shows it.
+    let s = coach.update(reading(100, { tiltDeg: 20, tiltDir: [0, 1] }));
+    expect(s.arrow).not.toBeNull();
+    expect(s.arrow!.dir[1]).toBeCloseTo(1);
+    expect(s.arrow!.tiltDeg).toBe(20);
+    expect(s.phase).toBe("steady");                        // a nudge: 20 degrees does not block the shot
+    // Between the two limits it stays (no blinking on the borderline)...
+    expect(coach.update(reading(200, { tiltDeg: 10, tiltDir: [0, 1] })).arrow).not.toBeNull();
+    // ...and goes below the looser one, with the chain, or with the tilt unknown.
+    expect(coach.update(reading(300, { tiltDeg: 8, tiltDir: [0, 1] })).arrow).toBeNull();
+    s = coach.update(reading(400, { tiltDeg: 20, tiltDir: [0, 1] }));
+    expect(s.arrow).not.toBeNull();
+    expect(coach.update(reading(500, { chain: [], tiltDeg: 20 })).arrow).toBeNull();
+    coach.update(reading(600, { tiltDeg: 20, tiltDir: [0, 1] }));
+    expect(coach.update(reading(700, { tiltDeg: null, tiltDir: null })).arrow).toBeNull();
+    // One reading is not enough after a fresh start.
+    expect(new Coach().update(reading(0, { tiltDeg: 30, tiltDir: [0, 1] })).arrow).toBeNull();
+  });
+
+  it("shows no arrow while the readings disagree", () => {
+    const coach = new Coach();
+    const dirs: Point[] = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, -0.7], [1, 0], [-1, 0]];
+    dirs.forEach((d, k) => expect(coach.update(reading(100 * k, { tiltDeg: 30, tiltDir: d })).arrow).toBeNull());
+  });
+
+  it("turns the arrow gradually, so one reading off does not swing it", () => {
+    // 30 degrees blocks the shot, so the coach keeps coaching throughout.
+    const coach = new Coach();
+    for (let t = 0; t <= 500; t += 100) coach.update(reading(t, { tiltDeg: 30, tiltDir: [1, 0] }));
+    const a = coach.update(reading(600, { tiltDeg: 30, tiltDir: [0, 1] })).arrow!;
+    const angle = (Math.atan2(a.dir[1], a.dir[0]) * 180) / Math.PI;
+    expect(angle).toBeGreaterThan(10);
+    expect(angle).toBeLessThan(45);                         // less than halfway toward the odd reading
+    expect(Math.hypot(...a.dir)).toBeCloseTo(1);
+    let s = a;
+    for (let t = 700; t <= 2000; t += 100) s = coach.update(reading(t, { tiltDeg: 30, tiltDir: [0, 1] })).arrow!;
+    expect(s.dir[1]).toBeGreaterThan(0.999);               // and settles on a steady new way
+  });
+
+  it("drops the arrow while taking the still", () => {
+    const coach = new Coach();
+    expect(coach.update(reading(0, { tiltDeg: 18, tiltDir: [1, 0] })).arrow).toBeNull();
+    expect(coach.update(reading(100, { tiltDeg: 18, tiltDir: [1, 0] })).arrow).not.toBeNull();
+    const s = run(coach, 200, 700, { tiltDeg: 18, tiltDir: [1, 0] });
+    expect(s.phase).toBe("capture");
+    expect(s.arrow).toBeNull();
+    expect(coach.update(reading(800, { tiltDeg: 18, tiltDir: [1, 0] })).arrow).toBeNull();     // captured
   });
 });
