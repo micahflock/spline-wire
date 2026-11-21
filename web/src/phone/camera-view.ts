@@ -450,18 +450,19 @@ export class CameraView {
       return;
     }
     const t0 = performance.now();
-    // Only the part of the frame round the chain while it is tracked, drawn
-    // finely; else the whole frame, or a quarter of it (overlay/region.ts).
-    const r = this.session.region(v.videoWidth, v.videoHeight);
     // A pairing code (camera/qr-scan.ts), looked for while no chain is tracked.
-    // A frame it takes is the overlay's frame skipped, under the same budget.
-    if (this.qr && r.kind !== "track" && this.qr.frame(v, now)) {
+    // A frame it takes is the overlay's frame skipped, under the same budget;
+    // asked before the region, so that it does not use up a step of the scan.
+    if (this.qr && !this.session.tracking && this.qr.frame(v, now)) {
       const cost = this.qr.grabMs;
       this.stats.qr = `${this.qr.frames + 1} × ${cost.toFixed(0)}+${this.qr.lastMs.toFixed(0)} ms`;
       this.lastWork = now;
       this.gap = cost / BUSY_SHARE - cost;
       return;
     }
+    // Only the part of the frame round the chain while it is tracked, drawn
+    // finely; else the whole frame, or a quarter of it (overlay/region.ts).
+    const r = this.session.region(v.videoWidth, v.videoHeight);
     // In a worker when the browser can (camera/grab.ts); a check frame is
     // grabbed here as well, and the two copies compared.
     let check: VideoFrame | null = null;

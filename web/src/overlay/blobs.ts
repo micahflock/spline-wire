@@ -69,7 +69,12 @@ export const BLOBS = {
   minRaysWithContrast: 0.8,
   /** The margin is at most this fraction of the inside, on the median ray. */
   maxMarginRatio: 0.92,
-  /** Stop after this many candidates: a busy frame is not worth more time. */
+  /** Test at most this many candidates of each mask, the largest: a busy frame
+   * is not worth more time, and a table's grain is finer than the fiducials it
+   * hides. Until 2026-11-21 the first this many in row order were tested, and a
+   * wooden table's grain above the chain used them all up before its rims (the
+   * owner's iPhone: no chain found by the scan, which reads the frame at 1200
+   * px and finer; experiments/live_view/real_frame.ts). */
   maxCandidates: 400,
 };
 
@@ -151,18 +156,21 @@ export function detectBlobs(frame: GrayFrame, scale: number | Window = 1, shape:
     // the mask wherever the link around it is narrow or missing (the snap-fit
     // chain's rim is as wide as its head: only the arms show outside it).
     // Closed rims are a second source.
-    for (const c of components(masks.dark!, w, h)) {
+    // A thin rim narrower than a 60 degree tilt makes it is refused by ringAt:
+    // left out before the largest are chosen, so they do not take its place.
+    const minAspect = shape.inner >= THIN_RING ? BLOBS.minRimAspect : 0;
+    for (const c of largest(components(masks.dark!, w, h, minAspect))) {
       keep(ringAt(frame, c.cx, c.cy, c.rx / shape.inner, c.ry / shape.inner, shape.inner));
     }
-    for (const c of components(masks.bright, w, h)) keep(ringAt(frame, c.cx, c.cy, c.rx, c.ry, shape.inner));
+    for (const c of largest(components(masks.bright, w, h, minAspect))) keep(ringAt(frame, c.cx, c.cy, c.rx, c.ry, shape.inner));
   } else {
-    for (const c of components(masks.bright, w, h)) keep(dotAt(frame, c.cx, c.cy, c.rx, c.ry));
+    for (const c of largest(components(masks.bright, w, h))) keep(dotAt(frame, c.cx, c.cy, c.rx, c.ry));
   }
   return found.map((b) => ({ x: win.x + (b.x + 0.5) * win.scaleX - 0.5, y: win.y + (b.y + 0.5) * win.scaleY - 0.5, d: b.d * mean,
     contrast: b.contrast, sharpness: widthScale === 1 ? b.sharpness : rescaleSharpness(b.sharpness, widthScale) }));
 }
 
-interface Box {
+export interface Box {
   cx: number;
   cy: number;
   rx: number;
@@ -254,11 +262,12 @@ export function thresholds(frame: GrayFrame, withDark: boolean): { bright: Uint8
 }
 
 /** The mask's connected components (8-connected) of a plausible size and
- * shape, as boxes: at least BLOBS.minSide across, at most a quarter of the
- * frame and BLOBS.maxAspect times longer than wide. Stops after
- * BLOBS.maxCandidates. The mask is laid out as thresholds() makes it (a zero
+ * shape, as boxes in row order: at least BLOBS.minSide across, at most a
+ * quarter of the frame, BLOBS.maxAspect times longer than wide at most, and at
+ * least `minAspect` times as wide as long. All of them: largest() chooses
+ * which are tested. The mask is laid out as thresholds() makes it (a zero
  * border round a w × h frame) and is used up (visited pixels are set to 2). */
-function components(mask: Uint8Array, w: number, h: number): Box[] {
+function components(mask: Uint8Array, w: number, h: number, minAspect = 0): Box[] {
   const out: Box[] = [];
   const W = w + 2;
   if (scratch.stack.length < w * h) scratch.stack = new Int32Array(w * h);
@@ -300,13 +309,20 @@ function components(mask: Uint8Array, w: number, h: number): Box[] {
       }
       const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
       const lo = Math.min(bw, bh), hi = Math.max(bw, bh);
-      if (lo < BLOBS.minSide || hi > maxSide || hi > BLOBS.maxAspect * lo) continue;
+      if (lo < BLOBS.minSide || hi > maxSide || hi > BLOBS.maxAspect * lo || lo < minAspect * hi) continue;
       // Padded to frame pixels: one less in each direction.
       out.push({ cx: (x0 + x1) / 2 - 1, cy: (y0 + y1) / 2 - 1, rx: bw / 2, ry: bh / 2 });
-      if (out.length >= BLOBS.maxCandidates) return out;
     }
   }
   return out;
+}
+
+/** The BLOBS.maxCandidates largest boxes (by area), still in row order; all of
+ * them if there are no more. */
+export function largest(boxes: Box[], max = BLOBS.maxCandidates): Box[] {
+  if (boxes.length <= max) return boxes;
+  const order = boxes.map((_, i) => i).sort((a, b) => boxes[b]!.rx * boxes[b]!.ry - boxes[a]!.rx * boxes[a]!.ry || a - b);
+  return order.slice(0, max).sort((a, b) => a - b).map((i) => boxes[i]!);
 }
 
 /** 1 where a pixel is above its neighbourhood's mean by BLOBS.offset (with

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectBlobs, localThreshold, rescaleSharpness, shapeOf, thresholds, toGray, workSize } from "./blobs";
+import { BLOBS, detectBlobs, largest, localThreshold, rescaleSharpness, shapeOf, thresholds, toGray, workSize } from "./blobs";
 import { analyse } from "../pipeline/live";
 import { specFromDict } from "../pipeline/chain";
 import { fullRegion, RegionTracker } from "./region";
@@ -187,6 +187,39 @@ describe("detectBlobs", { timeout: 60_000 }, () => {
       return null;
     };
     expect(detectBlobs(scene(640, 360, 128, specks), 1, shape)).toEqual([]);   // no bright band round them
+  });
+
+  it("finds the rims below a grained table's hundreds of look-alikes, the largest candidates being tested first", () => {
+    // The owner's wooden table (2026-11-21): its grain gave more than
+    // BLOBS.maxCandidates components in each mask above the chain, and the first
+    // that many in row order were all that was tested. Here: dark and light
+    // specks, smaller than the holes, on a grid over the top of the frame.
+    const shape = shapeOf(SNAP);
+    const pins: [number, number][] = SNAP_PINS.map(([x, y]) => [x, y + 230]);
+    const rings = ringChain(pins, 8, shape.inner, 8, 4.55);
+    const grain = (x: number, y: number): number | null => {
+      if (y > 330) return rings(x, y);
+      const i = Math.round(x / 9), j = Math.round(y / 9);
+      return Math.hypot(x - 9 * i, y - 9 * j) <= 2.6 ? ((i + j) % 2 ? 40 : 220) : null;
+    };
+    const frame = scene(640, 520, 128, grain);
+    const boxes = (dark: boolean) => {
+      const mask = localThreshold(frame, dark);
+      let n = 0;
+      for (let y = 0; y < 330; y += 9) for (let x = 0; x < 640; x += 9) if (mask[y * 640 + x]) n++;
+      return n;
+    };
+    expect(boxes(true)).toBeGreaterThan(BLOBS.maxCandidates);           // more specks than are tested, in each mask
+    expect(boxes(false)).toBeGreaterThan(BLOBS.maxCandidates);
+    const found = detectBlobs(frame, 1, shape);
+    expect(pins.filter(([x, y]) => found.some((b) => Math.hypot(b.x - x, b.y - y) < 0.4)).length).toBe(13);
+  });
+
+  it("tests the largest candidates, in row order", () => {
+    const box = (cx: number, r: number) => ({ cx, cy: 0, rx: r, ry: r });
+    const boxes = [box(0, 2), box(1, 5), box(2, 3), box(3, 5), box(4, 1)];
+    expect(largest(boxes, 3).map((b) => b.cx)).toEqual([1, 2, 3]);
+    expect(largest(boxes, 5)).toBe(boxes);
   });
 
   it("gives rings a larger work frame, since their rims are thin", () => {
