@@ -11,6 +11,7 @@
 import type { CameraInfo } from "../camera/choose";
 import type { ChainSpec, Side } from "../core/types";
 import { readJson, type KeyValueStore } from "../relay/store";
+import { KEEP_PHOTOS } from "./photos";
 import type { CameraMemory, LensMemory, LensState } from "./lenses";
 
 export interface Settings extends LensState {
@@ -38,7 +39,12 @@ export interface Settings extends LensState {
   liveSize: "fast" | "full";
   /** Cameras (by label) whose takePhoto still came back small with the fast stream: full size for them. */
   fullStreamCameras: string[];
+  /** How many of the newest photos keep their photo; older ones keep only their curve (photos.ts cleanupPlan). */
+  keepPhotos: number;
 }
+
+/** The choices for Settings, Photos kept. */
+export const KEEP_PHOTO_CHOICES = [1, 3, 10, 30] as const;
 
 export type Shade = "light" | "dark";
 
@@ -56,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shade: "light",
   liveSize: "fast",
   fullStreamCameras: [],
+  keepPhotos: KEEP_PHOTOS,
 };
 
 /** session._focal accepts 5 to 500 mm. */
@@ -98,6 +105,7 @@ export function loadSettings(store: KeyValueStore): Settings {
   if (raw.shade === "dark") s.shade = "dark";
   if (raw.liveSize === "full") s.liveSize = "full";
   s.fullStreamCameras = Array.isArray(raw.fullStreamCameras) ? raw.fullStreamCameras.filter((c): c is string => typeof c === "string").slice(0, 20) : [];
+  if ((KEEP_PHOTO_CHOICES as readonly unknown[]).includes(raw.keepPhotos)) s.keepPhotos = raw.keepPhotos as number;
   return s;
 }
 

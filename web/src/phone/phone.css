@@ -151,6 +151,7 @@ select { max-width: 55%; }
 .photos .who { min-width: 0; }
 .photos .who > span { display: block; }
 .photos .del { width: 48px; height: 48px; border: none; background: none; color: var(--muted); font-size: 22px; }
+.tidy { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .photos .star { width: 44px; height: 48px; border: none; background: none; color: var(--muted); font-size: 21px; padding: 0; }
 .photos .star.on { color: var(--warn); }
 .outbox li { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 4px; gap: 8px; }

@@ -138,3 +138,14 @@ export function numbers(r: MeasurementResult, expectedPins: number, focalDetail?
 export const ENGINE_STAGE: Record<Progress["stage"], string> = {
   runtime: "Starting Python…", packages: "Loading NumPy, SciPy and OpenCV…", starting: "Starting Spline Wire…", ready: "Ready",
 };
+
+/** What the phone keeps (the list of photos): photos with their size, curves whose photo is gone, and the limit. */
+export function spaceText(photos: number, bytes: number, curvesOnly: number, keepPhotos: number): string {
+  const mb = bytes / 1e6;
+  const size = mb >= 10 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+  const kept = [photos ? `${photos === 1 ? "1 photo" : `${photos} photos`} (${size})` : "",
+    curvesOnly ? `${curvesOnly === 1 ? "1 curve" : `${curvesOnly} curves`} without ${curvesOnly === 1 ? "its photo" : "their photos"}` : ""]
+    .filter(Boolean).join(" and ");
+  const limit = keepPhotos === 1 ? "Only the newest photo is kept" : `The newest ${keepPhotos} photos are kept`;
+  return `On this phone: ${kept || "nothing"}. ${limit}; older ones keep only their curve (Settings, Photos kept).`;
+}

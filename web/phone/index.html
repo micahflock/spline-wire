@@ -110,6 +110,11 @@
     <h3 id="photos-title">Photos on this phone</h3>
     <ul class="photos" id="photos"></ul>
     <p class="small muted">Photos stay on this phone. Only the measured curve is sent.</p>
+    <p class="small" id="space" role="status"></p>
+    <div class="tidy">
+      <button type="button" class="btn" id="free-space">Delete photos, keep curves</button>
+      <button type="button" class="btn" id="clear-all">Clear history</button>
+    </div>
   </section>
 
   <section aria-labelledby="computer" class="computer">
@@ -128,6 +133,13 @@
     <div class="field"><label for="s-live">Live camera</label><select id="s-live">
       <option value="fast">Fast once the focal length is known</option>
       <option value="full">Always full resolution</option></select></div>
+    <div class="field"><label for="s-keep">Photos kept</label><select id="s-keep">
+      <option value="1">The newest only</option>
+      <option value="3">The newest 3</option>
+      <option value="10">The newest 10</option>
+      <option value="30">The newest 30</option></select></div>
+    <p class="small">Older photos are deleted to save space and their curves kept: they can still be copied, downloaded
+      and sent, but their pins can no longer be fixed.</p>
     <div class="field"><span>Pins in the chain</span>
       <div class="stepper" id="s-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
         inputmode="numeric" min="3" max="999" aria-label="Pins in the chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
