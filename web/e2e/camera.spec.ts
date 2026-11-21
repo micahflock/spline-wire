@@ -440,7 +440,7 @@ for (const turn of [90, 270] as const) {
       await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
       const info = await p.locator("#cam-info > div").allTextContents();
       log(`frames turned ${turn}°: ${info.join(" | ")}`);
-      expect(info.length).toBe(10);                                            // one item a line
+      expect(info.length).toBe(11);                                            // one item a line
       expect(info[0]).toMatch(/^Chrome \d+.* · Android.* · build /);           // Pixel 7's user agent, as Playwright gives it
     } finally {
       await ctx.close();

@@ -38,15 +38,34 @@ describe("coach", () => {
     expect(run(coach, 800, 1100, { chain: part })).toMatchObject({ problems: ["pins-missing"], pinsFound: 9 });
   });
 
-  it("starts the hold again after a problem, and after a stall", () => {
+  it("starts the hold again after a problem that lasts, and after a stall", () => {
     const coach = new Coach();
     run(coach, 0, 500);
-    expect(coach.update(reading(600, { motion: 3 })).phase).toBe("adjusting");
-    expect(run(coach, 700, 1300).phase).toBe("steady");          // 600 ms of good readings: not yet
-    expect(coach.update(reading(1400)).phase).toBe("capture");
+    expect(run(coach, 600, 800, { motion: 3 }).phase).toBe("steady");          // not lasted PROBLEM_MS yet
+    expect(coach.update(reading(900, { motion: 3 })).phase).toBe("adjusting");   // 300 ms: broken
+    expect(coach.breaks).toEqual({ moving: 1 });
+    expect(run(coach, 1000, 1600).phase).toBe("steady");          // 600 ms of good readings: not yet
+    expect(coach.update(reading(1700)).phase).toBe("capture");
     coach.reset();
     run(coach, 2000, 2500);
     expect(coach.update(reading(2500 + COACH.STALE_MS + 1)).hold).toBe(0);
+  });
+
+  it("rides out a bad reading or two while holding (no flicker), but takes the still only on a good one", () => {
+    const coach = new Coach();
+    run(coach, 0, 300, {}, 25);
+    // Every fourth reading at 40 a second has a problem, each a different one, none lasting.
+    const bad: Partial<FrameReading>[] = [{ motion: 3 }, { chain: reading(0).chain.slice(0, 10) }, { sharpness: 0.2 }, { chain: [] }];
+    let k = 0;
+    for (let t = 325; t < 700; t += 25) {
+      const s = coach.update(reading(t, t % 100 === 0 ? bad[k++ % 4] : {}));
+      expect(s.phase).toBe("steady");
+    }
+    const flawed = coach.update(reading(700, { motion: 3 }));        // the hold is long enough, but not on this reading
+    expect(flawed).toMatchObject({ phase: "steady" });
+    expect(flawed.hold).toBeLessThan(1);
+    expect(coach.update(reading(725)).phase).toBe("capture");
+    expect(coach.breaks).toEqual({});
   });
 
   it("does not flicker on the borderline: keeping is easier than entering", () => {
@@ -100,6 +119,17 @@ describe("coach", () => {
     expect(coach.update(reading(700, { tiltDeg: null, tiltDir: null })).arrow).toBeNull();
     // One reading is not enough after a fresh start.
     expect(new Coach().update(reading(0, { tiltDeg: 30, tiltDir: [0, 1] })).arrow).toBeNull();
+  });
+
+  it("turns the arrow as fast in time whatever the rate of readings", () => {
+    const turned = (step: number) => {
+      const coach = new Coach();
+      for (let t = 0; t <= 600; t += step) coach.update(reading(t, { tiltDeg: 30, tiltDir: [1, 0] }));
+      let a = coach.current.arrow!;
+      for (let t = 600 + step; t <= 800; t += step) a = coach.update(reading(t, { tiltDeg: 30, tiltDir: [0, 1] })).arrow!;
+      return (Math.atan2(a.dir[1], a.dir[0]) * 180) / Math.PI;
+    };
+    expect(turned(25)).toBeCloseTo(turned(100), 0);           // 200 ms of the new way, at 40 or 10 readings a second
   });
 
   it("shows no arrow while the readings disagree", () => {

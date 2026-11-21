@@ -5,7 +5,11 @@
 // Entering "steady" needs every check to pass; staying there tolerates a
 // little more (the `keep` thresholds), so a reading on the borderline does not
 // make the hold flicker. A problem must persist for PROBLEM_MS before it is
-// shown, so one bad frame does not flash a message.
+// shown, so one bad frame does not flash a message, and before it breaks a
+// hold, so one bad frame does not turn the trace from green to yellow and back
+// (the owner's iPhone, build 24: flickering while held still, once the live
+// view read ~40 frames a second). The still is taken only on a reading with no
+// problem at all.
 
 import type { CoachState, FrameReading, Point, Problem } from "./types";
 
@@ -33,8 +37,13 @@ export const COACH = {
    * second (camera-view.ts), so readings can be ~1 s apart and a phone is
    * slower: 1.5 s. */
   STALE_MS: 1500,
-  /** A problem is shown once it has lasted this long. */
+  /** A problem is shown, and breaks a hold, once it has lasted this long. */
   PROBLEM_MS: 250,
+  /** Motion is measured against the newest reading at least this much older
+   * (session.ts): pin centres jitter by a fraction of a pixel from frame to
+   * frame, and divided by the ~25 ms between readings at 40 frames a second
+   * that read as motion. Over 200 ms the same jitter counts an eighth as much. */
+  motionBaseMs: 200,
   /** Camera tilt from straight-on, degrees. In simulation a 2% focal error costs
    * up to 0.05 mm at 25° and 0.11 mm at 40° (docs/open-items.md, item 1): block the shot
    * above 25°, and nudge toward straighter above 12°. */
@@ -58,6 +67,9 @@ export const COACH = {
    * nothing (2026-11-19). */
   arrowDeg: { enter: 12, keep: 9 } as Limits,
   arrowAgree: { enter: 0.6, keep: 0.4 } as Limits,
+  /** A reading's weight in the arrow's average, per 100 ms since the last
+   * (time-based since 2026-11-21: at ~40 readings a second a fixed weight per
+   * reading turned it four times as fast as at the ~10 it was set for). */
   arrowWeight: 0.4,
   /** The chain's extent (its pins') as a fraction of the frame's shorter side.
    * Recalibrated 2026-11-19 for the snap-fit chain, now that the live view
@@ -104,6 +116,8 @@ export class Coach {
   private done = false;
   private state: CoachState = blank(0);
   private arrow: ArrowTrack = NO_ARROW;
+  /** Holds broken, by the problem that broke them (for the camera view's diagnostics). */
+  readonly breaks: Partial<Record<Problem, number>> = {};
 
   get current(): CoachState {
     return this.state;
@@ -135,7 +149,14 @@ export class Coach {
     const shown = PRIORITY.filter((p) => found.includes(p) && r.t - this.since.get(p)! >= COACH.PROBLEM_MS);
 
     const straighter = r.tiltDeg !== null && r.tiltDeg > COACH.straighterDeg;
+    // A hold rides out problems that have not lasted: it stays steady, and
+    // goes on counting, but does not end on such a reading.
+    if (holding && !stale && found.length > 0 && shown.length === 0) {
+      const hold = Math.min(0.99, (r.t - this.goodSince!) / COACH.HOLD_MS);
+      return (this.state = { ...base, phase: "steady", problems: [], hold, straighter });
+    }
     if (found.length > 0 || stale) {
+      if (holding && shown[0]) this.breaks[shown[0]] = (this.breaks[shown[0]] ?? 0) + 1;
       this.goodSince = found.length > 0 ? null : r.t;
       const searching = found.includes("no-chain");
       return (this.state = {
@@ -158,23 +179,26 @@ export class Coach {
  * (not normalised: its length is their agreement) and what is shown. */
 export interface ArrowTrack {
   mean: Point;
+  /** The last reading's time, ms (null: none yet). */
+  t: number | null;
   shown: CoachState["arrow"];
 }
 
-export const NO_ARROW: ArrowTrack = { mean: [0, 0], shown: null };
+export const NO_ARROW: ArrowTrack = { mean: [0, 0], t: null, shown: null };
 
 /** The arrow after reading `r` (COACH.arrowDeg, arrowAgree, arrowWeight).
  * Gone with the chain or the tilt; a reading straight on (no direction) leaves
  * the average as it was. */
 export function nextArrow(prev: ArrowTrack, r: FrameReading): ArrowTrack {
   if (r.chain.length < 3 || r.tiltDeg === null) return NO_ARROW;
-  if (r.tiltDir === null) return { mean: prev.mean, shown: null };
-  const w = COACH.arrowWeight;
+  if (r.tiltDir === null) return { mean: prev.mean, t: r.t, shown: null };
+  // The weight for the time since the last reading: arrowWeight per 100 ms, the first reading arrowWeight.
+  const w = prev.t === null ? COACH.arrowWeight : 1 - (1 - COACH.arrowWeight) ** (Math.max(0, r.t - prev.t) / 100);
   const mean: Point = [(1 - w) * prev.mean[0] + w * r.tiltDir[0], (1 - w) * prev.mean[1] + w * r.tiltDir[1]];
   const agree = Math.hypot(mean[0], mean[1]);
   const lim = (l: Limits) => (prev.shown ? l.keep : l.enter);
   const show = r.tiltDeg > lim(COACH.arrowDeg) && agree > lim(COACH.arrowAgree);
-  return { mean, shown: show ? { dir: [mean[0] / agree, mean[1] / agree], tiltDeg: r.tiltDeg } : null };
+  return { mean, t: r.t, shown: show ? { dir: [mean[0] / agree, mean[1] / agree], tiltDeg: r.tiltDeg } : null };
 }
 
 /** The problems of one reading. `holding` applies the looser `keep` limits. */
