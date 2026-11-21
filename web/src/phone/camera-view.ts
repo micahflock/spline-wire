@@ -27,6 +27,7 @@ import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
 import { toGray } from "../overlay/blobs";
+import { ArrowAnimator, HoldAnimator, lockAlpha, lockRadius } from "../overlay/animate";
 import { COACH } from "../overlay/coach";
 import type { Region } from "../overlay/region";
 import { OverlaySession, type OverlayView } from "../overlay/session";
@@ -180,6 +181,11 @@ export class CameraView {
   private grab: FrameGrab | null = null;
   /** Looks for the desktop page's pairing code in the frames (camera/qr-scan.ts). */
   private qr: QrScan | null = null;
+  /** The arrow and the lock-on rings as drawn: eased (overlay/animate.ts). */
+  private readonly arrowShown = new ArrowAnimator();
+  private readonly holdShown = new HoldAnimator();
+  /** The chain's centre on the canvas when last drawn: where a fading arrow stays. */
+  private centre: Point | null = null;
   private shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
   private infoAt = 0;
   private readonly el: Record<string, HTMLElement>;
@@ -246,6 +252,9 @@ export class CameraView {
     Object.assign(this.stats, blankStats());
     this.shooting = false;
     this.latest = null;
+    this.arrowShown.reset();
+    this.holdShown.reset();
+    this.centre = null;
     this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
     this.el["cam"]!.hidden = false;
     this.el["cam-fail"]!.hidden = true;
@@ -663,6 +672,7 @@ export class CameraView {
 
   private draw(view: OverlayView): void {
     this.latest = view;
+    const now = performance.now();
     const v = this.video, c = this.canvas;
     const vw = v.videoWidth, vh = v.videoHeight;
     const box = c.getBoundingClientRect();
@@ -694,37 +704,81 @@ export class CameraView {
         chain.forEach(([x, y], i) => (i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y))));
         g.stroke();
         const r = Math.max(5 * dpr, (median(view.blobs.map((b) => b.d)) / 2) * k + 2 * dpr);
+        // Lock-on: a ring round each pin closing in on it as the hold fills,
+        // meeting the pin's own ring as the still is taken (overlay/animate.ts).
+        const hold = this.holdShown.update(phase === "steady" ? view.state.hold : phase === "capture" || phase === "captured" ? 1 : 0, now);
+        if (hold > 0) {
+          const R = lockRadius(r, hold), tick = Math.min(R - r, 0.35 * r);
+          g.save();
+          g.globalAlpha = lockAlpha(hold);
+          g.strokeStyle = "#4cc27a";
+          g.lineWidth = (1.5 + hold) * dpr;                // thin while wide, firmer as it closes
+          g.lineCap = "round";
+          for (const [x, y] of chain) {
+            const px = X(x), py = Y(y);
+            g.beginPath();
+            g.arc(px, py, R, 0, 2 * Math.PI);
+            // Four ticks pointing in, a sight's: shown while the ring is still wide.
+            if (tick > 1) {
+              for (let q = 0; q < 4; q++) {
+                const a = Math.PI / 4 + (q * Math.PI) / 2, ca = Math.cos(a), sa = Math.sin(a);
+                g.moveTo(px + ca * R, py + sa * R);
+                g.lineTo(px + ca * (R - tick), py + sa * (R - tick));
+              }
+            }
+            g.stroke();
+          }
+          g.restore();
+        }
         g.lineWidth = 2.5 * dpr;
         for (const [x, y] of chain) {
           g.beginPath();
           g.arc(X(x), Y(y), r, 0, 2 * Math.PI);
           g.stroke();
         }
+        let cx = 0, cy = 0;
+        for (const [x, y] of chain) {
+          cx += X(x) / chain.length;
+          cy += Y(y) / chain.length;
+        }
+        this.centre = [cx, cy];
         const arrow = view.state.arrow;
+        let target: { dir: Point; along: number; length: number } | null = null;
         if (arrow && phase !== "capture" && phase !== "captured") {
           this.stats.arrow = arrow.dir;
           // The way to move the phone, just past the chain on that side (clear
-          // of its pins) and inside the picture; longer the more it is tilted.
+          // of its pins); longer the more it is tilted.
           const [ux, uy] = arrow.dir;
-          let cx = 0, cy = 0;
-          for (const [x, y] of chain) {
-            cx += X(x) / chain.length;
-            cy += Y(y) / chain.length;
-          }
           let reach = 0;
           for (const [x, y] of chain) reach = Math.max(reach, (X(x) - cx) * ux + (Y(y) - cy) * uy);
           const short = Math.min(vw, vh) * k;
           const grow = Math.min(1, Math.max(0, (arrow.tiltDeg - COACH.arrowDeg.enter) / 18));
           const length = short * (0.12 + 0.08 * grow);
-          const pad = 14 * dpr + length / 2;
-          const along = reach + r + 10 * dpr + length / 2;
-          const ax = Math.min(Math.max(cx + ux * along, ox + pad), ox + vw * k - pad);
-          const ay = Math.min(Math.max(cy + uy * along, oy + pad), oy + vh * k - pad);
-          drawArrow(g, ax, ay, arrow.dir, length, color, dpr);
+          target = { dir: arrow.dir, along: reach + r + 10 * dpr + length / 2, length };
         }
+        this.drawArrowEased(g, target, now, color, dpr, { ox, oy, w: vw * k, h: vh * k });
+      } else {
+        this.holdShown.update(0, now);
+        this.drawArrowEased(g, null, now, color, dpr, { ox, oy, w: vw * k, h: vh * k });
       }
     }
     this.render(view);
+  }
+
+  /** The arrow eased toward `target` (overlay/animate.ts), round the chain's
+   * centre and kept inside the picture; fading out where it was when there is none. */
+  private drawArrowEased(g: CanvasRenderingContext2D, target: { dir: Point; along: number; length: number } | null, now: number,
+    color: string, dpr: number, pic: { ox: number; oy: number; w: number; h: number }): void {
+    const pose = this.arrowShown.update(target, now);
+    if (!pose || !this.centre) return;
+    const [ux, uy] = pose.dir, [cx, cy] = this.centre;
+    const pad = 14 * dpr + pose.length / 2;
+    const ax = Math.min(Math.max(cx + ux * pose.along, pic.ox + pad), pic.ox + pic.w - pad);
+    const ay = Math.min(Math.max(cy + uy * pose.along, pic.oy + pad), pic.oy + pic.h - pad);
+    g.save();
+    g.globalAlpha = pose.alpha;
+    drawArrow(g, ax, ay, pose.dir, pose.length, color, dpr);
+    g.restore();
   }
 
   private render(view: OverlayView): void {

@@ -67,6 +67,9 @@ export const COACH = {
    * nothing (2026-11-19). */
   arrowDeg: { enter: 12, keep: 9 } as Limits,
   arrowAgree: { enter: 0.6, keep: 0.4 } as Limits,
+  /** A reading's weight in the arrow's average, per 100 ms since the last
+   * (time-based since 2026-11-21: at ~40 readings a second a fixed weight per
+   * reading turned it four times as fast as at the ~10 it was set for). */
   arrowWeight: 0.4,
   /** The chain's extent (its pins') as a fraction of the frame's shorter side.
    * Recalibrated 2026-11-19 for the snap-fit chain, now that the live view
@@ -176,23 +179,26 @@ export class Coach {
  * (not normalised: its length is their agreement) and what is shown. */
 export interface ArrowTrack {
   mean: Point;
+  /** The last reading's time, ms (null: none yet). */
+  t: number | null;
   shown: CoachState["arrow"];
 }
 
-export const NO_ARROW: ArrowTrack = { mean: [0, 0], shown: null };
+export const NO_ARROW: ArrowTrack = { mean: [0, 0], t: null, shown: null };
 
 /** The arrow after reading `r` (COACH.arrowDeg, arrowAgree, arrowWeight).
  * Gone with the chain or the tilt; a reading straight on (no direction) leaves
  * the average as it was. */
 export function nextArrow(prev: ArrowTrack, r: FrameReading): ArrowTrack {
   if (r.chain.length < 3 || r.tiltDeg === null) return NO_ARROW;
-  if (r.tiltDir === null) return { mean: prev.mean, shown: null };
-  const w = COACH.arrowWeight;
+  if (r.tiltDir === null) return { mean: prev.mean, t: r.t, shown: null };
+  // The weight for the time since the last reading: arrowWeight per 100 ms, the first reading arrowWeight.
+  const w = prev.t === null ? COACH.arrowWeight : 1 - (1 - COACH.arrowWeight) ** (Math.max(0, r.t - prev.t) / 100);
   const mean: Point = [(1 - w) * prev.mean[0] + w * r.tiltDir[0], (1 - w) * prev.mean[1] + w * r.tiltDir[1]];
   const agree = Math.hypot(mean[0], mean[1]);
   const lim = (l: Limits) => (prev.shown ? l.keep : l.enter);
   const show = r.tiltDeg > lim(COACH.arrowDeg) && agree > lim(COACH.arrowAgree);
-  return { mean, shown: show ? { dir: [mean[0] / agree, mean[1] / agree], tiltDeg: r.tiltDeg } : null };
+  return { mean, t: r.t, shown: show ? { dir: [mean[0] / agree, mean[1] / agree], tiltDeg: r.tiltDeg } : null };
 }
 
 /** The problems of one reading. `holding` applies the looser `keep` limits. */

@@ -121,6 +121,17 @@ describe("coach", () => {
     expect(new Coach().update(reading(0, { tiltDeg: 30, tiltDir: [0, 1] })).arrow).toBeNull();
   });
 
+  it("turns the arrow as fast in time whatever the rate of readings", () => {
+    const turned = (step: number) => {
+      const coach = new Coach();
+      for (let t = 0; t <= 600; t += step) coach.update(reading(t, { tiltDeg: 30, tiltDir: [1, 0] }));
+      let a = coach.current.arrow!;
+      for (let t = 600 + step; t <= 800; t += step) a = coach.update(reading(t, { tiltDeg: 30, tiltDir: [0, 1] })).arrow!;
+      return (Math.atan2(a.dir[1], a.dir[0]) * 180) / Math.PI;
+    };
+    expect(turned(25)).toBeCloseTo(turned(100), 0);           // 200 ms of the new way, at 40 or 10 readings a second
+  });
+
   it("shows no arrow while the readings disagree", () => {
     const coach = new Coach();
     const dirs: Point[] = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, -0.7], [1, 0], [-1, 0]];
