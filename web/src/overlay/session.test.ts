@@ -3,7 +3,7 @@ import type { FramePoints } from "../core/protocol";
 import { specFromDict } from "../pipeline/chain";
 import { analyse as liveAnalyse } from "../pipeline/live";
 import { motion } from "./reading";
-import { OverlaySession, type OverlayView } from "./session";
+import { motionBase, OverlaySession, type OverlayView } from "./session";
 import { SNAP_SPEC, snapScene, VIDEO } from "./snap-frames";
 import { followChain } from "./trace";
 import type { FrameReading, GrayFrame, Point } from "./types";
@@ -108,6 +108,20 @@ describe("overlay session", () => {
     expect(motion(prev, moved, 500)).toBeCloseTo(0.2);
     expect(motion(prev, [], 500)).toBeNull();
   });
+});
+
+it("measures motion against a reading at least COACH.motionBaseMs older, so frame-to-frame jitter is not motion", () => {
+  const r = (t: number) => ({ t } as FrameReading);
+  expect(motionBase([], 100)).toBeNull();
+  expect(motionBase([r(0), r(25), r(50)], 75)).toEqual(r(0));                         // none old enough: the oldest
+  expect(motionBase([r(0), r(100), r(200), r(275)], 300)).toEqual(r(100));            // the newest 200 ms older
+  // Pins jittering by half a pixel at random, 40 readings a second, a 60 px pitch: still.
+  const chain = (j: number): Point[] => Array.from({ length: 13 }, (_, k) => [100 + 60 * k + 0.5 * Math.sin(7 * j + k), 500 + 0.5 * Math.cos(5 * j + k)]);
+  const at = (j: number) => ({ t: 25 * j, chain } as unknown as FrameReading);
+  const frameToFrame = motion({ ...at(9), chain: chain(9) }, chain(10), 250)!;
+  const over200 = motion({ ...at(2), chain: chain(2) }, chain(10), 250)!;
+  expect(over200).toBeLessThan(frameToFrame / 4);
+  expect(over200).toBeLessThan(0.1);
 });
 
 it("searches for the fiducial its chain preset names", () => {

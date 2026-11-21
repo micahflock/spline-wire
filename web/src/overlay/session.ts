@@ -24,7 +24,7 @@
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec } from "../core/types";
 import { detectBlobs, shapeOf, type Shape, type Window } from "./blobs";
-import { Coach } from "./coach";
+import { COACH, Coach } from "./coach";
 import { makeReading } from "./reading";
 import { RegionTracker, type Region } from "./region";
 import type { Blob, CoachState, FrameReading, GrayFrame, Point } from "./types";
@@ -67,7 +67,8 @@ export class OverlaySession {
   readonly coach = new Coach();
   private busy = false;
   private capturing = false;
-  private previous: FrameReading | null = null;
+  /** Recent readings, oldest first: motion is measured over COACH.motionBaseMs. */
+  private history: FrameReading[] = [];
   private chain: Point[] = [];
   private lastStart = -Infinity;
   private readonly regions: RegionTracker;
@@ -134,9 +135,13 @@ export class OverlaySession {
       this.stats.analysed++;
     }
     if (this.capturing) return;
-    const reading = makeReading(t, { width, height }, blobs, analysis, this.o.chain.n_pins, this.previous);
-    this.previous = reading;
-    this.chain = reading.chain;
+    const reading = makeReading(t, { width, height }, blobs, analysis, this.o.chain.n_pins, motionBase(this.history, t));
+    this.history.push(reading);
+    while (this.history.length > 1 && t - this.history[1]!.t >= COACH.motionBaseMs) this.history.shift();
+    // A reading that lost the chain keeps the trace for as long as a problem
+    // takes to show (the coach rides it out too): one bad frame does not blink it.
+    const lastGood = [...this.history].reverse().find((h) => h.chain.length >= 3);
+    this.chain = reading.chain.length >= 3 || !lastGood || t - lastGood.t >= COACH.PROBLEM_MS ? reading.chain : lastGood.chain;
     this.regions.chainFound(reading.chain, analysis.order.map((i) => blobs[i]?.d ?? 0), reading.missing);
     const state = this.coach.update(reading);
     if (state.phase !== "capture") return;
@@ -151,8 +156,15 @@ export class OverlaySession {
       /* the page reports its own failure */
     } finally {
       this.capturing = false;
-      this.previous = null;
+      this.history = [];
       this.coach.reset();
     }
   }
+}
+
+/** The reading to measure motion from at time `t`: the newest at least
+ * COACH.motionBaseMs older, else the oldest kept; null with none. */
+export function motionBase(history: readonly FrameReading[], t: number): FrameReading | null {
+  for (let i = history.length - 1; i >= 0; i--) if (t - history[i]!.t >= COACH.motionBaseMs) return history[i]!;
+  return history[0] ?? null;
 }

@@ -143,6 +143,8 @@ export interface CameraStats {
   browser: string;
   /** The way the arrow over the chain last pointed (frame axes, y down), or null with none drawn. */
   arrow: [number, number] | null;
+  /** Holds broken, by the problem that broke them (overlay/coach.ts): "moving 3, pins-missing 1". */
+  breaks: string;
 }
 
 export class CameraView {
@@ -752,6 +754,9 @@ export class CameraView {
     const focal = f ? `${f.focal35.toFixed(1)} mm ${f.from === "lens" ? "(this camera's last photo)" : f.from === "override" ? "(override)" : "(Settings)"}` : "focal estimated";
     st.focal = focal;
     st.size = `${v.videoWidth}×${v.videoHeight}${this.fast ? " (fast)" : ""}`;
+    // What broke a steady hold (the coach's problems that lasted), most first: what made the trace turn yellow.
+    const breaks = Object.entries(this.session?.coach.breaks ?? {}).sort((a, b) => b[1] - a[1]);
+    st.breaks = breaks.map(([p, n]) => `${p} ${n}`).join(", ");
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
     // One item a line, always the same lines (a dash until there is a value).
     // Only the last, where frames are grabbed, may wrap (its reason can be
@@ -763,6 +768,7 @@ export class CameraView {
       `region ${st.region || "–"}`,
       `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
       `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`,
+      `holds broken ${st.breaks || "–"}`,
       `qr ${st.qr || "–"}`,
       this.grab?.describe() ?? "grab –"];
     const text = lines.join("\n");
@@ -969,5 +975,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", canvas: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "", qr: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, stillSize: null, stream: "", closedBy: null, browser: "", arrow: null };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, stillSize: null, stream: "", closedBy: null, browser: "", arrow: null, breaks: "" };
 }

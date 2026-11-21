@@ -5,7 +5,11 @@
 // Entering "steady" needs every check to pass; staying there tolerates a
 // little more (the `keep` thresholds), so a reading on the borderline does not
 // make the hold flicker. A problem must persist for PROBLEM_MS before it is
-// shown, so one bad frame does not flash a message.
+// shown, so one bad frame does not flash a message, and before it breaks a
+// hold, so one bad frame does not turn the trace from green to yellow and back
+// (the owner's iPhone, build 24: flickering while held still, once the live
+// view read ~40 frames a second). The still is taken only on a reading with no
+// problem at all.
 
 import type { CoachState, FrameReading, Point, Problem } from "./types";
 
@@ -33,8 +37,13 @@ export const COACH = {
    * second (camera-view.ts), so readings can be ~1 s apart and a phone is
    * slower: 1.5 s. */
   STALE_MS: 1500,
-  /** A problem is shown once it has lasted this long. */
+  /** A problem is shown, and breaks a hold, once it has lasted this long. */
   PROBLEM_MS: 250,
+  /** Motion is measured against the newest reading at least this much older
+   * (session.ts): pin centres jitter by a fraction of a pixel from frame to
+   * frame, and divided by the ~25 ms between readings at 40 frames a second
+   * that read as motion. Over 200 ms the same jitter counts an eighth as much. */
+  motionBaseMs: 200,
   /** Camera tilt from straight-on, degrees. In simulation a 2% focal error costs
    * up to 0.05 mm at 25° and 0.11 mm at 40° (docs/open-items.md, item 1): block the shot
    * above 25°, and nudge toward straighter above 12°. */
@@ -104,6 +113,8 @@ export class Coach {
   private done = false;
   private state: CoachState = blank(0);
   private arrow: ArrowTrack = NO_ARROW;
+  /** Holds broken, by the problem that broke them (for the camera view's diagnostics). */
+  readonly breaks: Partial<Record<Problem, number>> = {};
 
   get current(): CoachState {
     return this.state;
@@ -135,7 +146,14 @@ export class Coach {
     const shown = PRIORITY.filter((p) => found.includes(p) && r.t - this.since.get(p)! >= COACH.PROBLEM_MS);
 
     const straighter = r.tiltDeg !== null && r.tiltDeg > COACH.straighterDeg;
+    // A hold rides out problems that have not lasted: it stays steady, and
+    // goes on counting, but does not end on such a reading.
+    if (holding && !stale && found.length > 0 && shown.length === 0) {
+      const hold = Math.min(0.99, (r.t - this.goodSince!) / COACH.HOLD_MS);
+      return (this.state = { ...base, phase: "steady", problems: [], hold, straighter });
+    }
     if (found.length > 0 || stale) {
+      if (holding && shown[0]) this.breaks[shown[0]] = (this.breaks[shown[0]] ?? 0) + 1;
       this.goodSince = found.length > 0 ? null : r.t;
       const searching = found.includes("no-chain");
       return (this.state = {
