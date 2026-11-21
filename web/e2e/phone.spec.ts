@@ -42,6 +42,8 @@ let darkRims: string;
 let context: BrowserContext;
 let page: Page;
 let photoId: string;
+/** The engine's files for photoId as last measured (the Copy points test). */
+let photoFiles: Record<string, string>;
 
 test.describe.configure({ mode: "serial" });
 // A button that stays disabled is a failure, not something to wait ten minutes for.
@@ -229,6 +231,7 @@ test("Copy points puts the Fusion add-in's table on the clipboard", async () => 
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   const core = await page.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), photoId);
   expect(copied).toBe(core.files.tsv);                 // byte for byte what Python writes
+  photoFiles = core.files;
   const rows = copied.trimEnd().split("\n"), native = pipe.tsv.trimEnd().split("\n");
   expect(rows[0]).toBe("x_mm\ty_mm");
   expect(rows.length).toBe(native.length);
@@ -362,7 +365,7 @@ test.describe("paired with a computer", () => {
     await expect(phoneItem(photoId)).toHaveAttribute("data-status", "done");
     await phoneItem(photoId).locator("button.open").tap();
     await expect(page.locator("#send-note")).toContainText("Taken before this phone was paired");
-    // The engine is new after the navigation: sending opens and measures the photo again first.
+    // The engine is new after the navigation: the files sent are the ones kept with the photo when it was measured.
     await tapButton("Send to computer");
     await expect(items()).toHaveCount(1, { timeout: 60_000 });
     await expect(page.locator("#send-note")).toHaveText(/Delivered to the computer/);
@@ -372,10 +375,9 @@ test.describe("paired with a computer", () => {
     expect(curve!.points_mm.length).toBeGreaterThan(10);
     expect(curve!.photo).toBe(path.basename(pipe.photo));
     const files = await unpack(curve!.files!);
-    const core = await page.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), photoId);
-    // The same files the engine writes for this photo, the DXF included (nothing in it changes with time).
+    // The same files the engine wrote for this photo, the DXF included (nothing in it changes with time).
     for (const kind of ["json", "csv", "svg", "dxf", "fusion_csv"] as const) {
-      expect(files[kind], kind).toBe(core.files[kind]);
+      expect(files[kind], kind).toBe(photoFiles[kind]);
     }
     log("link states:", JSON.stringify(await page.evaluate(() => (window as unknown as { phone: { link: unknown } }).phone.link)));
   });

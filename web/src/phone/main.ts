@@ -761,16 +761,18 @@ type Outputs = Commands["outputs"]["result"];
 interface KeptOutputs extends Outputs { doc: string }
 const outputsWork = new Map<string, { doc: string; done: Promise<Outputs> }>();
 
-/** What identifies a measurement document's files. */
-function docKey(doc: MeasurementDocument): string {
-  return JSON.stringify([doc.name, doc.result, doc.curve]);
+/** What identifies a photo's files: its document and the choices it was measured with
+ * (a tapped side and "inside" give the same curve, but the JSON file says which). Not the
+ * focal length settings: a change to them measures the photo again, and a new document. */
+function docKey(r: PhotoRecord, doc: MeasurementDocument): string {
+  return JSON.stringify([doc, r.side, r.edits, r.pins, r.chain, r.shade ?? "light"]);
 }
 
 /** The photo's output files: kept ones while they are of its measurement, else made by the core and kept. */
 function outputsOf(id: string): Promise<Outputs> {
   const r = records.get(id);
   if (!r?.doc) return Promise.reject(new Error("the photo isn't measured"));
-  const doc = r.doc, key = docKey(doc);
+  const doc = r.doc, key = docKey(r, doc);
   const work = outputsWork.get(id);
   if (work?.doc === key) return work.done;
   const done = (async () => {
