@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { specFromDict } from "../pipeline/chain";
 import { analyse } from "../pipeline/live";
 import { detectBlobs, shapeOf } from "./blobs";
-import { REGIONS, RegionTracker, fullRegion, region, type Region } from "./region";
+import { REGIONS, RegionTracker, bestShift, fullRegion, region, type Region } from "./region";
 import { SNAP_SPEC, snapScene, VIDEO } from "./snap-frames";
 import type { Blob, Point } from "./types";
 
@@ -101,6 +101,41 @@ describe("regions", { timeout: 120_000 }, () => {
     const after = run(t, draw, REGIONS.lostFrames + 1, 1000);
     expect(after.slice(0, REGIONS.lostFrames).every((f) => f.r.kind === "track")).toBe(true);
     expect(after.at(-1)!.r.kind).toBe("full");
+  });
+
+  it("follows a chain moving two links a frame, and one that jumps five, with no analyses", () => {
+    // Before 2026-11-21 a pin was followed only within half a link of where it
+    // was, and the box drawn where the chain had been (experiments/live_view/motion.ts).
+    const sc = snapScene(0.3, 128);
+    const link = Math.hypot(sc.pins[1]![0] - sc.pins[0]![0], sc.pins[1]![1] - sc.pins[0]![1]);
+    let dx = 0, dy = 0;
+    const t = new RegionTracker(RING, 13);
+    const draw = (r: Region) => {
+      const at = { ...r, x: r.x - dx, y: r.y - dy };
+      return detectBlobs(sc.draw(at), at, RING).map((b) => ({ ...b, x: b.x + dx, y: b.y + dy }));
+    };
+    run(t, draw, 2);
+    const moved = () => sc.pins.map(([x, y]) => [x + dx, y + dy] as Point);
+    for (let f = 0; f < 6; f++) {
+      dx += 2 * link;
+      const [frame] = run(t, draw, 1, 1000);
+      expect(frame!.r.kind).toBe("track");
+      if (f > 0) expect(found(moved(), frame!.blobs)).toBe(13);      // the first frame shows where it is heading
+    }
+    dx -= 5 * link;                                        // turned back, and jumped
+    dy += 2 * link;
+    const after = run(t, draw, 3, 1000);
+    expect(after.every((f) => f.r.kind === "track")).toBe(true);
+    expect(found(moved(), after.at(-1)!.blobs)).toBe(13);
+  });
+
+  it("takes the shift that fits every pin over one a link along the chain", () => {
+    const pins: Point[] = Array.from({ length: 13 }, (_, k) => [1000 + 100 * k, 2000] as Point);
+    const at = (sx: number, sy: number) => pins.map(([x, y]) => ({ x: x + sx, y: y + sy, d: 40, contrast: 50, sharpness: 1 }));
+    expect(bestShift(pins, at(330, 40), [0, 0], 50)).toEqual([330, 40]);
+    expect(bestShift(pins, at(330, 40), [310, 20], 50)).toEqual([310, 20]);   // the guess fits every pin within reach: kept
+    expect(bestShift(pins, at(330, 40), [-170, 40], 50)).toEqual([330, 40]); // fits 8 of 13: every blob tried
+    expect(bestShift(pins.slice(0, 2), at(330, 40), [5, 5], 50)).toEqual([5, 5]);   // under 3 pins: the guess
   });
 
   it("scans again after analyses that find no chain in the tracked region, though its blobs stay", () => {

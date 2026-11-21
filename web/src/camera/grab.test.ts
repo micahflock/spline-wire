@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fullRegion, region as makeRegion } from "../overlay/region";
-import { compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, type Turn, transformFor, grayCorrelation, turnsFor, whyNotWorker } from "./grab";
+import { canvasAsked, CanvasTrial, compareGrays, FrameGrab, GRAB, type GrabReply, type GrabRequest, type GrabWorkerLike, type Turn, transformFor, grayCorrelation, turnsFor, whyNotWorker } from "./grab";
 
 /** A worker that answers each request as `answer` says (or never, with null). */
 function fakeWorker(answer: (req: GrabRequest) => GrabReply | null) {
@@ -155,5 +155,38 @@ describe("the frame grab in a worker", () => {
     none.checked("different", 38.6, 0.97);
     none.checked("different", Infinity, NaN);
     expect(none.describe()).toBe("grab on the page: the worker's copy of a frame differs (90° 41 r 0.12, 270° 39 r 0.97, 0° –)");
+  });
+});
+
+describe("CanvasTrial (the worker's canvas)", () => {
+  it("takes turns between the two kinds, then keeps the faster", () => {
+    const t = new CanvasTrial();
+    expect(t.describe()).toBe("trying canvases (gpu –, cpu – ms)");
+    const ms = { gpu: 12, cpu: 45 };
+    for (let k = 0; k < 2 * CanvasTrial.TRIAL; k++) {
+      expect(t.chosen).toBeNull();
+      const kind = t.next();
+      expect(kind).toBe(k % 2 ? "cpu" : "gpu");
+      t.record(kind, ms[kind] + (k % 3));
+    }
+    expect(t.chosen).toBe("gpu");
+    expect(t.next()).toBe("gpu");
+    expect(t.describe()).toBe("gpu canvas (gpu 13, cpu 46 ms)");
+    const slowGpu = new CanvasTrial();
+    for (let k = 0; k < 2 * CanvasTrial.TRIAL; k++) {
+      const kind = slowGpu.next();
+      slowGpu.record(kind, kind === "gpu" ? 30 : 20);
+    }
+    expect(slowGpu.chosen).toBe("cpu");
+  });
+
+  it("uses the canvas ?canvas= asks for, without a trial", () => {
+    expect(canvasAsked("?canvas=cpu")).toBe("cpu");
+    expect(canvasAsked("?grab=main&canvas=gpu")).toBe("gpu");
+    expect(canvasAsked("?canvas=fast")).toBeNull();
+    const t = new CanvasTrial("cpu");
+    t.record(t.next(), 40);
+    expect(t.next()).toBe("cpu");
+    expect(t.describe()).toBe("cpu canvas");
   });
 });

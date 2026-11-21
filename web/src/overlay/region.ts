@@ -9,7 +9,12 @@
 //     of links, and a link more for each pin not yet seen) is drawn, at the
 //     scale that makes its rims REGIONS.target work pixels across. The box
 //     then has about the same number of work pixels however far the phone is,
-//     and fewer than a full frame.
+//     and fewer than a full frame. The box goes where the chain is heading:
+//     each frame's pins are found again by the shift that best fits the
+//     frame's blobs (the last frame's motion first, then any blob against a
+//     pin), and the next box is drawn that much further on. A frame with
+//     fewer than 3 pins grows the box by REGIONS.lostGrowLinks links a side
+//     before the scan starts again.
 //   - Scanning, when there is no chain: the full frame at REGIONS.fullLongSide,
 //     then each quarter of the frame (overlapping) at REGIONS.tileLongSide, in
 //     turn. A chain too small for the full frame is found in a quarter; part
@@ -59,6 +64,13 @@ export const REGIONS = {
   marginLinks: 1.5,
   /** Frames in a row with fewer than 3 tracked pins found before scanning again. */
   lostFrames: 4,
+  /** Links the box grows by on each side for each frame in a row with fewer than 3 pins found. */
+  lostGrowLinks: 2,
+  /** The tracked pins are matched to a frame's blobs within this share of a link. */
+  reachLinks: 0.5,
+  /** The last motion is taken as the frame's shift if it finds at least this
+   * share of the pins; else every blob is tried against the pins as a shift. */
+  keepShift: 0.75,
   /** Analyses in a row that find no chain in the tracked region before scanning again. */
   emptyAnalyses: 2,
 };
@@ -66,6 +78,8 @@ export const REGIONS = {
 export class RegionTracker {
   /** The tracked pins, video pixels, moved to each frame's blobs (as trace.ts does). */
   private pins: Point[] = [];
+  /** How far the pins moved over the last frame, video pixels: where the next box is drawn. */
+  private velocity: Point = [0, 0];
   /** Pins the last chain lacked: bridged over, or not seen at all. */
   private missing = 0;
   private diameter = 0;
@@ -105,25 +119,21 @@ export class RegionTracker {
   observe(blobs: readonly Blob[]): void {
     if (!this.tracking) return;
     const reach = this.reach();
+    const shift = bestShift(this.pins, blobs, this.velocity, reach);
     let seen = 0;
-    const ds: number[] = [];
+    const ds: number[] = [], moved: Point[] = [];
     this.pins = this.pins.map(([x, y]) => {
-      let best: Blob | null = null, bd = reach;
-      for (const b of blobs) {
-        const d = Math.hypot(b.x - x, b.y - y);
-        if (d < bd) {
-          bd = d;
-          best = b;
-        }
-      }
-      if (!best) return [x, y];
+      const b = nearest(blobs, x + shift[0], y + shift[1], reach);
+      if (!b) return [x + shift[0], y + shift[1]];
       seen++;
-      ds.push(best.d);
-      return [best.x, best.y];
+      ds.push(b.d);
+      moved.push([b.x - x, b.y - y]);
+      return [b.x, b.y];
     });
     if (ds.length) this.diameter = median(ds);
     if (seen >= 3) {
       this.lost = 0;
+      this.velocity = [median(moved.map((m) => m[0])), median(moved.map((m) => m[1]))];
     } else if (++this.lost >= REGIONS.lostFrames) {
       this.drop();
     }
@@ -152,15 +162,16 @@ export class RegionTracker {
 
   private drop(): void {
     this.pins = [];
+    this.velocity = [0, 0];
     this.missing = 0;
     this.lost = 0;
     this.empty = 0;
     this.scan = 0;
   }
 
-  /** Half the median link: how far a pin may have moved between frames and still be followed. */
+  /** How far a pin may be from where the frame's shift puts it and still be followed. */
   private reach(): number {
-    return this.link() / 2;
+    return REGIONS.reachLinks * this.link();
   }
 
   private link(): number {
@@ -184,12 +195,18 @@ export class RegionTracker {
     // The scale that draws a fiducial `target` work pixels across, kept unless it moved by more than the hysteresis.
     const want = clamp(this.diameter / REGIONS.target[this.kind], finest, coarsest);
     if (!(this.scale > 0) || want > this.scale * REGIONS.hysteresis || want < this.scale / REGIONS.hysteresis) this.scale = want;
+    // Where the pins will be if they move as they did over the last frame.
+    const [vx, vy] = this.velocity;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const [x, y] of this.pins) {
+    for (const [px, py] of this.pins) {
+      const x = px + vx, y = py + vy;
       x0 = Math.min(x0, x); x1 = Math.max(x1, x);
       y0 = Math.min(y0, y); y1 = Math.max(y1, y);
     }
-    const m = (REGIONS.marginLinks + this.missing) * this.link() + this.diameter / 2;
+    // The margin: links, one more for each pin not seen, more for each frame
+    // the chain was lost, and half the last motion again (it may speed up).
+    const m = (REGIONS.marginLinks + this.missing + this.lost * REGIONS.lostGrowLinks) * this.link()
+      + this.diameter / 2 + 0.5 * Math.hypot(vx, vy);
     x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m);
     x1 = Math.min(vw, x1 + m); y1 = Math.min(vh, y1 + m);
     // No more work pixels than the full frame when scanning: draw a large box coarser.
@@ -197,6 +214,50 @@ export class RegionTracker {
     const scale = Math.max(this.scale, Math.sqrt(((x1 - x0) * (y1 - y0)) / budget));
     return region(x0, y0, x1 - x0, y1 - y0, Math.min(scale, coarsest), ref, vw, vh, "track");
   }
+}
+
+/** The blob nearest (x, y) within `reach`, or null. */
+function nearest(blobs: readonly Blob[], x: number, y: number, reach: number): Blob | null {
+  let best: Blob | null = null, bd = reach;
+  for (const b of blobs) {
+    const d = Math.hypot(b.x - x, b.y - y);
+    if (d < bd) {
+      bd = d;
+      best = b;
+    }
+  }
+  return best;
+}
+
+/** How far `pins` moved to reach `blobs`: `guess` (the last frame's motion) if
+ * it puts REGIONS.keepShift of them on a blob within `reach`; else the shift
+ * from some pin to some blob that puts the most there, the nearest `guess` among
+ * equals (a chain shifted a link along itself fits all but an end pin: the true
+ * shift fits more). Tried from three pins (the ends and the middle), so it
+ * costs 3 × blobs candidates, not pins × blobs. Under 3 pins placed: `guess`. */
+export function bestShift(pins: readonly Point[], blobs: readonly Blob[], guess: Point, reach: number): Point {
+  const fit = (sx: number, sy: number) => {
+    let n = 0;
+    for (const [x, y] of pins) if (nearest(blobs, x + sx, y + sy, reach)) n++;
+    return n;
+  };
+  let best = guess, bestN = fit(guess[0], guess[1]);
+  if (bestN >= REGIONS.keepShift * pins.length) return guess;
+  const from = [...new Set([0, pins.length >> 1, pins.length - 1])].map((i) => pins[i]!);
+  let bestD = 0;
+  for (const [px, py] of from) {
+    for (const b of blobs) {
+      const sx = b.x - px, sy = b.y - py;
+      const n = fit(sx, sy);
+      const d = Math.hypot(sx - guess[0], sy - guess[1]);
+      if (n > bestN || (n === bestN && n > 0 && d < bestD)) {
+        best = [sx, sy];
+        bestN = n;
+        bestD = d;
+      }
+    }
+  }
+  return bestN >= 3 ? best : guess;
 }
 
 /** The region of the video frame (vw × vh) from (x, y), w × h, drawn at about
