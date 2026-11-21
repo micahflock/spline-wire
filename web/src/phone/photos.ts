@@ -10,6 +10,9 @@
 // Each photo has the original (what the core measures), a preview downscaled
 // for the editor, and a thumbnail for the list; the page shows at most one
 // preview at a time, so it never holds several decoded photos (S1's memory).
+// Once measured it also has its output files ("outputs", a few KB), so that
+// the photo itself can be deleted to save space and the curve kept: copied,
+// downloaded and sent as before, but no longer measured again or edited.
 //
 // The IDBFactory is passed in, so tests run against fake-indexeddb.
 
@@ -21,7 +24,10 @@ import type { CurveSync } from "./send";
 import type { Shade } from "./settings";
 
 export type Status = "queued" | "loading" | "measuring" | "done" | "error";
-export type BlobKind = "original" | "preview" | "thumb";
+export type BlobKind = "original" | "preview" | "thumb" | "outputs";
+/** The photo's own files, deleted to save space; the thumbnail and the outputs stay. */
+export const PHOTO_FILES = ["original", "preview"] as const;
+const ALL_KINDS = ["original", "preview", "thumb", "outputs"] as const;
 
 /** A curve sent from this photo before revisions (D26): each send a curve of its own. Read by send.ts syncOf. */
 export interface SentCurve {
@@ -81,6 +87,8 @@ export interface PhotoRecord {
   focal?: PhotoFocal | null;
   /** For a photo from the page's camera. */
   camera?: CameraNote | null;
+  /** When its photo was deleted to save space (ms since 1970): the curve stays, from its outputs. */
+  photoDeleted?: number;
 }
 
 export interface PhotoFocal {
@@ -101,8 +109,11 @@ export interface CameraNote {
   ms: number;
 }
 
-/** Photos kept. Past it the oldest go: a 12-megapixel photo is 3-6 MB. */
-export const KEEP_PHOTOS = 30;
+/** Photos kept by default (Settings, Photos kept): past it the oldest lose their
+ * photo and keep their curve. A 12-megapixel photo is 3-6 MB; a curve a few tens of KB. */
+export const KEEP_PHOTOS = 10;
+/** Curves kept. Past it the oldest go altogether. */
+export const KEEP_CURVES = 200;
 const DB_VERSION = 1;
 
 export class PhotoStore {
@@ -151,18 +162,32 @@ export class PhotoStore {
     return this.request<Blob | undefined>("blobs", "readonly", (s) => s.get(blobKey(id, kind)));
   }
 
+  /** Store a blob of a photo's (its outputs) without touching its record. */
+  async putBlob(id: string, kind: BlobKind, blob: Blob): Promise<void> {
+    await this.request("blobs", "readwrite", (s) => s.put(blob, blobKey(id, kind)));
+  }
+
   async delete(id: string): Promise<void> {
     await this.transaction(["photos", "blobs"], "readwrite", (tx) => {
       tx.objectStore("photos").delete(id);
-      for (const kind of ["original", "preview", "thumb"] as const) tx.objectStore("blobs").delete(blobKey(id, kind));
+      for (const kind of ALL_KINDS) tx.objectStore("blobs").delete(blobKey(id, kind));
     });
   }
 
-  /** Delete all but the newest `keep` photos; returns the ids deleted. */
-  async prune(keep = KEEP_PHOTOS): Promise<string[]> {
-    const old = (await this.list()).slice(keep).map((r) => r.id);
-    for (const id of old) await this.delete(id);
-    return old;
+  /** Delete a photo's own files and save its record (marked `photoDeleted`), in one transaction. */
+  async deleteFiles(record: PhotoRecord): Promise<void> {
+    await this.transaction(["photos", "blobs"], "readwrite", (tx) => {
+      tx.objectStore("photos").put(record);
+      for (const kind of PHOTO_FILES) tx.objectStore("blobs").delete(blobKey(record.id, kind));
+    });
+  }
+
+  /** Everything: every photo, curve and file. */
+  async clear(): Promise<void> {
+    await this.transaction(["photos", "blobs"], "readwrite", (tx) => {
+      tx.objectStore("photos").clear();
+      tx.objectStore("blobs").clear();
+    });
   }
 
   close(): void {
@@ -190,6 +215,42 @@ export class PhotoStore {
       tx.onabort = () => reject(tx.error ?? new Error("photo store write aborted (is the phone's storage full?)"));
     });
   }
+}
+
+/** What to delete to keep the phone's storage small. */
+export interface Cleanup {
+  /** Photos to delete, keeping their curves. */
+  photos: string[];
+  /** Photos to delete altogether: ones with no curve to keep, and the oldest curves. */
+  whole: string[];
+}
+
+/** Past the newest `keepPhotos` photos (records newest first; 0 for every one), a
+ * photo with a curve loses its photo and keeps the curve, and one without a curve
+ * (it failed) goes. Past the newest `keepCurves` records, everything goes. Photos
+ * not finished measuring, and those in `spare` (the one on screen), are left alone. */
+export function cleanupPlan(records: readonly PhotoRecord[], keepPhotos: number, keepCurves = KEEP_CURVES,
+  spare: ReadonlySet<string> = new Set()): Cleanup {
+  const out: Cleanup = { photos: [], whole: [] };
+  let withPhoto = 0;
+  for (const [i, r] of records.entries()) {
+    const finished = r.status === "done" || r.status === "error";
+    if (!finished || spare.has(r.id)) {
+      if (!r.photoDeleted) withPhoto++;
+      continue;
+    }
+    if (i >= keepCurves) out.whole.push(r.id);
+    else if (r.photoDeleted) continue;
+    else if (withPhoto < keepPhotos) withPhoto++;
+    else if (hasCurve(r)) out.photos.push(r.id);
+    else out.whole.push(r.id);
+  }
+  return out;
+}
+
+/** A measurement that gave a curve, which outlives the photo. */
+export function hasCurve(r: PhotoRecord): boolean {
+  return !!r.doc?.ok && !!r.doc.curve;
 }
 
 function blobKey(id: string, kind: BlobKind): string {

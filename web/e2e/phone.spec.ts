@@ -526,6 +526,82 @@ test.describe("paired with a computer", () => {
 /** Visits the phone page until its engine is ready: the core's files (Pyodide,
  * wheels) fetched by the page or its workers, from the network and from the
  * service worker, and their bytes. */
+test("past Photos kept and with Delete photos, keep curves, photos go and their curves stay; Clear history empties the list", async ({ browser }) => {
+  const ctx = await browser.newContext({ ...PHONE, permissions: ["clipboard-read", "clipboard-write"] });
+  const p = await ctx.newPage();
+  const tap = async (name: string) => {
+    const b = p.getByRole("button", { name }).first();
+    await b.scrollIntoViewIfNeeded();
+    await b.tap();
+  };
+  const blobKinds = (id: string) => p.evaluate((id) => new Promise<string[]>((resolve, reject) => {
+    const req = indexedDB.open("splinewire-phone");
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const keys = req.result.transaction("blobs").objectStore("blobs").getAllKeys();
+      keys.onsuccess = () => resolve((keys.result as string[]).filter((k) => k.startsWith(`${id}:`)).map((k) => k.slice(id.length + 1)).sort());
+    };
+  }), id);
+  await p.goto("phone/");
+  await p.locator("#settings summary").tap();
+  await p.selectOption("#s-keep", "1");
+  await p.setInputFiles("#take", pipe.photo);
+  const items = p.locator("#photos li");
+  await expect(items.first()).toHaveAttribute("data-status", "done", { timeout: 180_000 });
+  const first = (await items.first().getAttribute("data-id"))!;
+  const want = await p.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), first);
+  await expect.poll(() => blobKinds(first)).toEqual(["original", "outputs", "preview", "thumb"]);
+
+  // A second photo: the first, past "the newest only", loses its photo and keeps its curve.
+  await p.setInputFiles("#take", pipe.photo);
+  await expect(items).toHaveCount(2);
+  await expect(items.first()).toHaveAttribute("data-status", "done", { timeout: 180_000 });
+  const old = p.locator(`#photos li[data-id="${first}"]`);
+  await expect(old.locator(".meta")).toContainText("curve only", { timeout: 15_000 });
+  expect(await blobKinds(first)).toEqual(["outputs", "thumb"]);
+  await expect(p.locator("#space")).toContainText("1 photo (");
+  await expect(p.locator("#space")).toContainText("1 curve without its photo");
+
+  // After a reload, with the core holding nothing, the old curve is copied and downloaded from its kept files.
+  await p.reload();
+  await old.locator("button.open").tap();
+  await expect(p.locator("#r-status")).toContainText("deleted to save space");
+  await expect(p.locator("#editor")).toBeHidden();
+  await expect(p.getByRole("button", { name: "Outside" })).toBeDisabled();
+  await tap("Copy points");
+  await expect(p.locator("#toast")).toContainText("Copied");
+  expect(await p.evaluate(() => navigator.clipboard.readText())).toBe(want.files.tsv);
+  const download = p.waitForEvent("download");
+  await tap("Download the DXF file");
+  expect(fs.readFileSync((await (await download).path())!, "utf8")).toBe(want.files.dxf);
+  await expect(old).toHaveAttribute("data-status", "done");
+
+  // Delete photos, keep curves: the newer one goes too.
+  p.once("dialog", (d) => {
+    expect(d.message()).toBe("Delete 1 photo and keep its curve? The curves can still be copied, downloaded and sent, but their pins can no longer be fixed.");
+    void d.accept();
+  });
+  await tap("Delete photos, keep curves");
+  await expect(p.locator("#toast")).toContainText("Deleted 1 photo, kept the curves.");
+  await expect(items.locator(".meta", { hasText: "curve only" })).toHaveCount(2);
+  await expect(p.getByRole("button", { name: "Delete photos, keep curves" })).toBeHidden();
+
+  // Clear history: nothing left, after a reload too.
+  p.once("dialog", (d) => {
+    expect(d.message()).toBe("Delete all 2 photos and curves from this phone?");
+    void d.accept();
+  });
+  await tap("Clear history");
+  await expect(items).toHaveCount(0);
+  await expect(p.locator("#photos-box")).toBeHidden();
+  await expect(p.locator("#result")).toBeHidden();
+  await p.reload();
+  await expect(p.locator("#engine-stage")).toBeAttached();
+  await expect(items).toHaveCount(0);
+  expect(await blobKinds(first)).toEqual([]);
+  await ctx.close();
+});
+
 const visitPhone = async (ctx: BrowserContext, address = "phone/") => {
     const p = await ctx.newPage();
     let network = 0, fromSw = 0, bytes = 0;

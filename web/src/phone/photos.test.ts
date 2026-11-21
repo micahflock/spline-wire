@@ -1,6 +1,6 @@
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
-import { PhotoStore, newPhotoId, type PhotoRecord } from "./photos";
+import { KEEP_PHOTOS, PhotoStore, cleanupPlan, newPhotoId, type PhotoRecord } from "./photos";
 
 function record(id: string, added: number): PhotoRecord {
   return {
@@ -41,12 +41,30 @@ describe("PhotoStore", () => {
     for (const kind of ["original", "preview", "thumb"] as const) expect(await s.blob("one", kind)).toBeUndefined();
   });
 
-  it("prunes all but the newest", async () => {
+  it("deletes a photo's own files and keeps its curve's", async () => {
+    const factory = new IDBFactory();
+    const s = await PhotoStore.open(factory);
+    await s.add(record("one", 1), { original: blob("abc"), preview: blob("p"), thumb: blob("t") });
+    await s.putBlob("one", "outputs", blob("{}"));
+    const r = { ...(await s.get("one"))!, photoDeleted: 5 };
+    await s.deleteFiles(r);
+    s.close();
+    const b = await PhotoStore.open(factory);
+    expect((await b.get("one"))!.photoDeleted).toBe(5);
+    expect(await b.blob("one", "original")).toBeUndefined();
+    expect(await b.blob("one", "preview")).toBeUndefined();
+    expect(await (await b.blob("one", "thumb"))!.text()).toBe("t");
+    expect(await (await b.blob("one", "outputs"))!.text()).toBe("{}");
+    await b.delete("one");
+    expect(await b.blob("one", "outputs")).toBeUndefined();
+  });
+
+  it("clears everything", async () => {
     const s = await PhotoStore.open(new IDBFactory());
-    for (let i = 0; i < 5; i++) await s.add(record(`p${i}`, i), { original: blob(String(i)) });
-    expect(await s.prune(3)).toEqual(["p1", "p0"]);
-    expect((await s.list()).map((r) => r.id)).toEqual(["p4", "p3", "p2"]);
-    expect(await s.blob("p0", "original")).toBeUndefined();
+    for (let i = 0; i < 3; i++) await s.add(record(`p${i}`, i), { original: blob(String(i)), thumb: blob("t") });
+    await s.clear();
+    expect(await s.list()).toEqual([]);
+    expect(await s.blob("p1", "thumb")).toBeUndefined();
   });
 
   it("makes ids that sort by time and differ", () => {
@@ -55,5 +73,40 @@ describe("PhotoStore", () => {
     expect(a.slice(0, 3)).toBe(b.slice(0, 3));
     expect(/^p[0-9a-z]+$/.test(c)).toBe(true);
     expect(c > a).toBe(true);
+  });
+});
+
+describe("cleanupPlan", () => {
+  const measured = (id: string, ok = true, extra: Partial<PhotoRecord> = {}): PhotoRecord => ({
+    ...record(id, 0), status: ok ? "done" : "error",
+    doc: { ok, curve: ok ? { points: [[0, 0], [1, 1]], pins: [] } : null } as unknown as PhotoRecord["doc"], ...extra,
+  });
+
+  it("keeps the newest photos and the curves of older ones", () => {
+    const rs = ["a", "b", "c", "d"].map((id) => measured(id));
+    expect(cleanupPlan(rs, 2)).toEqual({ photos: ["c", "d"], whole: [] });
+    expect(cleanupPlan(rs, 0)).toEqual({ photos: ["a", "b", "c", "d"], whole: [] });
+    expect(cleanupPlan(rs, 10)).toEqual({ photos: [], whole: [] });
+  });
+
+  it("deletes older photos that gave no curve altogether", () => {
+    const rs = [measured("a"), measured("b", false), measured("c", false)];
+    expect(cleanupPlan(rs, 2)).toEqual({ photos: [], whole: ["c"] });
+  });
+
+  it("counts only photos still kept, and spares those being measured and the one on screen", () => {
+    const rs = [measured("a", true, { photoDeleted: 1 }), { ...measured("b"), status: "measuring" as const }, measured("c"), measured("d"), measured("e")];
+    // a has lost its photo already; b (measuring) and c (spared) keep theirs and fill the two places.
+    expect(cleanupPlan(rs, 2, 200, new Set(["c"]))).toEqual({ photos: ["d", "e"], whole: [] });
+    expect(cleanupPlan(rs, 3, 200, new Set(["c"]))).toEqual({ photos: ["e"], whole: [] });
+  });
+
+  it("drops the oldest curves past the curve limit", () => {
+    const rs = ["a", "b", "c"].map((id) => measured(id, true, id === "a" ? {} : { photoDeleted: 1 }));
+    expect(cleanupPlan(rs, 1, 2)).toEqual({ photos: [], whole: ["c"] });
+  });
+
+  it("keeps ten photos unless told otherwise", () => {
+    expect(KEEP_PHOTOS).toBe(10);
   });
 });

@@ -33,14 +33,18 @@ import { curveFrom } from "./curve";
 import { NO_EXIF, exifOfFile, type Exif } from "./exif";
 import { focalOffer, isFront, learn, lensFocal, lensName, offerKey } from "./lenses";
 import { Measurer, type Update } from "./measurer";
-import { PhotoStore, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord } from "./photos";
+import {
+  KEEP_CURVES, PHOTO_FILES, PhotoStore, cleanupPlan, hasCurve, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord,
+} from "./photos";
 import { applyState, curveKey, delivery, deliveryText, displayName, nameOf, nextRevision, phoneState, sendOffer, setName, setStar, starOf, syncOf } from "./send";
 import { renamedFile } from "../desktop/names";
 import {
-  chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
+  KEEP_PHOTO_CHOICES, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
   type Settings, type Shade,
 } from "./settings";
-import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, photoFocalText, readNote, readWarning } from "./wording";
+import {
+  ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, photoFocalText, readNote, readWarning, spaceText,
+} from "./wording";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) => {
@@ -103,6 +107,12 @@ async function getBlob(id: string, kind: BlobKind): Promise<Blob | undefined> {
   return memBlobs.get(`${id}:${kind}`) ?? (await photos?.blob(id, kind).catch(() => undefined));
 }
 
+/** Measure a photo (again), unless its photo was deleted to save space: its curve then stays as it is. */
+function remeasure(id: string, urgent = false): void {
+  if (records.get(id)?.photoDeleted) return;
+  measurer.request(id, urgent);
+}
+
 function persist(r: PhotoRecord): void {
   photos?.put(r).catch((e: Error) => toast(`Couldn't save the photo's state: ${e.message}`));
 }
@@ -144,7 +154,11 @@ function onUpdate(r: PhotoRecord, u: Update): void {
     editing.delete(r.id);
     if (r.id === selected) pending = null;
     persist(r);
-    if (u.doc?.ok) void syncCurve(r);
+    if (u.doc?.ok) {
+      // Its files are kept while the photo is still open in the core, so that the photo can go later.
+      void outputsOf(r.id).then(() => tidySoon(), () => {});
+      void syncCurve(r);
+    }
   }
   renderList();
   if (r.id === selected) renderResult();
@@ -176,12 +190,10 @@ async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | n
     records.set(id, r);
     order.unshift(id);
     if (i === 0) void select(id);
-    measurer.request(id, i === 0);
+    remeasure(id, i === 0);
   }
   renderList();
-  if (photos) {
-    for (const id of await photos.prune().catch(() => [] as string[])) drop(id);
-  }
+  tidySoon();
 }
 
 /** D17: remember the lens's focal length from a photo that has it, and find
@@ -288,13 +300,99 @@ function drop(id: string): void {
   order = order.filter((x) => x !== id);
   measurer.forget(id);
   histories.delete(id);
-  for (const k of ["original", "preview", "thumb"]) memBlobs.delete(`${id}:${k}`);
+  for (const k of ["original", "preview", "thumb", "outputs"]) memBlobs.delete(`${id}:${k}`);
   const u = thumbUrls.get(id);
   if (u) URL.revokeObjectURL(u);
   thumbUrls.delete(id);
   if (selected === id) void select(order[0] ?? null);
   renderList();
 }
+
+// ---- keeping the phone's storage small ----
+
+/** Delete a photo's own files and keep its curve (photos.ts): false if it has no curve or its files could not be made. */
+async function deletePhotoFiles(id: string): Promise<boolean> {
+  const r = records.get(id);
+  if (!r || r.photoDeleted || !hasCurve(r)) return false;
+  try {
+    await outputsOf(id);
+  } catch {
+    return false;
+  }
+  if (records.get(id) !== r || measurer.busy(id) || !hasCurve(r)) return false;
+  r.photoDeleted = Date.now();
+  if (photos && !memBlobs.has(`${id}:original`)) {
+    try {
+      await photos.deleteFiles(r);
+    } catch {
+      delete r.photoDeleted;
+      return false;
+    }
+  }
+  for (const k of PHOTO_FILES) memBlobs.delete(`${id}:${k}`);
+  histories.delete(id);
+  void core.call("close", { photo: id }).catch(() => {});
+  if (selected === id) void select(id);         // shown again, without its photo
+  return true;
+}
+
+interface Tidied { photos: number; whole: number; failed: number }
+let tidyChain: Promise<unknown> = Promise.resolve();
+
+/** Past the newest `keepPhotos`, photos lose their files and keep their curves (photos.ts cleanupPlan). One at a time. */
+function tidy(keepPhotos: number, spare: ReadonlySet<string>): Promise<Tidied> {
+  const run = tidyChain.then(async (): Promise<Tidied> => {
+    const plan = cleanupPlan(order.map((id) => records.get(id)!), keepPhotos, KEEP_CURVES, spare);
+    for (const id of plan.whole) await removePhoto(id);
+    let done = 0;
+    for (const id of plan.photos) if (await deletePhotoFiles(id)) done++;
+    renderList();
+    return { photos: done, whole: plan.whole.length, failed: plan.photos.length - done };
+  });
+  tidyChain = run.catch(() => {});
+  return run;
+}
+
+let tidyTimer: ReturnType<typeof setTimeout> | undefined;
+/** After a photo is added or measured: what Settings, Photos kept says, sparing the photo on screen. */
+function tidySoon(): void {
+  if (!recordsLoaded) return;
+  clearTimeout(tidyTimer);
+  tidyTimer = setTimeout(() => void tidy(settings.keepPhotos, new Set(selected ? [selected] : [])).catch(() => {}), 1500);
+}
+
+$("free-space").onclick = async () => {
+  const all = order.map((id) => records.get(id)!);
+  const plan = cleanupPlan(all, 0, KEEP_CURVES);
+  const n = plan.photos.length, failed = plan.whole.length;
+  if (!n && !failed) {
+    toast(all.some((r) => !r.photoDeleted) ? "Wait for the photos being measured." : "No photos left to delete: only curves.");
+    return;
+  }
+  const what = [n ? `Delete ${n === 1 ? "1 photo" : `${n} photos`} and keep ${n === 1 ? "its curve" : "their curves"}?` : "",
+    n ? "The curves can still be copied, downloaded and sent, but their pins can no longer be fixed." : "",
+    failed ? `${failed === 1 ? "1 photo that gave no curve is" : `${failed} photos that gave no curve are`} deleted${n ? " too" : ""}.` : ""];
+  if (!confirm(what.filter(Boolean).join(" "))) return;
+  const t = await tidy(0, new Set());
+  toast([t.photos ? `Deleted ${t.photos === 1 ? "1 photo" : `${t.photos} photos`}, kept the curves.` : "",
+    t.whole ? `Deleted ${t.whole === 1 ? "1 photo" : `${t.whole} photos`} without a curve.` : "",
+    t.failed ? `${t.failed === 1 ? "1 photo was" : `${t.failed} photos were`} kept: ${t.failed === 1 ? "its" : "their"} curve's files couldn't be made.` : ""]
+    .filter(Boolean).join(" ") || "Nothing deleted.");
+};
+
+$("clear-all").onclick = async () => {
+  const n = order.length;
+  if (!n) return;
+  const sent = room ? order.some((id) => syncOf(records.get(id)!, room!)) : false;
+  if (!confirm(`Delete all ${n === 1 ? "1 photo and its curve" : `${n} photos and curves`} from this phone?${sent ? " Curves sent to the computer stay there." : ""}`)) return;
+  await tidyChain;
+  await photos?.clear().catch((e: Error) => toast(`Couldn't clear the phone's storage: ${e.message}`));
+  for (const id of [...order]) {
+    drop(id);
+    void core.call("close", { photo: id }).catch(() => {});
+  }
+  toast(n === 1 ? "Deleted 1 photo." : `Deleted ${n} photos.`);
+};
 
 // ---- the engine (core worker) ----
 
@@ -386,7 +484,7 @@ async function select(id: string | null): Promise<void> {
   const r = id ? records.get(id) : undefined;
   if (!r) return;
   if (r.status !== "queued" && r.status !== "loading" && r.status !== "measuring" && r.measuredWith !== focalKey()) {
-    measurer.request(r.id, true);             // the focal length settings changed since it was measured
+    remeasure(r.id, true);             // the focal length settings changed since it was measured
   }
   const blob = await getBlob(r.id, "preview");
   if (selected !== r.id) return;
@@ -397,12 +495,12 @@ async function select(id: string | null): Promise<void> {
 
 function tap(p: Pt, slack: number): void {
   const r = selected ? records.get(selected) : undefined;
-  if (!r || measurer.busy(r.id)) return;
+  if (!r || r.photoDeleted || measurer.busy(r.id)) return;
   if (picking) {
     picking = false;
     r.side = [p.x, p.y];
     pending = p;
-    measurer.request(r.id, true);
+    remeasure(r.id, true);
     renderResult();
     return;
   }
@@ -413,7 +511,7 @@ function tap(p: Pt, slack: number): void {
   editing.add(r.id);
   r.edits = edits;
   pending = mark;
-  measurer.request(r.id, true);
+  remeasure(r.id, true);
   renderResult();
 }
 
@@ -429,7 +527,7 @@ $("undo").onclick = () => {
   const e = history(r.id).undo();
   if (!e) return;
   r.edits = e;
-  measurer.request(r.id, true);
+  remeasure(r.id, true);
   renderResult();
 };
 $("reset").onclick = () => {
@@ -438,7 +536,7 @@ $("reset").onclick = () => {
   history(r.id).commit(r.edits);
   editing.add(r.id);
   r.edits = NO_EDITS;
-  measurer.request(r.id, true);
+  remeasure(r.id, true);
   renderResult();
 };
 $("fit").onclick = () => editor.frame();
@@ -450,7 +548,7 @@ const hasEdits = (e: Edits) => e.add.length > 0 || e.remove.length > 0;
 for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg button")) {
   b.onclick = () => {
     const r = selected ? records.get(selected) : undefined;
-    if (!r) return;
+    if (!r || r.photoDeleted) return;
     const s = b.dataset.side!;
     if (s === "tap") {
       picking = !picking;
@@ -461,7 +559,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg butt
     r.side = s as Side;
     settings = { ...settings, side: s as Side };     // new photos start with the side last chosen
     saveSettings(store, settings);
-    measurer.request(r.id, true);
+    remeasure(r.id, true);
     renderResult();
   };
 }
@@ -469,13 +567,13 @@ for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg butt
 let pinsTimer: ReturnType<typeof setTimeout> | undefined;
 const photoPins = stepper($("r-pins"), () => (selected ? records.get(selected)?.pins ?? 13 : 13), (n) => {
   const r = selected ? records.get(selected) : undefined;
-  if (!r) return;
+  if (!r || r.photoDeleted) return;
   r.pins = n;
   settings = { ...settings, pins: n };           // as the current app does: the next photo has as many
   saveSettings(store, settings);
   renderSettings();
   clearTimeout(pinsTimer);                       // a few taps on − or + in a row measure once
-  pinsTimer = setTimeout(() => measurer.request(r.id, true), 500);
+  pinsTimer = setTimeout(() => remeasure(r.id, true), 500);
 });
 
 function stepper(box: HTMLElement, get: () => number, set: (n: number) => void): HTMLInputElement {
@@ -528,7 +626,8 @@ function renderResult(): void {
   const via = r.via === "camera" ? (r.camera?.still === "frame" ? "page camera, video frame" : "page camera")
     : r.via === "take" ? "system camera" : "library";
   const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
-  $("r-meta").textContent = [size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
+  const gone = !!r.photoDeleted;
+  $("r-meta").textContent = [gone ? "photo deleted" : "", size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
   const [tag, label] = tagOf(r);
   const t = $("r-tag");
   t.className = `tag ${tag}`;
@@ -538,7 +637,8 @@ function renderResult(): void {
   const ok = r.status === "done" && !!doc?.ok;
   const status = $("r-status");
   status.textContent = STATUS_WORDS[r.status] ||
-    (ok ? `Measured: ${doc!.result!.curve_points} points. ${paired() ? "Copy them, or send them to the computer." : "Copy them, share them or download them."}` : "");
+    (ok ? `Measured: ${doc!.result!.curve_points} points. ${paired() ? "Copy them, or send them to the computer." : "Copy them, share them or download them."}` : "")
+    + (gone ? " The photo was deleted to save space; the curve is kept, but its pins can no longer be fixed." : "");
 
   // What went wrong: a person's error as is, under a plain heading; a bug with its type.
   const problem = $("r-problem");
@@ -556,7 +656,7 @@ function renderResult(): void {
   problem.hidden = !problem.childElementCount;
 
   const v = doc?.view;
-  $("editor").hidden = !r.pixels && !v;
+  $("editor").hidden = gone || (!r.pixels && !v);
   svg.classList.toggle("wait", busy);
   svg.classList.toggle("picking", picking);
   editor.show(v ?? null, { pending });
@@ -570,10 +670,12 @@ function renderResult(): void {
   const sideKey = Array.isArray(r.side) ? "tap" : r.side;
   for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg button")) {
     b.setAttribute("aria-pressed", String(picking ? b.dataset.side === "tap" : b.dataset.side === sideKey));
+    b.disabled = gone;
   }
   const res = doc?.result;
   $("side-now").textContent = res ? `${SIDE_TEXT[res.object_side]}${Array.isArray(r.side) ? ", from your tap" : ""}` : "";
   photoPins.value = String(r.pins);
+  for (const c of $("r-pins").querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) c.disabled = gone;
 
   const focalDetail = res && r.focal && res.focal_source === "override" && settings.focalOverride35 === null ? photoFocalText(r.focal) : undefined;
   $("numbers").replaceChildren(...(res ? numbers(res, r.pins, focalDetail) : []).map(([k, val, s, warn]) =>
@@ -617,6 +719,10 @@ async function thumbInto(image: HTMLImageElement, id: string): Promise<void> {
 
 function renderList(): void {
   $("photos-box").hidden = order.length === 0;
+  const all = order.map((id) => records.get(id)!);
+  const withPhoto = all.filter((r) => !r.photoDeleted);
+  $("space").textContent = spaceText(withPhoto.length, withPhoto.reduce((n, r) => n + r.size, 0), all.length - withPhoto.length, settings.keepPhotos);
+  $("free-space").hidden = withPhoto.length === 0;
   const list = $("photos");
   list.replaceChildren(...order.map((id) => {
     const r = records.get(id)!;
@@ -626,7 +732,7 @@ function renderList(): void {
     const when = new Date(r.added).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const open = el("button", { type: "button", className: "open" }, th,
       el("span", { className: "who" }, el("span", { className: "name", textContent: displayName(r) }),
-        el("span", { className: "meta mono", textContent: `${when} · ${r.pins} pins` })),
+        el("span", { className: "meta mono", textContent: `${when} · ${r.pins} pins${r.photoDeleted ? " · curve only" : ""}` })),
       el("span", { className: `tag ${tag}`, textContent: label }));
     open.setAttribute("aria-label", `Open ${displayName(r)}, ${label}`);
     open.onclick = () => {
@@ -650,7 +756,54 @@ function renderList(): void {
 
 // ---- copy, share, download ----
 
-async function outputsOf(id: string): Promise<Commands["outputs"]["result"]> {
+type Outputs = Commands["outputs"]["result"];
+/** A photo's output files as kept beside it (photos.ts "outputs"), with the measurement they are of. */
+interface KeptOutputs extends Outputs { doc: string }
+const outputsWork = new Map<string, { doc: string; done: Promise<Outputs> }>();
+
+/** What identifies a measurement document's files. */
+function docKey(doc: MeasurementDocument): string {
+  return JSON.stringify([doc.name, doc.result, doc.curve]);
+}
+
+/** The photo's output files: kept ones while they are of its measurement, else made by the core and kept. */
+function outputsOf(id: string): Promise<Outputs> {
+  const r = records.get(id);
+  if (!r?.doc) return Promise.reject(new Error("the photo isn't measured"));
+  const doc = r.doc, key = docKey(doc);
+  const work = outputsWork.get(id);
+  if (work?.doc === key) return work.done;
+  const done = (async () => {
+    const kept = await keptOutputs(id);
+    if (kept?.doc === key) return { files: kept.files, names: kept.names };
+    if (r.photoDeleted) throw new Error("its photo was deleted, and the curve's files with it");
+    const out = await coreOutputs(id);
+    // Measured again meanwhile: the files may be of either measurement, so not kept.
+    if (records.get(id) === r && r.doc === doc && !measurer.busy(id)) {
+      const blob = new Blob([JSON.stringify({ ...out, doc: key } satisfies KeptOutputs)], { type: "application/json" });
+      if (photos && !memBlobs.has(`${id}:original`)) await photos.putBlob(id, "outputs", blob).catch(() => {});
+      else memBlobs.set(`${id}:outputs`, blob);
+    }
+    return out;
+  })();
+  outputsWork.set(id, { doc: key, done });
+  void done.finally(() => {
+    if (outputsWork.get(id)?.done === done) outputsWork.delete(id);
+  }).catch(() => {});
+  return done;
+}
+
+async function keptOutputs(id: string): Promise<KeptOutputs | null> {
+  const blob = await getBlob(id, "outputs");
+  if (!blob) return null;
+  try {
+    return JSON.parse(await blob.text()) as KeptOutputs;
+  } catch {
+    return null;
+  }
+}
+
+async function coreOutputs(id: string): Promise<Outputs> {
   try {
     return await core.call("outputs", { photo: id });
   } catch (err) {
@@ -704,12 +857,12 @@ const TYPES: Partial<Record<OutputKind, string>> = {
 };
 
 /** A file's name: the core's (after the photo's), or after the person's name for the curve. */
-function fileName(id: string, out: Commands["outputs"]["result"], kind: OutputKind): string {
+function fileName(id: string, out: Outputs, kind: OutputKind): string {
   const r = records.get(id), given = out.names[kind] ?? `curve.${kind}`;
   return r ? renamedFile(given, r.name, nameOf(r).text) : given;
 }
 
-function fileOf(id: string, out: Commands["outputs"]["result"], kind: OutputKind): File {
+function fileOf(id: string, out: Outputs, kind: OutputKind): File {
   return new File([out.files[kind]], fileName(id, out, kind), { type: TYPES[kind] ?? "text/plain" });
 }
 
@@ -1027,6 +1180,7 @@ function renderSettings(): void {
   select.value = presetKey(chains, settings.chain);
   $<HTMLSelectElement>("s-shade").value = settings.shade;
   $<HTMLSelectElement>("s-live").value = settings.liveSize;
+  $<HTMLSelectElement>("s-keep").value = String(settings.keepPhotos);
   settingsPins.value = String(defaultPins(settings, chains));
   const focal = $<HTMLInputElement>("s-focal");
   if (document.activeElement !== focal) focal.value = settings.savedFocal35?.toString() ?? "";
@@ -1042,13 +1196,13 @@ function renderSettings(): void {
   $("s-teach-note").hidden = settings.lenses.length > 0;
 }
 
-function setSettings(next: Settings, remeasure = false): void {
+function setSettings(next: Settings, measureAgain = false): void {
   settings = next;
   saveSettings(store, settings);
   renderSettings();
-  if (remeasure && selected) {
+  if (measureAgain && selected) {
     const r = records.get(selected);
-    if (r && (r.status === "done" || r.status === "error")) measurer.request(r.id, true);
+    if (r && (r.status === "done" || r.status === "error")) remeasure(r.id, true);
   }
 }
 
@@ -1063,9 +1217,9 @@ $<HTMLSelectElement>("s-shade").onchange = (e) => {
   setSettings({ ...settings, shade });
   // Most often chosen after a photo of such a chain found nothing: measure it again too.
   const r = selected ? records.get(selected) : undefined;
-  if (r && (r.shade ?? "light") !== shade) {
+  if (r && !r.photoDeleted && (r.shade ?? "light") !== shade) {
     r.shade = shade;
-    measurer.request(r.id, true);
+    remeasure(r.id, true);
     renderResult();
   }
   toast(shade === "dark" ? "Measuring dark dots or rims on light links." : "Measuring light dots or rims on dark links.");
@@ -1076,6 +1230,15 @@ $<HTMLSelectElement>("s-live").onchange = (e) => {
   setSettings({ ...settings, liveSize, fullStreamCameras: [] });
   toast(liveSize === "fast" ? "The live camera reads a smaller picture once the focal length is known: faster, for close-up shots."
     : "The live camera reads the full picture: slower, but reaches a chain farther away.");
+};
+$<HTMLSelectElement>("s-keep").onchange = (e) => {
+  const keepPhotos = Number((e.target as HTMLSelectElement).value);
+  if (!(KEEP_PHOTO_CHOICES as readonly number[]).includes(keepPhotos)) return;
+  setSettings({ ...settings, keepPhotos });
+  renderList();
+  void tidy(keepPhotos, new Set(selected ? [selected] : [])).then((t) => {
+    if (t.photos) toast(`Deleted the ${t.photos === 1 ? "photo" : `${t.photos} photos`} past the newest ${keepPhotos}, kept the curves.`);
+  }, () => {});
 };
 const settingsPins = stepper($("s-pins"), () => defaultPins(settings, chains), (n) => setSettings({ ...settings, pins: n }));
 
@@ -1129,7 +1292,7 @@ $<HTMLInputElement>("s-teach").onchange = async (e) => {
     r.focal = { focal35: known.focal35, why: "lens", lens: known.lens };
     r.measuredWith = null;
     persist(r);
-    if (r.id === selected && (r.status === "done" || r.status === "error")) measurer.request(r.id, true);
+    if (r.id === selected && (r.status === "done" || r.status === "error")) remeasure(r.id, true);
   }
 };
 
@@ -1240,10 +1403,11 @@ async function main(): Promise<void> {
   // Photos the last visit left half measured are measured again.
   for (const id of [...order].reverse()) {
     const r = records.get(id)!;
-    if (r.status !== "done" && r.status !== "error") measurer.request(id);
+    if (r.status !== "done" && r.status !== "error") remeasure(id);
   }
   if (order[0]) await select(order[0]);
   renderSettings();
+  tidySoon();
 }
 
 void main();

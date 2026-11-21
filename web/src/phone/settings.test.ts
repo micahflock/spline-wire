@@ -16,7 +16,7 @@ describe("settings", () => {
     const store = new MemoryStore();
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const, photoMode: "upload" as const,
-      shade: "dark" as const };
+      shade: "dark" as const, keepPhotos: 3 };
     saveSettings(store, s);
     expect(loadSettings(store)).toEqual(s);
   });
@@ -25,6 +25,7 @@ describe("settings", () => {
     const store = new MemoryStore();
     store.set("phone-settings", JSON.stringify({
       chain: 3, pins: 2, savedFocal35: 4, focalOverride35: "26", side: "left", lenses: [{ key: "x" }], cameras: { a: 1 }, camera: "Back Camera", photoMode: "file",
+      keepPhotos: 7,
     }));
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     store.set("phone-settings", "{not json");
