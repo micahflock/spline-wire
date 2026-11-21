@@ -68,7 +68,9 @@ const recordStreams = () => {
 /** The phone page's saved settings for these tests: the O-ring dot chain, which
  * this file's camera scene draws (the snap-fit chain, the default, has camera-snap.spec.ts). */
 function settings(extra: Record<string, unknown> = {}): string {
-  return JSON.stringify({ chain: "oring", savedFocal35: 24, ...extra });
+  // At full resolution: Chromium's fake camera scales its portrait file to the
+  // fast stream's landscape 1920×1440 (camera-snap.spec.ts tests the fast stream).
+  return JSON.stringify({ chain: "oring", savedFocal35: 24, liveSize: "full", ...extra });
 }
 
 test.beforeAll(async () => {

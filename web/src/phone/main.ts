@@ -1026,6 +1026,7 @@ function renderSettings(): void {
   }
   select.value = presetKey(chains, settings.chain);
   $<HTMLSelectElement>("s-shade").value = settings.shade;
+  $<HTMLSelectElement>("s-live").value = settings.liveSize;
   settingsPins.value = String(defaultPins(settings, chains));
   const focal = $<HTMLInputElement>("s-focal");
   if (document.activeElement !== focal) focal.value = settings.savedFocal35?.toString() ?? "";
@@ -1068,6 +1069,13 @@ $<HTMLSelectElement>("s-shade").onchange = (e) => {
     renderResult();
   }
   toast(shade === "dark" ? "Measuring dark dots or rims on light links." : "Measuring light dots or rims on dark links.");
+};
+$<HTMLSelectElement>("s-live").onchange = (e) => {
+  const liveSize = (e.target as HTMLSelectElement).value === "full" ? "full" : "fast";
+  // Asked for again: a camera whose still came back small is tried at the fast size again.
+  setSettings({ ...settings, liveSize, fullStreamCameras: [] });
+  toast(liveSize === "fast" ? "The live camera reads a smaller picture once the focal length is known: faster, for close-up shots."
+    : "The live camera reads the full picture: slower, but reaches a chain farther away.");
 };
 const settingsPins = stepper($("s-pins"), () => defaultPins(settings, chains), (n) => setSettings({ ...settings, pins: n }));
 
@@ -1164,6 +1172,9 @@ const cameraView = new CameraView({
   // Said, so that a camera view that closes unexpectedly tells the person (and us) why.
   closedBy: (why) => toast(`The camera closed: ${why}.`, 6000),
   code: cameraCode,
+  fullStream: (label) => {
+    if (!settings.fullStreamCameras.includes(label)) setSettings({ ...settings, fullStreamCameras: [...settings.fullStreamCameras, label] });
+  },
 });
 debug.cameraView = cameraView;
 debug.camera = cameraView.stats;

@@ -33,6 +33,11 @@ export interface Settings extends LensState {
   /** The chain's colours: light dots or rims on dark links (as the presets print),
    * or dark ones on light links (ChainSpec fiducial_shade). */
   shade: Shade;
+  /** The live camera's stream: "fast" (1440×1920 once the camera's focal length
+   * is known, camera/stream.ts) or always the "full" sensor. */
+  liveSize: "fast" | "full";
+  /** Cameras (by label) whose takePhoto still came back small with the fast stream: full size for them. */
+  fullStreamCameras: string[];
 }
 
 export type Shade = "light" | "dark";
@@ -49,6 +54,8 @@ export const DEFAULT_SETTINGS: Settings = {
   camera: null,
   photoMode: "live",
   shade: "light",
+  liveSize: "fast",
+  fullStreamCameras: [],
 };
 
 /** session._focal accepts 5 to 500 mm. */
@@ -89,6 +96,8 @@ export function loadSettings(store: KeyValueStore): Settings {
     ? { deviceId: cam.deviceId, label: cam.label } : null;
   if (raw.photoMode === "upload") s.photoMode = "upload";
   if (raw.shade === "dark") s.shade = "dark";
+  if (raw.liveSize === "full") s.liveSize = "full";
+  s.fullStreamCameras = Array.isArray(raw.fullStreamCameras) ? raw.fullStreamCameras.filter((c): c is string => typeof c === "string").slice(0, 20) : [];
   return s;
 }
 

@@ -21,7 +21,8 @@
 
 import { chooseCamera, labelled, rearCameras, type CameraInfo } from "../camera/choose";
 import { QrScan } from "../camera/qr-scan";
-import { compareGrays, FrameGrab, grayCorrelation, grayDifference, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
+import { FULL_STREAM, smallStill, stillSize, streamFor, type StreamSize } from "../camera/stream";
+import { canvasAsked, compareGrays, FrameGrab, grayCorrelation, grayDifference, turnsFor, whyNotWorker, type GrabWorkerLike } from "../camera/grab";
 import type { Size } from "../camera/focal";
 import type { FrameAnalysis, FramePoints } from "../core/protocol";
 import type { ChainSpec, Point } from "../core/types";
@@ -68,6 +69,8 @@ export interface CameraDeps {
   closedBy?(why: string): void;
   /** A QR code seen in the frames (once per code while the view is open): the desktop page's pairing code. */
   code?(text: string): void;
+  /** This camera's still came back small with the fast stream (camera/stream.ts): open it at full size from now on. */
+  fullStream?(cameraLabel: string): void;
 }
 
 interface PhotoCaps {
@@ -80,10 +83,10 @@ interface ImageCaptureLike {
 }
 type VideoWithCallback = HTMLVideoElement & { requestVideoFrameCallback?(cb: (now: number) => void): number };
 
-/** Asked for once: the full 4:3 sensor of a phone (iPhone and Samsung 4032×3024,
- * Pixel 4080×3072, delivered portrait). Ideal, not exact: a camera that cannot
- * still opens. */
-const STREAM = { width: { ideal: 4032 }, height: { ideal: 3024 }, frameRate: { ideal: 30 } };
+/** The frame rate asked for; the size is camera/stream.ts's (the full 4:3 sensor,
+ * iPhone and Samsung 4032×3024, Pixel 4080×3072, delivered portrait; or the fast
+ * 1440×1920). Ideal, not exact: a camera that cannot still opens. */
+const FRAME_RATE = { frameRate: { ideal: 30 } };
 
 type WorkMode = "gpu" | "cpu";
 interface WorkCanvas {
@@ -112,6 +115,8 @@ export interface CameraStats {
   region: string;
   /** Where frames are grabbed (camera/grab.ts): "worker", "check" (trying it), or "main: why". */
   grab: string;
+  /** The worker's canvas and its trial (camera/grab.ts, CanvasTrial.describe). */
+  canvas: string;
   /** The page's own time per frame (ms): all of it when the page grabs; taking
    * the VideoFrame and posting it when the worker does. */
   pageMs: number[];
@@ -122,12 +127,16 @@ export interface CameraStats {
   focal: string;
   /** Which work canvas was chosen, and the trial's medians. */
   work: string;
+  /** The stream's size and why (camera/stream.ts, streamFor). */
+  stream: string;
   /** The QR scan beside the overlay: frames decoded × the page's draw + the worker's decode of the last (ms). */
   qr: string;
   imageCapture: boolean;
   takePhotoMs: number | null;
   takePhotoError: string | null;
   still: string | null;
+  /** The last takePhoto still's size (JPEG or PNG), read with the fast stream (camera/stream.ts). */
+  stillSize: string | null;
   /** Why the view last closed by itself, if it did. */
   closedBy: string | null;
   /** The browser, OS, phone and build, as the info's first line shows them. */
@@ -163,6 +172,8 @@ export class CameraView {
   private requesting = false;
   /** Another camera is being opened in place of the open one (switchTo). */
   private switching = false;
+  /** The open stream was asked for at the fast size (camera/stream.ts). */
+  private fast = false;
   /** The frame grab in a worker, when this browser can (camera/grab.ts). */
   private grab: FrameGrab | null = null;
   /** Looks for the desktop page's pairing code in the frames (camera/qr-scan.ts). */
@@ -255,12 +266,14 @@ export class CameraView {
     const first = labelled(devices) ? chooseCamera(devices, s.camera, avoid) : null;
     let stream: MediaStream;
     this.requesting = true;
+    this.fast = !!first && this.streamChoice(first.label).fast;
     try {
-      stream = await request(first);
+      stream = await request(first, this.fast ? this.streamChoice(first!.label).size : FULL_STREAM);
     } catch (e) {
       if (!first || (e as Error).name === "NotAllowedError") return this.fail("error", e as Error);
+      this.fast = false;
       try {
-        stream = await request(null);             // the remembered camera is gone
+        stream = await request(null, FULL_STREAM);             // the remembered camera is gone
       } catch (e2) {
         return this.fail("error", e2 as Error);
       }
@@ -290,6 +303,8 @@ export class CameraView {
     this.fillSwitcher(devices);
     const now = this.current();
     if (now) this.deps.saveCamera(now);
+    await this.resize();
+    if (gen !== this.gen) return;
     this.session = new OverlaySession({
       chain: await this.deps.chain(),
       focalPx: () => this.focal()?.px ?? null,
@@ -300,7 +315,7 @@ export class CameraView {
       minIntervalMs: () => (this.focal() ? 0 : 1000),
     });
     this.grab = new FrameGrab(() => new Worker(new URL("../camera/grab-worker.ts", import.meta.url), { type: "module" }) as unknown as GrabWorkerLike,
-      whyNotWorker(location.search));
+      whyNotWorker(location.search), undefined, canvasAsked(location.search));
     this.stats.grab = this.grabText();
     this.qr = new QrScan((text) => this.deps.code?.(text));
     this.setShutter(true);
@@ -347,12 +362,42 @@ export class CameraView {
 
   // ---- the stream ----
 
+  /** The size to open a camera at (camera/stream.ts). */
+  private streamChoice(label: string) {
+    const s = this.deps.settings();
+    return streamFor({
+      liveSize: s.liveSize,
+      focalKnown: frameFocal(s, label || null, { width: 3024, height: 4032 }) !== null,
+      imageCapture: typeof (globalThis as { ImageCapture?: unknown }).ImageCapture === "function",
+      refused: s.fullStreamCameras.includes(label),
+    });
+  }
+
+  /** The open stream at the size its camera should have (camera/stream.ts): a
+   * camera opened before its name was known (the first tap of a visit) opens at
+   * full size, and is made smaller here once it is known. Left as it is if the
+   * camera will not change. */
+  private async resize(): Promise<void> {
+    const track = this.track;
+    if (!track) return;
+    const want = this.streamChoice(track.label);
+    this.stats.stream = want.why;
+    if (want.fast === this.fast) return;
+    try {
+      await track.applyConstraints({ ...want.size, ...FRAME_RATE });
+      this.fast = want.fast;
+    } catch (e) {
+      this.stats.stream = `${want.why}, not applied: ${(e as Error).name}`;
+    }
+  }
+
   private current(): CameraInfo | null {
     if (!this.track) return null;
     return { deviceId: this.track.getSettings().deviceId ?? "", label: this.track.label };
   }
 
   private async attach(stream: MediaStream): Promise<void> {
+    const fast = this.fast;
     const old = this.stream;
     this.stream = stream;
     this.track = stream.getVideoTracks()[0] ?? null;
@@ -372,7 +417,7 @@ export class CameraView {
       const c = track.getCapabilities?.();
       const set = track.getSettings();
       const longMax = Math.max(c?.width?.max ?? 0, c?.height?.max ?? 0);
-      if (longMax && Math.max(set.width ?? 0, set.height ?? 0) < 0.9 * longMax) {
+      if (!fast && longMax && Math.max(set.width ?? 0, set.height ?? 0) < 0.9 * longMax) {
         await track.applyConstraints({ width: { ideal: c!.width!.max }, height: { ideal: c!.height!.max } });
       }
     } catch {
@@ -392,7 +437,9 @@ export class CameraView {
     const before = this.current();
     this.switching = true;
     try {
-      const stream = await request(camera);
+      const choice = this.streamChoice(camera.label);
+      this.fast = choice.fast;
+      const stream = await request(camera, choice.size);
       if (!this.open) {
         stop(stream);
         return;
@@ -403,7 +450,8 @@ export class CameraView {
       // Keep the camera that is open (iOS may have stopped it: then open it again).
       if (this.track?.readyState === "ended" && before) {
         try {
-          await this.attach(await request(before));
+          this.fast = false;
+          await this.attach(await request(before, FULL_STREAM));
         } catch (e) {
           this.fail("error", e as Error);
         }
@@ -562,6 +610,7 @@ export class CameraView {
     let pageMs = 0;
     grab.run(frame, r, session.shape).then((reply) => {
       if (gen !== this.gen || this.session !== session || this.shooting) return;
+      this.stats.canvas = grab.canvas;
       session.found(reply.blobs ?? [], vw, vh, now, reply.blobMs ?? 0);
       this.counted(r, reply.grabMs ?? 0, reply.blobMs ?? 0, pageMs);
     }, (e: Error) => {
@@ -702,14 +751,14 @@ export class CameraView {
     const st = this.stats;
     const focal = f ? `${f.focal35.toFixed(1)} mm ${f.from === "lens" ? "(this camera's last photo)" : f.from === "override" ? "(override)" : "(Settings)"}` : "focal estimated";
     st.focal = focal;
-    st.size = `${v.videoWidth}×${v.videoHeight}`;
+    st.size = `${v.videoWidth}×${v.videoHeight}${this.fast ? " (fast)" : ""}`;
     const sharp = this.latest?.blobs.length ? median(this.latest.blobs.map((b) => b.sharpness)) : null;
     // One item a line, always the same lines (a dash until there is a value).
     // Only the last, where frames are grabbed, may wrap (its reason can be
     // long): last, so its wrapping moves no other line.
     // First, what a screenshot sent by someone else must say: the browser, the OS, the phone and the build.
     st.browser = `${browserInfo(navigator.userAgent, this.ua)} · build ${import.meta.env.BUILD_ID}`;
-    const lines = [st.browser, st.camera || "camera", st.size, focal,
+    const lines = [st.browser, st.camera || "camera", st.size + (this.fast || !st.stream ? "" : `, ${st.stream}`), focal,
       `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`,
       `region ${st.region || "–"}`,
       `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
@@ -768,6 +817,7 @@ export class CameraView {
       const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
       let still: Still;
       if (photo) {
+        await this.checkStill(photo, camera);
         const ext = photo.type === "image/png" ? "png" : "jpg";
         still = { file: new File([photo], `photo-${stamp}.${ext}`, { type: photo.type || "image/jpeg" }), kind: "photo",
           camera, facing, frameFocal: null, frameChain, frameSize, ms: performance.now() - t0 };
@@ -785,6 +835,19 @@ export class CameraView {
       this.say("Couldn't take the photo.", (e as Error).message);
     } finally {
       this.el["cam"]?.classList.remove("flash");
+    }
+  }
+
+  /** With the fast stream: did the still keep its full size? If not, this
+   * camera opens at full size from now on (the still is used all the same). */
+  private async checkStill(photo: Blob, camera: string): Promise<void> {
+    if (!this.fast) return;
+    try {
+      const size = stillSize(new Uint8Array(await photo.slice(0, 256 * 1024).arrayBuffer()));
+      this.stats.stillSize = size ? `${size.width}×${size.height}` : null;
+      if (size && smallStill(size, FULL_STREAM)) this.deps.fullStream?.(camera);
+    } catch {
+      /* not read: nothing learned */
     }
   }
 
@@ -831,9 +894,9 @@ async function cameras(): Promise<CameraInfo[]> {
   }
 }
 
-function request(camera: CameraInfo | null): Promise<MediaStream> {
+function request(camera: CameraInfo | null, size: StreamSize): Promise<MediaStream> {
   const which = camera?.deviceId ? { deviceId: { exact: camera.deviceId } } : { facingMode: { ideal: "environment" } };
-  return navigator.mediaDevices.getUserMedia({ video: { ...which, ...STREAM }, audio: false });
+  return navigator.mediaDevices.getUserMedia({ video: { ...which, ...size, ...FRAME_RATE }, audio: false });
 }
 
 /** True once the page is visible, or false if it is still hidden after `ms`. */
@@ -905,6 +968,6 @@ function median(v: number[]): number {
 }
 
 function blankStats(): CameraStats {
-  return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "", qr: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, closedBy: null, browser: "", arrow: null };
+  return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", canvas: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "", qr: "",
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, stillSize: null, stream: "", closedBy: null, browser: "", arrow: null };
 }

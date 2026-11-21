@@ -38,6 +38,8 @@ export interface GrabRequest {
   turn: Turn;
   /** Reply with the gray work frame instead of its blobs (the check). */
   gray?: boolean;
+  /** Draw into this kind of canvas only (?canvas= in the page's address), not the faster one. */
+  canvas?: CanvasKind;
 }
 
 export interface GrabReply {
@@ -46,6 +48,8 @@ export interface GrabReply {
   gray?: Uint8Array;
   grabMs?: number;
   blobMs?: number;
+  /** Which canvas the worker drew into, and its trial (CanvasTrial.describe). */
+  canvas?: string;
   error?: string;
 }
 
@@ -74,6 +78,60 @@ export const GRAB = {
   /** After a check that could not tell, the page grabs this many frames before the next check. */
   recheckFrames: 15,
 };
+
+/** The worker's work canvas: "gpu" (a plain 2D canvas: the browser may scale
+ * the frame on the GPU and read back only the small copy) or "cpu"
+ * (willReadFrequently: kept in memory, so a 12 MP frame may be copied out of
+ * the GPU and scaled on the CPU first). Which is cheaper depends on the
+ * browser; the worker drew into a "cpu" canvas only until 2026-11-21, ~48 ms a
+ * frame on the owner's iPhone (Safari, build 22). */
+export type CanvasKind = "gpu" | "cpu";
+
+/** The worker's choice of canvas: the first frames take turns between the two
+ * kinds (TRIAL each), then the one with the lower median time is kept. */
+export class CanvasTrial {
+  static readonly TRIAL = 6;
+  private readonly times: Record<CanvasKind, number[]> = { gpu: [], cpu: [] };
+  chosen: CanvasKind | null;
+
+  constructor(forced: CanvasKind | null = null) {
+    this.chosen = forced;
+  }
+
+  /** The canvas to draw the next frame into. */
+  next(): CanvasKind {
+    return this.chosen ?? (this.times.gpu.length <= this.times.cpu.length ? "gpu" : "cpu");
+  }
+
+  /** A frame drawn into `kind` in `ms` (draw, read back, gray). */
+  record(kind: CanvasKind, ms: number): void {
+    const t = this.times[kind];
+    t.push(ms);
+    if (t.length > CanvasTrial.TRIAL) t.shift();
+    if (this.chosen === null && this.times.gpu.length >= CanvasTrial.TRIAL && this.times.cpu.length >= CanvasTrial.TRIAL) {
+      this.chosen = middle(this.times.gpu) <= middle(this.times.cpu) ? "gpu" : "cpu";
+    }
+  }
+
+  /** For the info line: "gpu canvas (gpu 12, cpu 45 ms)", "trying canvases", or "cpu canvas" when forced. */
+  describe(): string {
+    const ms = (k: CanvasKind) => (this.times[k].length ? middle(this.times[k]).toFixed(0) : "–");
+    const both = `gpu ${ms("gpu")}, cpu ${ms("cpu")} ms`;
+    if (this.chosen === null) return `trying canvases (${both})`;
+    return this.times.gpu.length && this.times.cpu.length ? `${this.chosen} canvas (${both})` : `${this.chosen} canvas`;
+  }
+}
+
+function middle(v: number[]): number {
+  const s = [...v].sort((a, b) => a - b);
+  return s[s.length >> 1]!;
+}
+
+/** The canvas ?canvas= in the page's address asks for, or null. */
+export function canvasAsked(search: string): CanvasKind | null {
+  const c = new URLSearchParams(search).get("canvas");
+  return c === "gpu" || c === "cpu" ? c : null;
+}
 
 /** Why this browser cannot try the worker, or null if it can. */
 export function whyNotWorker(search: string, g: object = globalThis): string | null {
@@ -132,14 +190,18 @@ export class FrameGrab {
   private pending: { id: number; resolve: (r: GrabReply) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   /** `blocked`: why the worker cannot be tried here (whyNotWorker), or null. */
-  constructor(private readonly make: () => GrabWorkerLike, blocked: string | null, private readonly timeoutMs = GRAB.timeoutMs) {
+  constructor(private readonly make: () => GrabWorkerLike, blocked: string | null, private readonly timeoutMs = GRAB.timeoutMs,
+    private readonly canvasKind: CanvasKind | null = null) {
     this.mode = blocked === null ? "check" : "main";
     this.why = blocked ?? "";
   }
 
+  /** The worker's canvas, as its last reply described it (CanvasTrial.describe). */
+  canvas = "";
+
   /** Where frames are grabbed, for the camera view's info line. */
   describe(): string {
-    return this.mode === "worker" ? `grab in a worker${this.turn ? ` (frames turned ${this.turn}°)` : ""}`
+    return this.mode === "worker" ? `grab in a worker${this.turn ? ` (frames turned ${this.turn}°)` : ""}${this.canvas ? `, ${this.canvas}` : ""}`
       : this.mode === "check" ? "grab on the page (checking the worker)"
         : `grab on the page: ${this.why}`;
   }
@@ -162,7 +224,8 @@ export class FrameGrab {
       }, this.timeoutMs);
       this.pending = { id, resolve, reject, timer };
       try {
-        w.postMessage({ id, frame, region, shape, gray, turn: this.turn }, [frame as unknown as Transferable]);
+        w.postMessage({ id, frame, region, shape, gray, turn: this.turn, ...(this.canvasKind ? { canvas: this.canvasKind } : {}) },
+          [frame as unknown as Transferable]);
       } catch (e) {
         clearTimeout(timer);
         this.pending = null;
@@ -175,6 +238,7 @@ export class FrameGrab {
       }
     }).then((reply) => {
       if (reply.error !== undefined) throw new Error(reply.error);
+      if (reply.canvas) this.canvas = reply.canvas;
       return reply;
     });
   }

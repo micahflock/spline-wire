@@ -39,11 +39,14 @@ test.afterEach(async () => {
 
 /** A phone page whose fake camera streams the snap chain at `span` (with `dark`,
  * printed the other way round, and Colours set to match; seen `tilt` degrees
- * off straight-on, 12 by default). */
-async function phoneAt(span: number, query = "", dark = false, tilt?: number): Promise<Page> {
-  const out = sceneDir(span, dark, tilt);
+ * off straight-on, 12 by default). The live camera at full resolution
+ * (Settings): Chromium's fake camera scales its portrait file to the fast
+ * stream's landscape 1920×1440, where a phone gives a portrait 1440×1920
+ * (camera/stream.ts); `fast` streams a landscape scene and leaves Settings as they are. */
+async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false): Promise<Page> {
+  const out = sceneDir(span, dark, tilt, fast);
   fs.mkdirSync(out, { recursive: true });
-  execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, "3024x4032", "snap", String(span), ...(dark ? ["dark"] : []),
+  execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, fast ? "4032x3024" : "3024x4032", "snap", String(span), ...(dark ? ["dark"] : []),
     ...(tilt !== undefined ? [`tilt=${tilt}`] : [])], { cwd: ROOT, stdio: "inherit" });
   browser = await chromium.launch({
     args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
@@ -51,8 +54,8 @@ async function phoneAt(span: number, query = "", dark = false, tilt?: number): P
   });
   const context = await browser.newContext({ ...devices["Pixel 7"], baseURL: BASE, permissions: ["camera"] });
   // The snap preset chosen, and the scene's focal length saved, as a person would have it.
-  await context.addInitScript((shade) => localStorage.setItem("splinewire-phone:phone-settings",
-    JSON.stringify({ savedFocal35: 24, chain: "snap", shade })), dark ? "dark" : "light");
+  await context.addInitScript(([shade, liveSize]) => localStorage.setItem("splinewire-phone:phone-settings",
+    JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize })), [dark ? "dark" : "light", fast ? "fast" : "full"]);
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("[page error]", e.message));
   await page.goto(`phone/${query}`);
@@ -60,8 +63,8 @@ async function phoneAt(span: number, query = "", dark = false, tilt?: number): P
   return page;
 }
 
-function sceneDir(span: number, dark = false, tilt?: number): string {
-  return path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}${dark ? "-dark" : ""}${tilt !== undefined ? `-tilt${tilt}` : ""}`);
+function sceneDir(span: number, dark = false, tilt?: number, fast = false): string {
+  return path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}${dark ? "-dark" : ""}${tilt !== undefined ? `-tilt${tilt}` : ""}${fast ? "-fast" : ""}`);
 }
 
 const stats = (page: Page) => page.evaluate(() => (window as unknown as { phone: { camera: CameraStats } }).phone.camera);
@@ -154,4 +157,26 @@ test("tilted 32 degrees: no still, and an arrow the way to move the phone", asyn
   expect(off).toBeLessThan(15);
   expect(await page.locator("#photos li").count()).toBe(0);                // too tilted for the still
   await page.screenshot({ path: path.join(sceneDir(0.4, false, 32), "arrow.png") });
+});
+
+test("the fast stream: 1920×1440 once the focal length is known, every rim tracked, the still taken and measured", async () => {
+  // A landscape scene (a camera whose frames come across, as a desktop webcam's
+  // do): the fast stream's 1920×1440 is then the same picture, scaled.
+  const page = await phoneAt(0.4, "", false, undefined, true);
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  const st = await stats(page);
+  log(`fast: ${st.size}, ${costs(st)}; ${st.canvas}`);
+  expect(st.size).toBe("1920×1440 (fast)");
+  expect(st.regions.track).toBeGreaterThan(0);
+  await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
+  const after = await stats(page);
+  log(`fast: the still ${after.still}, ${after.stillSize}`);
+  expect(after.stillSize).toMatch(/^\d+×\d+$/);
+  // A still smaller than the full sensor puts this camera back to full size (Settings.fullStreamCameras).
+  const [w, h] = after.stillSize!.split("×").map(Number) as [number, number];
+  const refused = await page.evaluate(() => JSON.parse(localStorage.getItem("splinewire-phone:phone-settings")!).fullStreamCameras as string[]);
+  expect(refused.length).toBe(Math.max(w, h) < 0.9 * 4032 ? 1 : 0);
+  await measured(page);
 });
