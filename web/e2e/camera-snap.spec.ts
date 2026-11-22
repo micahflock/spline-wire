@@ -43,7 +43,7 @@ test.afterEach(async () => {
  * (Settings): Chromium's fake camera scales its portrait file to the fast
  * stream's landscape 1920×1440, where a phone gives a portrait 1440×1920
  * (camera/stream.ts); `fast` streams a landscape scene and leaves Settings as they are. */
-async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false): Promise<Page> {
+async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false, liveShows = "video"): Promise<Page> {
   const out = sceneDir(span, dark, tilt, fast);
   fs.mkdirSync(out, { recursive: true });
   execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, fast ? "4032x3024" : "3024x4032", "snap", String(span), ...(dark ? ["dark"] : []),
@@ -54,8 +54,8 @@ async function phoneAt(span: number, query = "", dark = false, tilt?: number, fa
   });
   const context = await browser.newContext({ ...devices["Pixel 7"], baseURL: BASE, permissions: ["camera"] });
   // The snap preset chosen, and the scene's focal length saved, as a person would have it.
-  await context.addInitScript(([shade, liveSize]) => localStorage.setItem("splinewire-phone:phone-settings",
-    JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize })), [dark ? "dark" : "light", fast ? "fast" : "full"]);
+  await context.addInitScript(([shade, liveSize, liveShows]) => localStorage.setItem("splinewire-phone:phone-settings",
+    JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize, liveShows })), [dark ? "dark" : "light", fast ? "fast" : "full", liveShows]);
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("[page error]", e.message));
   await page.goto(`phone/${query}`);
@@ -178,5 +178,24 @@ test("the fast stream: 1920×1440 once the focal length is known, every rim trac
   const [w, h] = after.stillSize!.split("×").map(Number) as [number, number];
   const refused = await page.evaluate(() => JSON.parse(localStorage.getItem("splinewire-phone:phone-settings")!).fullStreamCameras as string[]);
   expect(refused.length).toBe(Math.max(w, h) < 0.9 * 4032 ? 1 : 0);
+  await measured(page);
+});
+
+test("Live camera shows only the chain: no video seen, every rim still tracked, the still taken and measured", async () => {
+  const page = await phoneAt(0.3, "", false, undefined, false, "chain");
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toHaveClass(/chain-only/);
+  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  // The video plays under the overlay, which is opaque: what the screen shows is the overlay alone.
+  expect(await page.locator("#cam-overlay").evaluate((c) => getComputedStyle(c).backgroundColor)).toBe("rgb(0, 0, 0)");
+  expect(await page.locator("#cam-video").evaluate((v) => (v as HTMLVideoElement).paused)).toBe(false);
+  const shot = await page.locator("#cam").screenshot();
+  fs.writeFileSync(path.resolve(ROOT, "web/test-results/camera-chain-only.png"), shot);
+  const st = await stats(page);
+  log(`chain only: ${st.loop}; ${costs(st)}`);
+  expect(st.shows).toBe("chain");
+  expect(st.loop).toBe("video frames");
+  await expect(page.locator("#cam-info")).toContainText("video hidden");
+  await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
   await measured(page);
 });

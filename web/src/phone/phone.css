@@ -183,6 +183,10 @@ html.cam-on, html.cam-on body { overflow: hidden; }
 .cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .cam canvas { pointer-events: none; }
 .cam.flash video { opacity: .6; transition: opacity .1s; }
+/* Settings, Live camera shows: only the chain. The video still plays under an opaque canvas, not hidden:
+   a hidden video may stop giving frames (Safari pauses one it thinks is not seen), and the frames are read from it. */
+.cam.chain-only canvas { background: #000; }
+.cam.chain-only.flash canvas { background: #444; transition: background .1s; }
 .cam-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 10px;
   padding: max(10px, env(safe-area-inset-top)) var(--gutter-r) 10px var(--gutter-l); background: linear-gradient(rgba(0,0,0,.55), transparent); }
 .cam-btn { width: 44px; height: 44px; border: none; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; font-size: 20px; flex: none; }

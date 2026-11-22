@@ -28,7 +28,9 @@ describe("pairing crypto", () => {
     expect(await open(other, frame)).toBeNull();
     const f = JSON.parse(frame);
     expect(await open(mine, JSON.stringify({ ...f, s: "desktop" }))).toBeNull();
-    expect(await open(mine, JSON.stringify({ ...f, c: f.c.slice(0, -2) + "AA" }))).toBeNull();
+    // One character surely changed: replacing the end with "AA" changed nothing when it already was "AA" (CI, 2026-11-22).
+    const tampered = (f.c[0] === "A" ? "B" : "A") + f.c.slice(1);
+    expect(await open(mine, JSON.stringify({ ...f, c: tampered }))).toBeNull();
     expect(await open(mine, JSON.stringify({ ...f, v: 2 }))).toBeNull();
     for (const junk of ["", "{", "null", "[]", '{"v":1}', '{"v":1,"s":"phone","n":"!!","c":"!!"}']) {
       expect(await open(mine, junk)).toBeNull();
