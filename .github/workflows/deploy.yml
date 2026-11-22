@@ -29,9 +29,10 @@ jobs:
       contents: read
       pages: write          # deploy-pages
       id-token: write       # deploy-pages proves where the artifact came from
+      actions: read         # the wait below lists this run's artifacts
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment-again.outputs.page_url }}
     defaults:
       run:
         working-directory: web
@@ -79,11 +80,44 @@ jobs:
 
       - uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v5
+      - id: upload
+        uses: actions/upload-pages-artifact@v5
         with:
           path: web/dist
 
+      # GitHub can take a while to list an artifact it has just stored, and
+      # deploy-pages then finds none ("No artifacts named github-pages", Deploy
+      # runs 26, 27 and 30): wait until this run lists it, up to 2.5 minutes.
+      # Re-running a failed run lists the earlier attempt's artifact too, which
+      # deploy-pages refuses: start a new run instead.
+      - name: Wait for the site's artifact to be listed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
+        run: |
+          for i in $(seq 0 30); do
+            ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=github-pages" \
+              --jq '[.artifacts[].id | tostring] | join(" ")' || true)
+            if [ -n "$ids" ] && { [ -z "$ARTIFACT_ID" ] || [ "$ids" = "$ARTIFACT_ID" ]; }; then
+              echo "Listed after $((i * 5)) s: artifact $ids"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::The site's artifact is not listed alone after 150 s (listed: '${ids:-none}'): deploying all the same."
+
       - id: deployment
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+
+      # GitHub Pages has also answered "Deployment failed, try again later"
+      # (Deploy run 29): once more, a minute later. The job fails if this does.
+      - name: Wait before deploying again
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 60
+
+      - id: deployment-again
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v5
 
   # Job-level `if` cannot read secrets, so this job says whether there is one.
