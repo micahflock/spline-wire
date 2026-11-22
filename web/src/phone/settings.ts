@@ -39,6 +39,8 @@ export interface Settings extends LensState {
   liveSize: "fast" | "full";
   /** Cameras (by label) whose takePhoto still came back small with the fast stream: full size for them. */
   fullStreamCameras: string[];
+  /** What the live camera shows: the video with the chain drawn over it, or only what it finds ("chain"). */
+  liveShows: "video" | "chain";
   /** How many of the newest photos keep their photo; older ones keep only their curve (photos.ts cleanupPlan). */
   keepPhotos: number;
 }
@@ -62,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shade: "light",
   liveSize: "fast",
   fullStreamCameras: [],
+  liveShows: "video",
   keepPhotos: KEEP_PHOTOS,
 };
 
@@ -104,6 +107,7 @@ export function loadSettings(store: KeyValueStore): Settings {
   if (raw.photoMode === "upload") s.photoMode = "upload";
   if (raw.shade === "dark") s.shade = "dark";
   if (raw.liveSize === "full") s.liveSize = "full";
+  if (raw.liveShows === "chain") s.liveShows = "chain";
   s.fullStreamCameras = Array.isArray(raw.fullStreamCameras) ? raw.fullStreamCameras.filter((c): c is string => typeof c === "string").slice(0, 20) : [];
   if ((KEEP_PHOTO_CHOICES as readonly unknown[]).includes(raw.keepPhotos)) s.keepPhotos = raw.keepPhotos as number;
   return s;

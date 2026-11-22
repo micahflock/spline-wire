@@ -101,6 +101,11 @@ const TRIAL_FRAMES = 8;
  * prompt) may take to show again before the camera is given back, ms. */
 const VISIBLE_AGAIN_MS = 1500;
 
+/** A video frame callback this late, with the video playing, means the browser
+ * stopped giving them (as it may for a video covered by Settings' chain-only
+ * view): frames are then taken on animation frames, as without the callback. */
+const VFC_STALL_MS = 1000;
+
 /** Time per frame the page spends on the overlay, as a share of the time between frames. */
 const BUSY_SHARE = 0.5;
 
@@ -146,6 +151,10 @@ export interface CameraStats {
   arrow: [number, number] | null;
   /** Holds broken, by the problem that broke them (overlay/coach.ts): "moving 3, pins-missing 1". */
   breaks: string;
+  /** What paces the frames: "video frames" (requestVideoFrameCallback), or "animation frames" and why. */
+  loop: string;
+  /** Settings, Live camera shows: the video under the chain, or only the chain. */
+  shows: "video" | "chain";
 }
 
 export class CameraView {
@@ -184,6 +193,8 @@ export class CameraView {
   /** The arrow and the lock-on rings as drawn: eased (overlay/animate.ts). */
   private readonly arrowShown = new ArrowAnimator();
   private readonly holdShown = new HoldAnimator();
+  /** The video frame callbacks stopped while the video played (VFC_STALL_MS): animation frames from then on. */
+  private vfcStalled = false;
   /** The chain's centre on the canvas when last drawn: where a fading arrow stays. */
   private centre: Point | null = null;
   private shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
@@ -257,6 +268,8 @@ export class CameraView {
     this.centre = null;
     this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
     this.el["cam"]!.hidden = false;
+    this.stats.shows = this.deps.settings().liveShows;
+    this.el["cam"]!.classList.toggle("chain-only", this.stats.shows === "chain");
     this.el["cam-fail"]!.hidden = true;
     this.el["cam-live"]!.hidden = false;
     document.documentElement.classList.add("cam-on");
@@ -486,16 +499,32 @@ export class CameraView {
 
   private loop(gen: number): void {
     const v = this.video;
+    let waiting = 0;
     const next = () => {
       if (gen !== this.gen) return;
-      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback((now) => tick(now));
-      else requestAnimationFrame(tick);
+      const id = ++waiting;
+      // Whichever comes first for this wait; the other finds `waiting` moved on.
+      const go = (now: number) => {
+        if (id === waiting) tick(now);
+      };
+      if (v.requestVideoFrameCallback && !this.vfcStalled) {
+        v.requestVideoFrameCallback((now) => go(now));
+        setTimeout(() => {
+          if (id !== waiting || gen !== this.gen || v.paused || v.readyState < 2 || this.shooting) return;
+          this.vfcStalled = true;
+          this.stats.loop = `animation frames (no video frame for ${VFC_STALL_MS} ms)`;
+          requestAnimationFrame(go);
+        }, VFC_STALL_MS);
+      } else {
+        requestAnimationFrame(go);
+      }
     };
     const tick = (now: number) => {
       if (gen !== this.gen) return;
       next();
       this.frame(now);
     };
+    this.stats.loop = "requestVideoFrameCallback" in v && !this.vfcStalled ? "video frames" : this.stats.loop || "animation frames";
     next();
   }
 
@@ -689,6 +718,19 @@ export class CameraView {
       // The video is shown whole (object-fit: contain): what the still will hold.
       const k = Math.min(cw / vw, ch / vh), ox = (cw - vw * k) / 2, oy = (ch - vh * k) / 2;
       const X = (x: number) => ox + (x + 0.5) * k, Y = (y: number) => oy + (y + 0.5) * k;
+      if (this.stats.shows === "chain") {
+        // No video: the picture's edge (what the still will hold), and every dot or rim
+        // found, faint, so that the view is seen to be looking before it finds the chain.
+        g.strokeStyle = "rgba(255,255,255,.3)";
+        g.lineWidth = 1 * dpr;
+        g.strokeRect(ox + 0.5 * dpr, oy + 0.5 * dpr, vw * k - dpr, vh * k - dpr);
+        g.fillStyle = "rgba(255,255,255,.35)";
+        for (const b of view.blobs) {
+          g.beginPath();
+          g.arc(X(b.x), Y(b.y), Math.max(1.5 * dpr, (b.d / 2) * k), 0, 2 * Math.PI);
+          g.fill();
+        }
+      }
       const phase = view.state.phase;
       const color = phase === "steady" || phase === "capture" ? "#4cc27a" : phase === "adjusting" ? "#f2b705" : "rgba(255,255,255,.8)";
       // Only the chain is drawn. Blobs off it (glints, holes, clutter, each
@@ -817,8 +859,10 @@ export class CameraView {
     // long): last, so its wrapping moves no other line.
     // First, what a screenshot sent by someone else must say: the browser, the OS, the phone and the build.
     st.browser = `${browserInfo(navigator.userAgent, this.ua)} · build ${import.meta.env.BUILD_ID}`;
-    const lines = [st.browser, st.camera || "camera", st.size + (this.fast || !st.stream ? "" : `, ${st.stream}`), focal,
-      `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`,
+    const lines = [st.browser, st.camera || "camera",
+      st.size + (this.fast || !st.stream ? "" : `, ${st.stream}`) + (st.shows === "chain" ? ", video hidden" : ""), focal,
+      `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`
+        + (st.loop.startsWith("animation") ? `, ${st.loop}` : ""),
       `region ${st.region || "–"}`,
       `analysis ${st.analyseMs.length ? `${Math.round(median(st.analyseMs))} ms` : "–"}`,
       `sharpness ${sharp !== null ? sharp.toFixed(2) : "–"}`,
@@ -1029,5 +1073,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", canvas: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "", qr: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, stillSize: null, stream: "", closedBy: null, browser: "", arrow: null, breaks: "" };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, stillSize: null, stream: "", closedBy: null, browser: "", arrow: null, breaks: "", loop: "", shows: "video" };
 }
