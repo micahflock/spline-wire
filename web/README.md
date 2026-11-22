@@ -75,7 +75,10 @@ camera ─▶ overlay ─▶ still      relay/outbox ══ relay ══▶ rela
 
 `.github/workflows/deploy.yml` builds the site and deploys it to GitHub Pages, and deploys the relay
 to Cloudflare Workers (`relay/README.md`, "Deploying", has the account steps). It runs only when
-started by hand (Actions, Deploy, Run workflow), after the Web workflow has passed on the same commit.
+started by hand (Actions, Deploy, Run workflow), after the Web workflow has passed on the same commit. The site job
+waits until GitHub lists the uploaded site before deploying it, and deploys once more a minute later if
+GitHub Pages fails; if it still fails, start a new run (not Re-run, which leaves two uploads that
+GitHub Pages refuses to choose between).
 Before the first run the owner sets up, once:
 
 1. **Pages source.** Repository Settings, Pages, Build and deployment, Source: **GitHub Actions**.
