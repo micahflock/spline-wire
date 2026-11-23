@@ -39,8 +39,9 @@ export interface Settings extends LensState {
   liveSize: "fast" | "full";
   /** Cameras (by label) whose takePhoto still came back small with the fast stream: full size for them. */
   fullStreamCameras: string[];
-  /** What the live camera shows: the video with the chain drawn over it, or only what it finds ("chain"). */
-  liveShows: "video" | "chain";
+  /** What the live camera shows under the chain it finds: the video in colour, the video
+   * grey and dimmed (the default: the trace stands out), or nothing ("chain"). */
+  liveView: LiveView;
   /** How many of the newest photos keep their photo; older ones keep only their curve (photos.ts cleanupPlan). */
   keepPhotos: number;
 }
@@ -49,6 +50,8 @@ export interface Settings extends LensState {
 export const KEEP_PHOTO_CHOICES = [1, 3, 10, 30] as const;
 
 export type Shade = "light" | "dark";
+export type LiveView = "color" | "grey" | "chain";
+const LIVE_VIEWS: readonly LiveView[] = ["color", "grey", "chain"];
 
 export const DEFAULT_SETTINGS: Settings = {
   chain: "snap",               // the snap-fit chain is the default (splinewire.chain.DEFAULT_PRESET)
@@ -64,7 +67,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shade: "light",
   liveSize: "fast",
   fullStreamCameras: [],
-  liveShows: "video",
+  liveView: "grey",
   keepPhotos: KEEP_PHOTOS,
 };
 
@@ -107,7 +110,10 @@ export function loadSettings(store: KeyValueStore): Settings {
   if (raw.photoMode === "upload") s.photoMode = "upload";
   if (raw.shade === "dark") s.shade = "dark";
   if (raw.liveSize === "full") s.liveSize = "full";
-  if (raw.liveShows === "chain") s.liveShows = "chain";
+  // Builds 31-32 kept `liveShows` ("video" or "chain"), saved whether chosen or not:
+  // only a "chain" was chosen, so "video" takes the new default.
+  if (LIVE_VIEWS.includes(raw.liveView as LiveView)) s.liveView = raw.liveView as LiveView;
+  else if (raw.liveShows === "chain") s.liveView = "chain";
   s.fullStreamCameras = Array.isArray(raw.fullStreamCameras) ? raw.fullStreamCameras.filter((c): c is string => typeof c === "string").slice(0, 20) : [];
   if ((KEEP_PHOTO_CHOICES as readonly unknown[]).includes(raw.keepPhotos)) s.keepPhotos = raw.keepPhotos as number;
   return s;
