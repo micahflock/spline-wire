@@ -35,7 +35,7 @@ import { followChain } from "../overlay/trace";
 import { pinsText, sayFor } from "../overlay/words";
 import { browserInfo, uaData, type UAData } from "./browser";
 import { frameFocal, ultraWides, type FrameFocal } from "./lenses";
-import type { Settings } from "./settings";
+import type { LiveView, Settings } from "./settings";
 
 export interface Still {
   file: File;
@@ -155,8 +155,8 @@ export interface CameraStats {
   breaks: string;
   /** What paces the frames: "video frames" (requestVideoFrameCallback), or "animation frames" and why. */
   loop: string;
-  /** Settings, Live camera shows: the video under the chain, or only the chain. */
-  shows: "video" | "chain";
+  /** Settings, Live camera shows: the video in colour or grey under the chain, or only the chain. */
+  shows: LiveView;
 }
 
 export class CameraView {
@@ -270,8 +270,9 @@ export class CameraView {
     this.centre = null;
     this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
     this.el["cam"]!.hidden = false;
-    this.stats.shows = this.deps.settings().liveShows;
+    this.stats.shows = this.deps.settings().liveView;
     this.el["cam"]!.classList.toggle("chain-only", this.stats.shows === "chain");
+    this.el["cam"]!.classList.toggle("grey", this.stats.shows === "grey");
     this.el["cam-fail"]!.hidden = true;
     this.el["cam-live"]!.hidden = false;
     document.documentElement.classList.add("cam-on");
@@ -862,7 +863,7 @@ export class CameraView {
     // First, what a screenshot sent by someone else must say: the browser, the OS, the phone and the build.
     st.browser = `${browserInfo(navigator.userAgent, this.ua)} · build ${import.meta.env.BUILD_ID}`;
     const lines = [st.browser, st.camera || "camera",
-      st.size + (this.fast || !st.stream ? "" : `, ${st.stream}`) + (st.shows === "chain" ? ", video hidden" : ""), focal,
+      st.size + (this.fast || !st.stream ? "" : `, ${st.stream}`) + (st.shows === "chain" ? ", video hidden" : st.shows === "grey" ? ", video grey" : ""), focal,
       `frame ${st.grabMs.length ? `${median(st.grabMs.slice(-30)).toFixed(0)}+${median(st.blobMs.slice(-30)).toFixed(0)} ms` : "–"}`
         + (st.loop.startsWith("animation") ? `, ${st.loop}` : ""),
       `region ${st.region || "–"}`,
@@ -1102,5 +1103,5 @@ function median(v: number[]): number {
 
 function blankStats(): CameraStats {
   return { camera: "", size: "", grabMs: [], blobMs: [], regions: { full: 0, tile: 0, track: 0 }, region: "", grab: "", canvas: "", pageMs: [], frames: 0, skipped: 0, analysed: 0, analyseMs: [], focal: "", work: "", qr: "",
-    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, stillSize: null, stream: "", closedBy: null, browser: "", arrow: null, breaks: "", loop: "", shows: "video" };
+    imageCapture: false, takePhotoMs: null, takePhotoError: null, still: null, stillSize: null, stream: "", closedBy: null, browser: "", arrow: null, breaks: "", loop: "", shows: "grey" };
 }

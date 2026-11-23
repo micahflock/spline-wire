@@ -43,7 +43,7 @@ test.afterEach(async () => {
  * (Settings): Chromium's fake camera scales its portrait file to the fast
  * stream's landscape 1920×1440, where a phone gives a portrait 1440×1920
  * (camera/stream.ts); `fast` streams a landscape scene and leaves Settings as they are. */
-async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false, liveShows = "video", noPhoto = false): Promise<Page> {
+async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false, liveView?: string, noPhoto = false): Promise<Page> {
   const out = sceneDir(span, dark, tilt, fast);
   fs.mkdirSync(out, { recursive: true });
   execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, fast ? "4032x3024" : "3024x4032", "snap", String(span), ...(dark ? ["dark"] : []),
@@ -54,8 +54,9 @@ async function phoneAt(span: number, query = "", dark = false, tilt?: number, fa
   });
   const context = await browser.newContext({ ...devices["Pixel 7"], baseURL: BASE, permissions: ["camera"] });
   // The snap preset chosen, and the scene's focal length saved, as a person would have it.
-  await context.addInitScript(([shade, liveSize, liveShows]) => localStorage.setItem("splinewire-phone:phone-settings",
-    JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize, liveShows })), [dark ? "dark" : "light", fast ? "fast" : "full", liveShows]);
+  await context.addInitScript(([shade, liveSize, liveView]) => localStorage.setItem("splinewire-phone:phone-settings",
+    JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize, ...(liveView ? { liveView } : {}) })),
+    [dark ? "dark" : "light", fast ? "fast" : "full", liveView ?? ""]);
   // takePhoto refused, as on the owner's iPhone with the fast stream (build 25).
   if (noPhoto) await context.addInitScript(() => {
     const IC = (globalThis as { ImageCapture?: { prototype: { takePhoto(): Promise<Blob> } } }).ImageCapture;
@@ -88,11 +89,13 @@ async function measured(page: Page): Promise<void> {
   log(await page.locator("#r-meta").textContent());
 }
 
-test("span 0.55: the live view finds the snap chain's rims, takes the still, and it measures (grabbing on the page)", async () => {
+test("span 0.55: the live view finds the snap chain's rims, takes the still, and it measures (grabbing on the page, the video in colour)", async () => {
   // ?grab=main: the page grabs, as a browser without VideoFrame does (camera/grab.ts).
-  const page = await phoneAt(0.55, "?grab=main");
+  const page = await phoneAt(0.55, "?grab=main", false, undefined, false, "color");
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
+  await expect(page.locator("#cam")).not.toHaveClass(/\bgrey\b|chain-only/);
+  expect(await page.locator("#cam-video").evaluate((v) => getComputedStyle(v).filter)).toBe("none");
   await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
   const st = await stats(page);
   log(`0.55: ${costs(st)}`);
@@ -101,12 +104,18 @@ test("span 0.55: the live view finds the snap chain's rims, takes the still, and
   await measured(page);
 });
 
-test("span 0.30: tracked in a finer region, every rim found, the still taken and measured", async () => {
+test("span 0.30: tracked in a finer region, every rim found, the still taken and measured (the video grey, by default)", async () => {
   const page = await phoneAt(0.3);
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
   await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  // Settings' default: the video shown grey and dimmed; only what is shown, the frames read keep their colour.
+  await expect(page.locator("#cam")).toHaveClass(/\bgrey\b/);
+  expect(await page.locator("#cam-video").evaluate((v) => getComputedStyle(v).filter)).toBe("grayscale(1) brightness(0.6)");
+  await expect(page.locator("#cam-info")).toContainText("video grey");
+  fs.writeFileSync(path.resolve(ROOT, "web/test-results/camera-grey.png"), await page.locator("#cam").screenshot());
   const st = await stats(page);
+  expect(st.shows).toBe("grey");
   log(`0.30: ${costs(st)}`);
   expect(st.regions.track).toBeGreaterThan(0);
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });
@@ -190,6 +199,7 @@ test("Live camera shows only the chain: no video seen, every rim still tracked, 
   const page = await phoneAt(0.3, "", false, undefined, false, "chain");
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toHaveClass(/chain-only/);
+  await expect(page.locator("#cam")).not.toHaveClass(/\bgrey\b/);
   await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
   // The video plays under the overlay, which is opaque: what the screen shows is the overlay alone.
   expect(await page.locator("#cam-overlay").evaluate((c) => getComputedStyle(c).backgroundColor)).toBe("rgb(0, 0, 0)");
@@ -206,7 +216,7 @@ test("Live camera shows only the chain: no video seen, every rim still tracked, 
 });
 
 test("the fast stream when takePhoto gives nothing: the still is a full-size frame, says why, and the camera opens full size next time", async () => {
-  const page = await phoneAt(0.4, "", false, undefined, true, "video", true);
+  const page = await phoneAt(0.4, "", false, undefined, true, undefined, true);
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
   await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
