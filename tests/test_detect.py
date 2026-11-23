@@ -1,3 +1,5 @@
+import math
+
 import cv2
 import numpy as np
 import pytest
@@ -97,3 +99,28 @@ def test_dot_crossed_by_a_shadow_edge_is_found():
     dots = detect_dots(img)
     assert len(dots) == 1
     np.testing.assert_allclose(dots[0].center_px, (200, 200), atol=0.6)
+
+
+def test_a_region_finds_what_the_whole_photo_does_inside_it(tmp_path):
+    """detect_fiducials(region=...): the same pyramid, as deep as the whole
+    photo's, on pixels aligned with it: the same fiducials, to float rounding."""
+    from splinewire.chain import default_chain_path, load_chain_spec
+    from splinewire.detect import detect_fiducials, search_box
+    from splinewire.synthetic import s_curve_pins, write_synthetic_photo
+
+    spec = load_chain_spec(default_chain_path())
+    path = tmp_path / "snap.jpg"
+    write_synthetic_photo(path, s_curve_pins(spec), spec, (3024, 4032))
+    gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    whole = detect_fiducials(gray, spec)
+    assert len(whole) == spec.n_pins
+    c = np.array([f.center_px for f in whole])
+    box = (*(c.min(axis=0) - 150), *(c.max(axis=0) + 150))
+    part = detect_fiducials(gray, spec, box)
+    a, b = sorted(f.center_px for f in whole), sorted(f.center_px for f in part)
+    assert len(a) == len(b) and max(math.hypot(p[0] - q[0], p[1] - q[1]) for p, q in zip(a, b)) < 0.001
+    x0, y0, x1, y1 = search_box(3024, 4032, box)
+    assert x0 % 8 == y0 % 8 == 0 and (x1 - x0) * (y1 - y0) < 0.5 * 3024 * 4032
+    assert search_box(3024, 4032, (-50, -50, 5000, 5000)) is None        # the whole photo: no box
+    assert search_box(3024, 4032, (10, 10, 20, 20)) == (0, 0, 512, 512)      # grown to 512 px, inside the photo
+    assert search_box(3024, 4032, (3000, 100, 3010, 110)) == (2512, 0, 3024, 512)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cameraRank, chooseCamera, isFrontLabel, labelled, rearCameras, type CameraInfo } from "./choose";
-import { focal35FromPx, focalPxFrom35, fovRatio, frame35, frameFocalPx } from "./focal";
+import { focal35FromPx, focalPxFrom35, fovRatio, frame35, frameFocalPx, stillSearchBox } from "./focal";
 
 const cam = (label: string, deviceId = label) => ({ deviceId, label });
 // The cameras the phones listed (S3, 2026-11-17).
@@ -68,5 +68,15 @@ describe("focal lengths for frames", () => {
     const tight = pins.map(([x, y]) => [x * 0.55, y * 0.55] as [number, number]);
     expect(fovRatio(tight, { width: 2016, height: 1512 }, pins, { width: 4032, height: 3024 })).toBeCloseTo(1.1, 6);
     expect(fovRatio(frame.slice(0, 2), { width: 1, height: 1 }, pins, { width: 1, height: 1 })).toBeNull();
+  });
+});
+
+describe("stillSearchBox", () => {
+  it("carries the live view's chain to the still by the long sides, two links and a twentieth of the long side round it", () => {
+    const chain: [number, number][] = [[600, 900], [700, 900], [800, 900], [900, 900]];          // a 1440×1920 frame
+    const box = stillSearchBox(chain, { width: 1440, height: 1920 }, { width: 3024, height: 4032 })!;
+    // ×2.1: x 1260-1890, y 1890; margin 2 links (420) + 202.
+    expect(box).toEqual([1260 - 622, 1890 - 622, 1890 + 622, 1890 + 622].map(Math.round));
+    expect(stillSearchBox(chain.slice(0, 2), { width: 1440, height: 1920 }, { width: 3024, height: 4032 })).toBeNull();
   });
 });

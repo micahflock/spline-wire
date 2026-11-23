@@ -83,21 +83,81 @@ def shaded(image: np.ndarray, spec: ChainSpec) -> np.ndarray:
     return 255 - gray
 
 
-def detect_fiducials(image: np.ndarray, spec: ChainSpec) -> list[Fiducial]:
-    """The fiducials a ChainSpec describes: dots, rings or thin rims."""
+# A search region's corners are whole multiples of this (the coarsest pyramid
+# level's step), so that each level of the region is the same pixels as that
+# part of the whole photo's level; and it is at least _REGION_MIN_SIDE across.
+_REGION_ALIGN = 8
+_REGION_MIN_SIDE = 512
+
+
+def detect_fiducials(image: np.ndarray, spec: ChainSpec,
+                     region: tuple[float, float, float, float] | None = None) -> list[Fiducial]:
+    """The fiducials a ChainSpec describes: dots, rings or thin rims.
+
+    `region` (x0, y0, x1, y1, photo pixels): search only there, as the whole
+    photo would be searched (the same pyramid, as deep as the photo's): a
+    fiducial well inside the region is found exactly as in the whole photo
+    (tests/test_detect.py). Near its edges, within the threshold window of the
+    coarsest level (~100 px), what is found may differ.
+    """
     image = shaded(image, spec)
+    box = search_box(image.shape[1], image.shape[0], region) if region is not None else None
+    if box is None:
+        return _detect(image, spec, None)
+    x0, y0, x1, y1 = box
+    found = _detect(image[y0:y1, x0:x1], spec, min(image.shape[:2]))
+    return [replace(f, center_px=(f.center_px[0] + x0, f.center_px[1] + y0)) for f in found]
+
+
+def search_box(width: int, height: int, region) -> tuple[int, int, int, int] | None:
+    """`region` grown to _REGION_ALIGN-pixel corners and _REGION_MIN_SIDE, inside
+    the photo; None when that is the whole photo (or the region is not a box)."""
+    try:
+        rx0, ry0, rx1, ry1 = (float(v) for v in region)
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in (rx0, ry0, rx1, ry1)) or rx1 <= rx0 or ry1 <= ry0:
+        return None
+
+    def span(a: float, b: float, limit: int) -> tuple[int, int]:
+        # At least _REGION_MIN_SIDE, moved inside the photo rather than cut by its edge.
+        grow = max(0.0, (_REGION_MIN_SIDE - (b - a)) / 2)
+        a, b = a - grow, b + grow
+        if a < 0:
+            a, b = 0.0, b - a
+        if b > limit:
+            a, b = max(0.0, a - (b - limit)), float(limit)
+        lo = max(0, int(math.floor(a / _REGION_ALIGN)) * _REGION_ALIGN)
+        hi = min(limit, int(math.ceil(b / _REGION_ALIGN)) * _REGION_ALIGN)
+        return lo, hi
+
+    x0, x1 = span(rx0, rx1, width)
+    y0, y1 = span(ry0, ry1, height)
+    if x1 - x0 < 2 * _REGION_ALIGN or y1 - y0 < 2 * _REGION_ALIGN:
+        return None
+    return None if (x0, y0, x1, y1) == (0, 0, width, height) else (x0, y0, x1, y1)
+
+
+def _detect(image: np.ndarray, spec: ChainSpec, pyramid_side: int | None) -> list[Fiducial]:
+    # The whole photo: called exactly as before regions existed.
+    more = {} if pyramid_side is None else {"pyramid_side": pyramid_side}
     if spec.fiducial == "dot":
-        return detect_dots(image)
+        return detect_dots(image, **more)
     ratio = spec.ring_inner_mm / spec.fiducial_mm
-    return detect_rims(image, ratio) if ratio >= THIN_RING else detect_rings(image, ratio)
+    if ratio >= THIN_RING:
+        return detect_rims(image, ratio, **more)
+    return detect_rings(image, ratio, **more)
 
 
-def _pyramid(gray: np.ndarray):
-    """(blurred level, scale) from full size down to about 1/8."""
+def _pyramid(gray: np.ndarray, side: int | None = None):
+    """(blurred level, scale) from full size down to about 1/8. `side`: the
+    shorter side of the whole photo when `gray` is a region of it, so that the
+    region gets as many levels as the photo would."""
     level_img, scale = gray, 1.0
     while True:
         yield cv2.GaussianBlur(level_img, (0, 0), 0.8 if scale == 1 else 1.0), scale
-        if min(level_img.shape) < 2 * _MIN_LEVEL_SIDE or scale >= _MAX_SCALE:
+        shorter = min(level_img.shape) if side is None else side // int(scale)
+        if shorter < 2 * _MIN_LEVEL_SIDE or scale >= _MAX_SCALE:
             return
         level_img = cv2.resize(level_img, (level_img.shape[1] // 2, level_img.shape[0] // 2),
                                interpolation=cv2.INTER_AREA)
@@ -108,6 +168,7 @@ def detect_rings(
     image: np.ndarray,
     inner_outer_ratio: float,
     min_diameter_px: float = 8.0,
+    pyramid_side: int | None = None,
 ) -> list[Fiducial]:
     """Detect ring fiducials.
 
@@ -120,7 +181,7 @@ def detect_rings(
     """
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     candidates: list[_Candidate] = []
-    for g, scale in _pyramid(gray):
+    for g, scale in _pyramid(gray, pyramid_side):
         for mask, polarity in _masks(g):
             candidates.extend(_ring_candidates(mask, polarity, inner_outer_ratio,
                                                min_diameter_px if scale == 1 else 14.0, scale))
@@ -484,7 +545,7 @@ _DOT_MARGIN = (1.15, 1.45)
 _MAX_CANDIDATES = 1500
 
 
-def detect_dots(image: np.ndarray, min_diameter_px: float = 8.0) -> list[Fiducial]:
+def detect_dots(image: np.ndarray, min_diameter_px: float = 8.0, pyramid_side: int | None = None) -> list[Fiducial]:
     """Detect light dot fiducials on a dark link.
 
     A dot has no hole to tell it from any other bright blob (terrazzo chips,
@@ -499,7 +560,7 @@ def detect_dots(image: np.ndarray, min_diameter_px: float = 8.0) -> list[Fiducia
     """
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     candidates: list[_Candidate] = []
-    for g, scale in _pyramid(gray):
+    for g, scale in _pyramid(gray, pyramid_side):
         for mask, polarity in _masks(g):
             if polarity > 0:
                 candidates.extend(_dot_candidates(mask, min_diameter_px if scale == 1 else 10.0, scale))
@@ -599,7 +660,8 @@ def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2,
 # Thin rims
 
 
-def detect_rims(image: np.ndarray, inner_outer_ratio: float, min_diameter_px: float = 8.0) -> list[Fiducial]:
+def detect_rims(image: np.ndarray, inner_outer_ratio: float, min_diameter_px: float = 8.0,
+                pyramid_side: int | None = None) -> list[Fiducial]:
     """Detect thin light rings by their holes.
 
     The snap-fit chain's fiducial is a white rim 0.86 mm wide round the top
@@ -614,7 +676,7 @@ def detect_rims(image: np.ndarray, inner_outer_ratio: float, min_diameter_px: fl
     """
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     candidates: list[_Candidate] = []
-    for g, scale in _pyramid(gray):
+    for g, scale in _pyramid(gray, pyramid_side):
         for mask, polarity in _masks(g):
             if polarity < 0:
                 candidates.extend(_dot_candidates(mask, min_diameter_px if scale == 1 else 10.0, scale))

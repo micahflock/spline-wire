@@ -15,6 +15,7 @@ import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import type { MeasureOptions, MeasurementDocument } from "../core/types";
 import { readGrayPng } from "./golden/png";
+import { searchBox } from "./detect";
 import { PhotoSession } from "./session";
 
 interface Case { photo: string; options: MeasureOptions; document: MeasurementDocument; outputs: Record<string, string> | null }
@@ -90,4 +91,51 @@ describe("PhotoSession against Python", () => {
     }, 60000);
   }
   it("reports", () => console.log(`[session] ${cases.length} documents; ${rounding} numbers differ in their last digits (no more than allowed)`));
+});
+
+describe("search_px: the chain looked for in a box first (the live view knows where it is)", () => {
+  const c = cases.find((k) => k.photo === "photo-snap-07.png" && k.document.ok)!;
+  // The golden photo is 848×240, smaller than a search box's least side (512 px):
+  // set in a 2400×1600 photo of its table's gray, so that a box is a part of it.
+  const small = readGrayPng(new URL(`./golden/${c.photo}`, import.meta.url));
+  const big = (() => {
+    const W = 2400, H = 1600, ox = 800, oy = 700, data = new Uint8Array(W * H).fill(small.data[0]!);
+    for (let y = 0; y < small.height; y++) data.set(small.data.subarray(y * small.width, (y + 1) * small.width), (oy + y) * W + ox);
+    return { width: W, height: H, data };
+  })();
+  const fresh = () => new PhotoSession(c.photo, big, null, { ...c.document.info, width: big.width, height: big.height });
+  const pinsOf = (d: MeasurementDocument) => d.view!.pins.map((p) => [p.x, p.y] as [number, number]);
+
+  it("finds the same chain in its box, without searching the whole photo", () => {
+    const whole = fresh().measure(c.options);
+    const pins = pinsOf(whole);
+    const xs = pins.map((p) => p[0]), ys = pins.map((p) => p[1]);
+    const link = Math.hypot(pins[1]![0] - pins[0]![0], pins[1]![1] - pins[0]![1]);
+    const box: [number, number, number, number] = [Math.min(...xs) - 1.5 * link, Math.min(...ys) - 1.5 * link, Math.max(...xs) + 1.5 * link, Math.max(...ys) + 1.5 * link];
+    const s = fresh();
+    const doc = s.measure({ ...c.options, search_px: box });
+    expect(doc.ok).toBe(true);
+    expect(doc.result!.pins).toBe(whole.result!.pins);
+    expect((s as unknown as { detected: unknown }).detected).toBeNull();          // the whole photo was never searched
+    const got = pinsOf(doc);
+    for (const [k, p] of pins.entries()) expect(Math.hypot(got[k]![0] - p[0], got[k]![1] - p[1])).toBeLessThan(0.01);
+  });
+
+  it("falls back to the whole photo when the box misses the chain, and refuses a box that is not one", () => {
+    const s = fresh();
+    const doc = s.measure({ ...c.options, search_px: [0, 0, 300, 300] });
+    expect(doc.ok).toBe(true);
+    expect(doc.result!.pins).toBe(fresh().measure(c.options).result!.pins);
+    expect((s as unknown as { detected: unknown }).detected).not.toBeNull();
+    const bad = fresh().measure({ ...c.options, search_px: [1, 2, "x"] as unknown as [number, number, number, number] });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/search_px/);
+  });
+
+  it("grows a box to aligned corners and 512 px, inside the photo, as detect.search_box does", () => {
+    expect(searchBox(3024, 4032, [10, 10, 20, 20])).toEqual([0, 0, 512, 512]);
+    expect(searchBox(3024, 4032, [3000, 100, 3010, 110])).toEqual([2512, 0, 3024, 512]);
+    expect(searchBox(3024, 4032, [-50, -50, 5000, 5000])).toBeNull();
+    expect(searchBox(3024, 4032, [101, 203, 1999, 1501])).toEqual([96, 200, 2000, 1504]);
+  });
 });

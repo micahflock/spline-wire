@@ -12,7 +12,7 @@ import type { MeasureOptions, MeasurementDocument, OutputKind, PhotoInfo, PhotoV
 import { splineSamples } from "../desktop/spline";
 import { specFromDict } from "./chain";
 import type { Gray, GrayF } from "./cv";
-import { detectFiducials } from "./detect";
+import { detectFiducials, searchBox, type Box } from "./detect";
 import { dxfText } from "./dxf";
 import { toPhotoPx } from "./drawing";
 import { editsFromJson, removeDetections, type Edits } from "./edits";
@@ -44,6 +44,9 @@ export interface Options {
   edits: Edits;
   truth: Truth | null;
   compare_truth: boolean | null;
+  /** Where the chain is likely to be (x0, y0, x1, y1, photo pixels): searched
+   * first, the whole photo only if that does not give every pin (Options.search_px). */
+  search_px: Box | null;
 }
 
 /** Options from the page's JSON, checked as Options.from_json checks them. */
@@ -65,6 +68,12 @@ export function optionsFromJson(doc: unknown, size?: readonly [number, number]):
     side = [p[0]!, p[1]!];
   }
   const truth = d.truth;
+  let search: Box | null = null;
+  if (d.search_px !== null && d.search_px !== undefined) {
+    const b = Array.isArray(d.search_px) ? d.search_px.map((v) => (typeof v === "number" || typeof v === "string" ? Number(v) : NaN)) : [];
+    if (b.length !== 4 || !b.every((v) => Number.isFinite(v))) throw new PipelineError("search_px must be a box [x0, y0, x1, y1] in photo pixels");
+    search = b as Box;
+  }
   return {
     spec, side,
     focal_override_35mm: focal(d.focal_override_35mm, "focal_override_35mm"),
@@ -73,6 +82,7 @@ export function optionsFromJson(doc: unknown, size?: readonly [number, number]):
     truth: typeof truth === "object" && truth !== null && !Array.isArray(truth)
       ? truthFromJson(truth, String((truth as Record<string, unknown>).name || "the truth file")) : null,
     compare_truth: (d.compare_truth ?? null) as boolean | null,
+    search_px: search,
   };
 }
 
@@ -124,6 +134,9 @@ export function focalPxFrom35mm(f35: number, size: readonly [number, number]): n
 export class PhotoSession {
   private detected: Fiducial[] | null = null;
   private detectedFor: string | null = null;
+  /** The fiducials in a search box (Options.search_px), and for which kind and box. */
+  private regionDetected: Fiducial[] | null = null;
+  private regionFor: string | null = null;
   private grayf: GrayF | undefined;
   last: Measured | null = null;
   lastError: string | null = null;
@@ -150,6 +163,19 @@ export class PhotoSession {
     return this.detected;
   }
 
+  /** The fiducials in the search box round `region` (detect.searchBox), found
+   * once per kind and box; null when that box is the whole photo. */
+  regionDetections(spec: ChainSpec, region: readonly number[]): Fiducial[] | null {
+    const box = searchBox(this.image.width, this.image.height, region);
+    if (!box) return null;
+    const key = `${spec.fiducial}:${spec.fiducial === "ring" ? spec.ring_inner_mm / spec.fiducial_mm : 0}:${spec.fiducial_shade}:${box.join(",")}`;
+    if (this.regionFor !== key) {
+      this.regionDetected = detectFiducials(this.image, spec, box);
+      this.regionFor = key;
+    }
+    return this.regionDetected;
+  }
+
   /** Measure with these options; throws PipelineError with a message for the person. */
   run(options: Options): Measured {
     const size = this.size;
@@ -164,10 +190,21 @@ export class PhotoSession {
     }
     this.edits = options.edits;
     this.last = null;
-    const detected = this.detections(options.spec);
     const needsPhoto = options.edits.add_px.length > 0;
     if (needsPhoto && !this.grayf) this.grayf = { width: size[0], height: size[1], data: Float32Array.from(this.image.data) };
-    let m = measureDetections(detected, size, options.spec, focalPx, options.side, options.edits, this.image, this.grayf);
+    // The search box first, if there is one: kept only if it gives every pin.
+    let m: Measurement | null = null;
+    const found = options.search_px ? this.regionDetections(options.spec, options.search_px) : null;
+    if (found) {
+      try {
+        m = measureDetections(found, size, options.spec, focalPx, options.side, options.edits, this.image, this.grayf);
+      } catch (err) {
+        if (!(err instanceof PipelineError)) throw err;
+        m = null;
+      }
+      if (m && m.order.indices.length < options.spec.n_pins) m = null;
+    }
+    m ??= measureDetections(this.detections(options.spec), size, options.spec, focalPx, options.side, options.edits, this.image, this.grayf);
     let comparison: TruthComparison | null = null;
     let status: Measured["truth_status"] = null;
     if (options.truth !== null) {
@@ -237,7 +274,7 @@ export class PhotoSession {
 
   /** What the pin editor draws over the photo, in photo pixels (session.view). */
   view(): PhotoView | null {
-    if (this.detected === null) return null;
+    if (this.detected === null && this.last === null) return null;
     const edits = this.edits, r = this.last;
     const marker = (f: Fiducial, extra: Record<string, unknown> = {}) => ({
       x: pyRound(f.center_px[0], 2), y: pyRound(f.center_px[1], 2), r: pyRound(f.outer_axes_px[0] / 2, 1), ...extra,
@@ -261,7 +298,7 @@ export class PhotoSession {
       pins = [];
       gaps = [];
       curve = [];
-      unused = removeDetections(this.detected, edits).map((f) => marker(f));
+      unused = removeDetections(this.detected ?? [], edits).map((f) => marker(f));
     }
     const radii = (pins.length ? pins : unused).map((p) => p.r);
     const rDefault = radii.length ? median(radii) : 12.0;

@@ -7,7 +7,7 @@
 import "./phone.css";
 import "../photo/photo.css";
 import type { CameraInfo } from "../camera/choose";
-import { fovRatio } from "../camera/focal";
+import { fovRatio, stillSearchBox } from "../camera/focal";
 import { CoreClient, type PhotoSource } from "../core/client";
 import { engineKind, makeCoreWorker } from "../core/make-worker";
 import { CoreError, type Commands, type Progress } from "../core/protocol";
@@ -86,9 +86,12 @@ function focalKey(): string {
 function options(id: string): MeasureOptions | null {
   const r = records.get(id);
   if (!r) return null;
+  // A photo from the live camera: look for the chain where the live view last saw it first (much faster on 12 MP).
+  const search = r.camera && r.pixels ? stillSearchBox(r.camera.frameChain, r.camera.frameSize, r.pixels) : null;
   return {
     chain: chainSpec(chains, r.chain, r.pins, r.shade), side: r.side, edits: r.edits,
     saved_focal_35mm: settings.savedFocal35, focal_override_35mm: settings.focalOverride35 ?? r.focal?.focal35 ?? null,
+    ...(search ? { search_px: search } : {}),
   };
 }
 
