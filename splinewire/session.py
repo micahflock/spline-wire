@@ -16,6 +16,7 @@ orders and solves.
 from __future__ import annotations
 
 import io
+import math
 import traceback
 from dataclasses import dataclass, field, replace
 
@@ -27,7 +28,7 @@ from splinewire.camera import (
 )
 from splinewire.chain import ChainSpec, spec_from_dict
 from splinewire.contact import Side, spline_samples
-from splinewire.detect import Fiducial, detect_fiducials
+from splinewire.detect import Fiducial, detect_fiducials, search_box
 from splinewire.edits import Edits, remove_detections
 from splinewire.output import csv_text, dxf_text, fusion_csv_text, json_text, points_tsv, svg_text
 from splinewire.pipeline import Measurement, compare_to_truth, load_photo_bytes, measure
@@ -92,6 +93,11 @@ class Options:
     edits: Edits = field(default_factory=Edits)
     truth: Truth | None = None
     compare_truth: bool | None = None              # None: only when the shape matches too
+    # Where the chain is likely to be (x0, y0, x1, y1, photo pixels; the phone's
+    # live view knows): searched first, the whole photo only if that does not
+    # give every pin. A hint for speed: it never changes what is measured
+    # when the chain is inside it.
+    search_px: tuple[float, float, float, float] | None = None
 
     @classmethod
     def from_json(cls, doc: dict, size: tuple[int, int] | None = None) -> "Options":
@@ -102,7 +108,8 @@ class Options:
          "focal_override_35mm": number | null, "saved_focal_35mm": number | null,
          "edits": {"add": [[x, y], ...], "remove": [[x, y], ...]},
          "truth": {"name": str, "pin_points": [[x, y], ...]} | null,
-         "compare_truth": true | false | null}
+         "compare_truth": true | false | null,
+         "search_px": [x0, y0, x1, y1] | null}
         """
         if not isinstance(doc, dict) or not isinstance(doc.get("chain"), dict):
             raise ValueError("options must be an object with a chain")
@@ -119,6 +126,14 @@ class Options:
         elif side not in ("inside", "outside"):
             raise ValueError("side must be inside, outside or a photo point [x, y]")
         truth = doc.get("truth")
+        search = doc.get("search_px")
+        if search is not None:
+            try:
+                search = tuple(float(v) for v in search)
+            except (TypeError, ValueError):
+                raise ValueError("search_px must be a box [x0, y0, x1, y1] in photo pixels") from None
+            if len(search) != 4 or not all(math.isfinite(v) for v in search):
+                raise ValueError("search_px must be a box [x0, y0, x1, y1] in photo pixels")
         return cls(
             spec=spec, side=side,
             focal_override_35mm=_focal(doc.get("focal_override_35mm"), "focal_override_35mm"),
@@ -127,6 +142,7 @@ class Options:
             truth=Truth.from_json(truth, str(truth.get("name") or "the truth file"))
             if isinstance(truth, dict) else None,
             compare_truth=doc.get("compare_truth"),
+            search_px=search,
         )
 
 
@@ -165,6 +181,8 @@ class PhotoSession:
         self.info = info
         self._detected = detected
         self._detected_for: tuple | None = None
+        self._region: tuple | None = None       # (kind of fiducial, search box) of _region_detected
+        self._region_detected: list[Fiducial] | None = None
         self.last: Measured | None = None       # the latest successful measurement
         self.last_error: str | None = None
         self._edits = Edits()                   # the edits of the latest attempt, successful or not
@@ -188,6 +206,19 @@ class PhotoSession:
         self._detected_for = key
         return self._detected
 
+    def region_detections(self, spec: ChainSpec, region) -> list[Fiducial] | None:
+        """The fiducials in the search box round `region` (detect.search_box),
+        found once per kind and box; None when that box is the whole photo."""
+        box = search_box(self.size[0], self.size[1], region)
+        if box is None:
+            return None
+        key = (spec.fiducial, spec.ring_inner_mm / spec.fiducial_mm if spec.fiducial == "ring" else 0.0,
+               spec.fiducial_shade, box)
+        if self._region != key:
+            self._region_detected = detect_fiducials(self.image, spec, box)
+            self._region = key
+        return self._region_detected
+
     def run(self, options: Options) -> Measured:
         """Measure with these options. Raises ValueError with a message for the
         person when no chain can be measured; `measure` reports that instead."""
@@ -199,8 +230,19 @@ class PhotoSession:
             focal, source = focal_px_from_35mm(options.saved_focal_35mm, size), "default"
         self._edits = options.edits
         self.last = None
-        m = measure(self.image, options.spec, focal, side=options.side, edits=options.edits,
-                    detected=self.detections(options.spec))
+        m = None
+        # The search box first, if there is one: kept only if it gives every pin.
+        found = self.region_detections(options.spec, options.search_px) if options.search_px is not None else None
+        if found is not None:
+            try:
+                m = measure(self.image, options.spec, focal, side=options.side, edits=options.edits, detected=found)
+            except ValueError:
+                m = None
+            if m is not None and len(m.order.indices) < options.spec.n_pins:
+                m = None
+        if m is None:
+            m = measure(self.image, options.spec, focal, side=options.side, edits=options.edits,
+                        detected=self.detections(options.spec))
         comparison = status = None
         if options.truth is not None:
             comparison, status, why = _compare(m, options.truth, options.spec, options.compare_truth)
@@ -276,7 +318,7 @@ class PhotoSession:
         (as ghosts, to bring them back), and the edits that produced all this.
         Also there when measuring failed, so a photo that could not be read
         can still be fixed by hand. None before anything was detected."""
-        if self._detected is None:
+        if self._detected is None and self.last is None:
             return None
         edits, r = self._edits, self.last
 

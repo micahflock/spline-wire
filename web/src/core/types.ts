@@ -35,6 +35,8 @@ export interface MeasureOptions {
   edits?: Edits;
   truth?: { name: string; pin_points: Point[] } | null;
   compare_truth?: boolean | null;
+  /** Where the chain is likely to be, photo pixels [x0, y0, x1, y1]: searched first (session.Options.search_px). */
+  search_px?: [number, number, number, number] | null;
 }
 
 /** session.photo_info */

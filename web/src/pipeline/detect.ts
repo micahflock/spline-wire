@@ -17,6 +17,7 @@ import {
   halveArea8, otsuThreshold, outerContour, sampleLinear, type Ellipse, type Gray, type GrayF,
 } from "./cv";
 import { PipelineError } from "./errors";
+import type { Vec2 } from "./numeric";
 import type { ChainSpec, Fiducial } from "./types";
 
 const BLOCK = 25;             // local threshold window at each pyramid level, px
@@ -45,30 +46,79 @@ export function shaded(gray: Gray, spec: ChainSpec): Gray {
   return { width: gray.width, height: gray.height, data };
 }
 
-/** The fiducials a ChainSpec describes (detect_fiducials). */
-export function detectFiducials(image: Gray, spec: ChainSpec): Fiducial[] {
+/** A search region's corners are whole multiples of this, and it is at least
+ * REGION_MIN_SIDE across (detect._REGION_ALIGN, _REGION_MIN_SIDE). */
+const REGION_ALIGN = 8;
+const REGION_MIN_SIDE = 512;
+
+export type Box = [number, number, number, number];
+
+/** The fiducials a ChainSpec describes (detect_fiducials); with `region`
+ * (x0, y0, x1, y1), searched only there, as the whole photo would be. */
+export function detectFiducials(image: Gray, spec: ChainSpec, region: readonly number[] | null = null): Fiducial[] {
   image = shaded(image, spec);
-  if (spec.fiducial === "dot") return detectDots(image);
+  const box = region ? searchBox(image.width, image.height, region) : null;
+  if (!box) return detectIn(image, spec, null);
+  const [x0, y0, x1, y1] = box;
+  const found = detectIn(crop(image, box), spec, Math.min(image.width, image.height));
+  return found.map((f) => ({ ...f, center_px: [f.center_px[0] + x0, f.center_px[1] + y0] as Vec2 }));
+}
+
+/** detect.search_box: `region` grown to REGION_ALIGN-pixel corners and
+ * REGION_MIN_SIDE, inside the photo; null when that is the whole photo. */
+export function searchBox(width: number, height: number, region: readonly number[]): Box | null {
+  if (region.length !== 4 || !region.every((v) => Number.isFinite(v))) return null;
+  const [rx0, ry0, rx1, ry1] = region as [number, number, number, number];
+  if (rx1 <= rx0 || ry1 <= ry0) return null;
+  const span = (a: number, b: number, limit: number): [number, number] => {
+    const grow = Math.max(0, (REGION_MIN_SIDE - (b - a)) / 2);
+    a -= grow;
+    b += grow;
+    if (a < 0) {
+      b -= a;
+      a = 0;
+    }
+    if (b > limit) {
+      a = Math.max(0, a - (b - limit));
+      b = limit;
+    }
+    return [Math.max(0, Math.floor(a / REGION_ALIGN) * REGION_ALIGN), Math.min(limit, Math.ceil(b / REGION_ALIGN) * REGION_ALIGN)];
+  };
+  const [x0, x1] = span(rx0, rx1, width), [y0, y1] = span(ry0, ry1, height);
+  if (x1 - x0 < 2 * REGION_ALIGN || y1 - y0 < 2 * REGION_ALIGN) return null;
+  return x0 === 0 && y0 === 0 && x1 === width && y1 === height ? null : [x0, y0, x1, y1];
+}
+
+function crop(image: Gray, [x0, y0, x1, y1]: Box): Gray {
+  const w = x1 - x0, h = y1 - y0, data = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) data.set(image.data.subarray((y0 + y) * image.width + x0, (y0 + y) * image.width + x1), y * w);
+  return { width: w, height: h, data };
+}
+
+function detectIn(image: Gray, spec: ChainSpec, pyramidSide: number | null): Fiducial[] {
+  if (spec.fiducial === "dot") return detectDots(image, 8.0, pyramidSide);
   const ratio = spec.ring_inner_mm / spec.fiducial_mm;
-  if (ratio >= THIN_RING) return detectRims(image, ratio);
+  if (ratio >= THIN_RING) return detectRims(image, ratio, 8.0, pyramidSide);
   throw new PipelineError("thick ring fiducials are not supported in this build yet; use dots or the snap-fit chain");
 }
 
-/** (blurred level, scale) from full size down to about 1/8 (detect._pyramid). */
-function* pyramid(gray: Gray): Generator<[Gray, number]> {
+/** (blurred level, scale) from full size down to about 1/8 (detect._pyramid);
+ * `side`: the whole photo's shorter side when `gray` is a region of it. */
+function* pyramid(gray: Gray, side: number | null = null): Generator<[Gray, number]> {
   let level = gray, scale = 1;
   for (;;) {
     yield [gaussianBlur8(level, scale === 1 ? 0.8 : 1.0), scale];
-    if (Math.min(level.width, level.height) < 2 * MIN_LEVEL_SIDE || scale >= MAX_SCALE) return;
+    const shorter = side === null ? Math.min(level.width, level.height) : Math.floor(side / scale);
+    if (shorter < 2 * MIN_LEVEL_SIDE || scale >= MAX_SCALE) return;
     level = halveArea8(level);
     scale *= 2;
   }
 }
 
 /** Light dots on a dark link (detect.detect_dots). */
-export function detectDots(gray: Gray, minDiameterPx = 8.0): Fiducial[] {
+export function detectDots(gray: Gray, minDiameterPx = 8.0, pyramidSide: number | null = null): Fiducial[] {
   const candidates: Candidate[] = [];
-  for (const [g, scale] of pyramid(gray)) {
+  for (const [g, scale] of pyramid(gray, pyramidSide)) {
     const binary = adaptiveMeanThreshold(g, BLOCK, -4);
     for (const mask of [binary, brightMask(g, BLOCK)]) {
       candidates.push(...dotCandidates(mask, g.width, g.height, scale === 1 ? minDiameterPx : 10.0, scale, 1));
@@ -84,9 +134,9 @@ export function detectDots(gray: Gray, minDiameterPx = 8.0): Fiducial[] {
 }
 
 /** Thin light rings found by their holes (detect.detect_rims). */
-export function detectRims(gray: Gray, innerOuterRatio: number, minDiameterPx = 8.0): Fiducial[] {
+export function detectRims(gray: Gray, innerOuterRatio: number, minDiameterPx = 8.0, pyramidSide: number | null = null): Fiducial[] {
   const candidates: Candidate[] = [];
-  for (const [g, scale] of pyramid(gray)) {
+  for (const [g, scale] of pyramid(gray, pyramidSide)) {
     const binary = adaptiveMeanThreshold(g, BLOCK, -4);
     const below = invert8(binary);
     candidates.push(...dotCandidates(below, g.width, g.height, scale === 1 ? minDiameterPx : 10.0, scale, -1));

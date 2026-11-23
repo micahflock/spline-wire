@@ -65,3 +65,21 @@ export function fovRatio(frameChain: readonly [number, number][], frame: Size, s
   const perFrame = a / Math.max(frame.width, frame.height), perStill = b / Math.max(still.width, still.height);
   return perFrame / perStill;
 }
+
+/** Where to look for the chain in a still first (session.Options.search_px):
+ * the live view's last chain (`frameChain`, in a frame of `frame`'s size)
+ * carried to the still (`still`, its upright size) by the long sides about
+ * the centres, round it two links and a twentieth of the long side (the phone
+ * moves a little between the last frame and the photo, and the photo's field
+ * of view is the frame's to a few per cent: the live view scale). null with
+ * fewer than 3 pins. The session searches the whole photo when the box does
+ * not give every pin, so a box that misses costs time, never the measurement. */
+export function stillSearchBox(frameChain: readonly [number, number][], frame: Size, still: Size): [number, number, number, number] | null {
+  if (frameChain.length < 3) return null;
+  const k = Math.max(still.width, still.height) / Math.max(frame.width, frame.height);
+  const pts = frameChain.map(([x, y]) => [still.width / 2 + (x - frame.width / 2) * k, still.height / 2 + (y - frame.height / 2) * k] as const);
+  const links = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i]![0], p[1] - pts[i]![1])).sort((a, b) => a - b);
+  const m = 2 * links[links.length >> 1]! + 0.05 * Math.max(still.width, still.height);
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  return [Math.min(...xs) - m, Math.min(...ys) - m, Math.max(...xs) + m, Math.max(...ys) + m].map((v) => Math.round(v)) as [number, number, number, number];
+}

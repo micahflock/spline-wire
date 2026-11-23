@@ -180,9 +180,10 @@ test("the fast stream: 1920×1440 once the focal length is known, every rim trac
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
   await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  // The info lines (size among them) are refreshed twice a second: wait for the first.
+  await expect.poll(async () => (await stats(page)).size, { timeout: 10_000 }).toBe("1920×1440 (fast)");
   const st = await stats(page);
   log(`fast: ${st.size}, ${costs(st)}; ${st.canvas}`);
-  expect(st.size).toBe("1920×1440 (fast)");
   expect(st.regions.track).toBeGreaterThan(0);
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
   const after = await stats(page);
@@ -220,7 +221,7 @@ test("the fast stream when takePhoto gives nothing: the still is a full-size fra
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
   await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
-  expect((await stats(page)).size).toBe("1920×1440 (fast)");
+  await expect.poll(async () => (await stats(page)).size, { timeout: 10_000 }).toBe("1920×1440 (fast)");
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });
   await expect(page.locator("#r-meta")).toContainText("4032×3024", { timeout: 30_000 });            // the frame at full size
   await expect(page.locator("#r-meta")).toContainText("video frame (takePhoto: NotSupportedError");

@@ -97,3 +97,35 @@ def test_saved_focal_is_used_only_without_exif(spec, photo):
     s.exif_focal_px = None
     assert s.measure(options(spec, saved_focal_35mm=40))["result"]["focal_source"] == "default"
     assert s.measure(options(spec))["result"]["focal_source"] == "estimated"
+
+
+def _pins_px(doc) -> np.ndarray:
+    return np.array([[p["x"], p["y"]] for p in doc["view"]["pins"]])
+
+
+def test_search_px_finds_the_same_chain_in_its_box_without_searching_the_whole_photo(spec, photo):
+    path, _ = photo
+    whole = PhotoSession.open(path.read_bytes(), "chain.jpg").measure(options(spec))
+    pins = _pins_px(whole)
+    link = float(np.median(np.hypot(*np.diff(pins, axis=0).T)))
+    box = [*(pins.min(axis=0) - 1.5 * link), *(pins.max(axis=0) + 1.5 * link)]
+    s = PhotoSession.open(path.read_bytes(), "chain.jpg")
+    doc = s.measure(options(spec, search_px=box))
+    assert doc["ok"] and doc["result"]["pins"] == spec.n_pins
+    assert s._detected is None                          # the whole photo was never searched
+    assert np.abs(_pins_px(doc) - pins).max() < 0.01
+    assert np.abs(np.array(doc["curve"]["points"]) - np.array(whole["curve"]["points"])).max() < 0.001
+
+
+def test_search_px_off_the_chain_falls_back_to_the_whole_photo(spec, photo):
+    path, _ = photo
+    s = PhotoSession.open(path.read_bytes(), "chain.jpg")
+    doc = s.measure(options(spec, search_px=[0, 0, 300, 300]))       # a corner with no chain
+    assert doc["ok"] and doc["result"]["pins"] == spec.n_pins
+    assert s._detected is not None
+
+
+def test_search_px_must_be_a_box(spec, photo):
+    path, _ = photo
+    doc = PhotoSession.open(path.read_bytes(), "chain.jpg").measure(options(spec, search_px=[1, 2, "x"]))
+    assert not doc["ok"] and "search_px" in doc["error"]
