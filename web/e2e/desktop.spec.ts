@@ -113,7 +113,7 @@ test.afterAll(async () => {
   await context?.close();
 });
 
-const pins = () => page.locator(".here .ov-layer circle[data-k]");
+const pins = () => page.locator(".here .ov-layer [data-k]");
 const viewBox = async () => (await page.locator(".here .photo-svg").getAttribute("viewBox"))!.split(" ").map(Number);
 const timings = () => page.evaluate(() => (window as unknown as DesktopWindow).desktop.timings());
 
@@ -130,7 +130,7 @@ async function center(locator: ReturnType<Page["locator"]>): Promise<{ x: number
 }
 
 async function pinPositions(): Promise<Point[]> {
-  return page.evaluate(() => [...document.querySelectorAll<SVGCircleElement>(".here .ov-layer circle[data-k]")]
+  return page.evaluate(() => [...document.querySelectorAll<SVGGraphicsElement>(".here .ov-layer [data-k]")]
     .sort((a, b) => Number(a.dataset.k) - Number(b.dataset.k))
     .map((c): [number, number] => [Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))]));
 }
@@ -194,7 +194,7 @@ test("a picked photo: the pins as native Python finds them", async () => {
 
 test("the mouse: a click removes a pin and Undo brings it back; the wheel zooms and a drag pans, adding nothing", async () => {
   const before = await viewBox();
-  await page.mouse.click(...Object.values(await center(page.locator('.here .ov-layer circle[data-k="5"]'))) as [number, number]);
+  await page.mouse.click(...Object.values(await center(page.locator('.here .ov-layer [data-k="5"]'))) as [number, number]);
   await expect(pins()).toHaveCount(12);
   await expect(page.locator(".here .ov-removed")).toHaveCount(1);
   await expect(page.locator(".here .nums")).toContainText("12 of 13");
@@ -243,7 +243,7 @@ test("the object side: Outside, a clicked point, Inside", async () => {
   await page.getByRole("button", { name: "Click its side" }).click();
   await expect(page.locator(".here [data-out=hint]")).toContainText("object's side");
   const p = await page.evaluate(() => {
-    const cs = [...document.querySelectorAll<SVGCircleElement>(".here .ov-layer circle.ov-pin")];
+    const cs = [...document.querySelectorAll<SVGGraphicsElement>(".here .ov-layer .ov-pin")];
     const mid = cs[6]!.getBoundingClientRect(), a = cs[0]!.getBoundingClientRect(), z = cs[12]!.getBoundingClientRect();
     const ends = { x: (a.x + z.x) / 2, y: (a.y + z.y) / 2 };
     const m = { x: mid.x + mid.width / 2, y: mid.y + mid.height / 2 };

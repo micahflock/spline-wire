@@ -47,7 +47,7 @@ class Fiducial:
     center_px: tuple[float, float]
     outer_axes_px: tuple[float, float]  # ellipse (major, minor) diameters
     inner_axes_px: tuple[float, float]  # a ring's hole; (0, 0) for a dot
-    angle_deg: float                    # outer ellipse orientation
+    angle_deg: float                    # outer ellipse's major axis, degrees from +x (image y down)
     residual_px: float = 0.0            # RMS distance of edge points from the fitted ellipses
     contrast: float = 0.0               # bright minus dark levels, gray levels
     polarity: int = 1                   # +1: light on dark, -1: dark on light
@@ -484,6 +484,13 @@ def _ellipse_distance(pts: np.ndarray, ellipse) -> np.ndarray:
     return (r - 1.0) * np.hypot(u, v) / np.maximum(r, 1e-9)
 
 
+def _major_angle(ellipse) -> float:
+    """The direction of an OpenCV ellipse's major axis: its angle is that of
+    its first axis, which may be the minor one."""
+    (_, (a, b), angle) = ellipse
+    return float(angle) + (90.0 if b > a else 0.0)
+
+
 def _accept(fit: dict, target_ratio: float, polarity: int) -> Fiducial | None:
     eo, ei = fit["outer"], fit["inner"]
     ao, bo = max(eo[1]), min(eo[1])
@@ -506,7 +513,7 @@ def _accept(fit: dict, target_ratio: float, polarity: int) -> Fiducial | None:
         center_px=(float(fit["center"][0]), float(fit["center"][1])),
         outer_axes_px=(float(ao), float(bo)),
         inner_axes_px=(float(ai), float(bi)),
-        angle_deg=float(eo[2]),
+        angle_deg=_major_angle(eo),
         residual_px=float(fit["residual"]),
         contrast=float(fit["contrast"]),
         surround=fit["surround"],
@@ -648,7 +655,7 @@ def _refine_dot(gray: np.ndarray, cand: _Candidate, passes: int = 2,
         center_px=(float(cx), float(cy)),
         outer_axes_px=(float(max(A, B)), float(min(A, B))),
         inner_axes_px=(0.0, 0.0),
-        angle_deg=float(ang),
+        angle_deg=_major_angle(((cx, cy), (A, B), ang)),
         residual_px=float(res),
         contrast=float(np.median(contrast)),
         polarity=1,

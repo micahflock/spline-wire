@@ -323,8 +323,11 @@ class PhotoSession:
         edits, r = self._edits, self.last
 
         def marker(f: Fiducial, **extra) -> dict:
+            # The fiducial's outline as detected: an ellipse (the photo's perspective),
+            # r and r2 its semi-axes, angle its major axis's direction in degrees.
             return {"x": round(f.center_px[0], 2), "y": round(f.center_px[1], 2),
-                    "r": round(f.outer_axes_px[0] / 2, 1), **extra}
+                    "r": round(f.outer_axes_px[0] / 2, 1), "r2": round(f.outer_axes_px[1] / 2, 1),
+                    "angle": round(f.angle_deg % 180.0, 1), **extra}
 
         side_px = None
         if r is not None:

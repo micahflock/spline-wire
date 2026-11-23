@@ -502,7 +502,7 @@ function layout(name: string): string {
     </div>
     <div class="problem" data-out="problem" role="alert" hidden></div>
     <div class="stage">
-      <svg class="photo-svg" role="img" aria-label="The photo with the measured chain"><image x="0" y="0" preserveAspectRatio="none"/><g class="ov-layer"></g></svg>
+      <svg class="photo-svg" role="img" aria-label="The photo with the measured chain"><image x="-0.5" y="-0.5" preserveAspectRatio="none"/><g class="ov-layer"></g></svg>
     </div>
     <div class="tools">
       <button type="button" class="btn small" data-here="undo" aria-label="Undo the last pin change">Undo</button>
