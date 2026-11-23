@@ -54,11 +54,18 @@ async function colourJpeg(page: Page): Promise<Buffer> {
   return Buffer.from(b64, "base64");
 }
 
-/** The RGB of the middle of each band of the photo an SVG <image> shows (its blob: address). */
-async function bandColours(page: Page, image: string): Promise<number[][]> {
+/** The RGB of the middle of each band of the photo an SVG <image> shows (its blob: address);
+ * null while it shows none (the page clears it while the photo is made again). */
+async function bandColours(page: Page, image: string): Promise<number[][] | null> {
   return page.locator(image).evaluate(async (el) => {
-    const blob = await (await fetch(el.getAttribute("href")!)).blob();
-    const bmp = await createImageBitmap(blob);
+    const href = el.getAttribute("href");
+    if (!href?.startsWith("blob:")) return null;
+    let bmp: ImageBitmap;
+    try {
+      bmp = await createImageBitmap(await (await fetch(href)).blob());
+    } catch {
+      return null;                                 // replaced (and released) meanwhile
+    }
     const c = document.createElement("canvas");
     c.width = bmp.width;
     c.height = bmp.height;
@@ -69,6 +76,11 @@ async function bandColours(page: Page, image: string): Promise<number[][]> {
 }
 
 const spread = (rgb: number[]) => Math.max(...rgb) - Math.min(...rgb);
+/** The most and the least colourful band, or null while no photo is shown. */
+const spreads = async (page: Page, image: string) => {
+  const bands = await bandColours(page, image);
+  return bands && { most: Math.max(...bands.map(spread)), least: Math.min(...bands.map(spread)) };
+};
 
 
 let pipe: NativePhoto;
@@ -333,7 +345,7 @@ test("dropped files: one that is not a photo, and a photo with too few pins, sho
 test("a photo measured here is shown grey (the curve and pins stand out); the core reads the original", async () => {
   await drop("colour.jpg", await colourJpeg(page), "image/jpeg");
   await expect(page.locator(".here .photo-svg image")).toHaveAttribute("href", /^blob:/, { timeout: 60_000 });
-  await expect.poll(async () => Math.max(...(await bandColours(page, ".here .photo-svg image")).map(spread))).toBeLessThanOrEqual(4);
+  await expect.poll(async () => (await spreads(page, ".here .photo-svg image"))?.most ?? Infinity).toBeLessThanOrEqual(4);
   await page.getByRole("button", { name: "Discard" }).click();
   await expect(page.locator(".item.draft")).toHaveCount(0);
 });

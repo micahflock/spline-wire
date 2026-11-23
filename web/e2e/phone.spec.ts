@@ -54,11 +54,18 @@ async function colourJpeg(page: Page): Promise<Buffer> {
   return Buffer.from(b64, "base64");
 }
 
-/** The RGB of the middle of each band of the photo an SVG <image> shows (its blob: address). */
-async function bandColours(page: Page, image: string): Promise<number[][]> {
+/** The RGB of the middle of each band of the photo an SVG <image> shows (its blob: address);
+ * null while it shows none (the page clears it while the photo is made again). */
+async function bandColours(page: Page, image: string): Promise<number[][] | null> {
   return page.locator(image).evaluate(async (el) => {
-    const blob = await (await fetch(el.getAttribute("href")!)).blob();
-    const bmp = await createImageBitmap(blob);
+    const href = el.getAttribute("href");
+    if (!href?.startsWith("blob:")) return null;
+    let bmp: ImageBitmap;
+    try {
+      bmp = await createImageBitmap(await (await fetch(href)).blob());
+    } catch {
+      return null;                                 // replaced (and released) meanwhile
+    }
     const c = document.createElement("canvas");
     c.width = bmp.width;
     c.height = bmp.height;
@@ -69,6 +76,11 @@ async function bandColours(page: Page, image: string): Promise<number[][]> {
 }
 
 const spread = (rgb: number[]) => Math.max(...rgb) - Math.min(...rgb);
+/** The most and the least colourful band, or null while no photo is shown. */
+const spreads = async (page: Page, image: string) => {
+  const bands = await bandColours(page, image);
+  return bands && { most: Math.max(...bands.map(spread)), least: Math.min(...bands.map(spread)) };
+};
 
 
 let pipe: NativePhoto;
@@ -648,12 +660,12 @@ test("photos shown grey while the live camera is (the default), in colour when i
   await p.setInputFiles("#take", { name: "colour.jpg", mimeType: "image/jpeg", buffer: await colourJpeg(p) });
   await expect(p.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
   // Grey: each band's three channels equal (to JPEG's rounding), and the thumbnail filtered.
-  await expect.poll(async () => Math.max(...(await bandColours(p, "#photo-img")).map(spread))).toBeLessThanOrEqual(4);
+  await expect.poll(async () => (await spreads(p, "#photo-img"))?.most ?? Infinity).toBeLessThanOrEqual(4);
   expect(await p.locator("#r-thumb").evaluate((t) => getComputedStyle(t).filter)).toBe("grayscale(1)");
   // Live camera shows: in colour. The photo is shown again in colour.
   await p.locator("#settings summary").tap();
   await p.selectOption("#s-view", "color");
-  await expect.poll(async () => Math.min(...(await bandColours(p, "#photo-img")).map(spread))).toBeGreaterThan(100);
+  await expect.poll(async () => (await spreads(p, "#photo-img"))?.least ?? 0).toBeGreaterThan(100);
   expect(await p.locator("#r-thumb").evaluate((t) => getComputedStyle(t).filter)).toBe("none");
   await ctx.close();
 });
