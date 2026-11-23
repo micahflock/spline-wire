@@ -15,7 +15,7 @@ import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind,
 import { LiveAnalyser } from "../pipeline/live-client";
 import { EditHistory, editsAfterTap } from "../editor/edits";
 import type { Pt } from "../editor/viewport";
-import { previews } from "../photo/preview";
+import { greyCopy, previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
 import { pageRelaySetting, relayAddress } from "../relay/config";
 import { deriveKeys } from "../relay/crypto";
@@ -491,8 +491,12 @@ async function select(id: string | null): Promise<void> {
     remeasure(r.id, true);             // the focal length settings changed since it was measured
   }
   const blob = await getBlob(r.id, "preview");
+  // Shown grey while the live camera is (Settings, Live camera shows): only what is shown.
+  const shown = blob && photosGrey() ? (await greyCopy(blob)) ?? blob : blob;
   if (selected !== r.id) return;
-  if (blob && r.pixels) previewUrl = URL.createObjectURL(blob);
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = null;
+  if (shown && r.pixels) previewUrl = URL.createObjectURL(shown);
   editor.setImage(previewUrl, r.pixels);
   editor.frame();
 }
@@ -1187,6 +1191,7 @@ function renderSettings(): void {
   $<HTMLSelectElement>("s-shade").value = settings.shade;
   $<HTMLSelectElement>("s-live").value = settings.liveSize;
   $<HTMLSelectElement>("s-view").value = settings.liveView;
+  document.documentElement.classList.toggle("photos-grey", photosGrey());
   $<HTMLSelectElement>("s-keep").value = String(settings.keepPhotos);
   settingsPins.value = String(defaultPins(settings, chains));
   const focal = $<HTMLInputElement>("s-focal");
@@ -1241,7 +1246,13 @@ $<HTMLSelectElement>("s-live").onchange = (e) => {
 $<HTMLSelectElement>("s-view").onchange = (e) => {
   const v = (e.target as HTMLSelectElement).value;
   setSettings({ ...settings, liveView: v === "chain" || v === "color" ? v : "grey" });
+  if (selected) void select(selected);           // the photo shown again, grey or in colour
 };
+
+/** The photos are shown grey unless the live camera is in colour (the chain-only view counts as grey). */
+function photosGrey(): boolean {
+  return settings.liveView !== "color";
+}
 $<HTMLSelectElement>("s-keep").onchange = (e) => {
   const keepPhotos = Number((e.target as HTMLSelectElement).value);
   if (!(KEEP_PHOTO_CHOICES as readonly number[]).includes(keepPhotos)) return;

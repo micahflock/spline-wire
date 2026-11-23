@@ -34,6 +34,55 @@ interface PhoneWindow { phone: { core: CoreClient; timings: { id: string; status
 const log = (...a: unknown[]) => console.log("[phone]", ...a);
 const mib = (b: number | null) => (b == null ? "?" : `${(b / 2 ** 20).toFixed(0)} MiB`);
 
+/** A small JPEG in three bands, red, green and blue (made in the page): a photo whose colour shows. */
+async function colourJpeg(page: Page): Promise<Buffer> {
+  const b64 = await page.evaluate(async () => {
+    const c = document.createElement("canvas");
+    c.width = 600;
+    c.height = 400;
+    const g = c.getContext("2d")!;
+    ["#e01010", "#10c010", "#1010e0"].forEach((fill, i) => {
+      g.fillStyle = fill;
+      g.fillRect(i * 200, 0, 200, 400);
+    });
+    const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), "image/jpeg", 0.95));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let s = "";
+    for (const x of bytes) s += String.fromCharCode(x);
+    return btoa(s);
+  });
+  return Buffer.from(b64, "base64");
+}
+
+/** The RGB of the middle of each band of the photo an SVG <image> shows (its blob: address);
+ * null while it shows none (the page clears it while the photo is made again). */
+async function bandColours(page: Page, image: string): Promise<number[][] | null> {
+  return page.locator(image).evaluate(async (el) => {
+    const href = el.getAttribute("href");
+    if (!href?.startsWith("blob:")) return null;
+    let bmp: ImageBitmap;
+    try {
+      bmp = await createImageBitmap(await (await fetch(href)).blob());
+    } catch {
+      return null;                                 // replaced (and released) meanwhile
+    }
+    const c = document.createElement("canvas");
+    c.width = bmp.width;
+    c.height = bmp.height;
+    const g = c.getContext("2d")!;
+    g.drawImage(bmp, 0, 0);
+    return [1, 3, 5].map((k) => [...g.getImageData(Math.round((k / 6) * bmp.width), Math.round(bmp.height / 2), 1, 1).data.slice(0, 3)]);
+  });
+}
+
+const spread = (rgb: number[]) => Math.max(...rgb) - Math.min(...rgb);
+/** The most and the least colourful band, or null while no photo is shown. */
+const spreads = async (page: Page, image: string) => {
+  const bands = await bandColours(page, image);
+  return bands && { most: Math.max(...bands.map(spread)), least: Math.min(...bands.map(spread)) };
+};
+
+
 let pipe: NativePhoto;
 let broken: string;               // a crop with too few pins and no EXIF
 let lensPhoto: string;            // a back-camera photo with full EXIF, no chain
@@ -601,6 +650,23 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   await expect(p.locator("#engine-stage")).toBeAttached();
   await expect(items).toHaveCount(0);
   expect(await blobKinds(first)).toEqual([]);
+  await ctx.close();
+});
+
+test("photos shown grey while the live camera is (the default), in colour when it is; measuring is unchanged", async ({ browser }) => {
+  const ctx = await browser.newContext({ ...PHONE });
+  const p = await ctx.newPage();
+  await p.goto("phone/");
+  await p.setInputFiles("#take", { name: "colour.jpg", mimeType: "image/jpeg", buffer: await colourJpeg(p) });
+  await expect(p.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
+  // Grey: each band's three channels equal (to JPEG's rounding), and the thumbnail filtered.
+  await expect.poll(async () => (await spreads(p, "#photo-img"))?.most ?? Infinity).toBeLessThanOrEqual(4);
+  expect(await p.locator("#r-thumb").evaluate((t) => getComputedStyle(t).filter)).toBe("grayscale(1)");
+  // Live camera shows: in colour. The photo is shown again in colour.
+  await p.locator("#settings summary").tap();
+  await p.selectOption("#s-view", "color");
+  await expect.poll(async () => (await spreads(p, "#photo-img"))?.least ?? 0).toBeGreaterThan(100);
+  expect(await p.locator("#r-thumb").evaluate((t) => getComputedStyle(t).filter)).toBe("none");
   await ctx.close();
 });
 

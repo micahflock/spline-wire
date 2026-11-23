@@ -27,7 +27,7 @@ import type { Status } from "../phone/photos";
 import { SHADE_TEXT, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings, type Settings,
   type Shade } from "../phone/settings";
 import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "../phone/wording";
-import { previews } from "../photo/preview";
+import { greyCopy, previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
 import { pack } from "../relay/files";
 import type { Curve } from "../relay/messages";
@@ -275,8 +275,10 @@ export class Draft {
 
   private async showPhoto(): Promise<void> {
     const made = await previews(this.file);
+    // The desktop page shows photos grey: the pins and the curve stand out (the core measures the original).
+    const grey = made && (await greyCopy(made.preview));
     if (this.closed) return;
-    if (made) this.previewUrl = URL.createObjectURL(made.preview);
+    if (made) this.previewUrl = URL.createObjectURL(grey ?? made.preview);
     this.editor.setImage(this.previewUrl, made?.pixels ?? null);
     this.editor.frame();
     this.render();
