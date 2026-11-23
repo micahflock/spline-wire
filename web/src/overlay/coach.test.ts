@@ -54,17 +54,34 @@ describe("coach", () => {
   it("rides out a bad reading or two while holding (no flicker), but takes the still only on a good one", () => {
     const coach = new Coach();
     run(coach, 0, 300, {}, 25);
-    // Every fourth reading at 40 a second has a problem, each a different one, none lasting.
-    const bad: Partial<FrameReading>[] = [{ motion: 3 }, { chain: reading(0).chain.slice(0, 10) }, { sharpness: 0.2 }, { chain: [] }];
+    // Every fourth reading at 40 a second has a problem, none lasting.
+    const bad: Partial<FrameReading>[] = [{ motion: 3 }, { sharpness: 0.2 }, { tiltDeg: 40 }];
     let k = 0;
     for (let t = 325; t < 700; t += 25) {
-      const s = coach.update(reading(t, t % 100 === 0 ? bad[k++ % 4] : {}));
+      const s = coach.update(reading(t, t % 100 === 0 ? bad[k++ % 3] : {}));
       expect(s.phase).toBe("steady");
     }
     const flawed = coach.update(reading(700, { motion: 3 }));        // the hold is long enough, but not on this reading
     expect(flawed).toMatchObject({ phase: "steady" });
     expect(flawed.hold).toBeLessThan(1);
     expect(coach.update(reading(725)).phase).toBe("capture");
+    expect(coach.breaks).toEqual({});
+  });
+
+  it("takes the still only after a whole hold with every pin: a pin short starts the countdown again, still green", () => {
+    const coach = new Coach();
+    run(coach, 0, 500, {}, 25);
+    const short = coach.update(reading(525, { chain: reading(0).chain.slice(0, 12) }));   // one reading a pin short
+    expect(short).toMatchObject({ phase: "steady", hold: 0 });
+    expect(coach.update(reading(550, { chain: [] })).phase).toBe("steady");                 // none at all, briefly
+    let s = coach.update(reading(575));
+    expect(s.phase).toBe("steady");
+    for (let t = 600; t < 575 + COACH.HOLD_MS; t += 25) {
+      s = coach.update(reading(t));
+      expect(s.phase).toBe("steady");
+    }
+    expect(s.hold).toBeLessThan(1);
+    expect(coach.update(reading(575 + COACH.HOLD_MS)).phase).toBe("capture");
     expect(coach.breaks).toEqual({});
   });
 
