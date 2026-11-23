@@ -16,7 +16,7 @@ describe("settings", () => {
     const store = new MemoryStore();
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const, photoMode: "upload" as const,
-      shade: "dark" as const, keepPhotos: 3, liveShows: "chain" as const };
+      shade: "dark" as const, keepPhotos: 3, liveView: "color" as const };
     saveSettings(store, s);
     expect(loadSettings(store)).toEqual(s);
   });
@@ -25,11 +25,22 @@ describe("settings", () => {
     const store = new MemoryStore();
     store.set("phone-settings", JSON.stringify({
       chain: 3, pins: 2, savedFocal35: 4, focalOverride35: "26", side: "left", lenses: [{ key: "x" }], cameras: { a: 1 }, camera: "Back Camera", photoMode: "file",
-      keepPhotos: 7, liveShows: "none",
+      keepPhotos: 7, liveView: "none",
     }));
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     store.set("phone-settings", "{not json");
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it("show the live camera grey by default, keeping a chain-only view chosen before (liveShows)", () => {
+    const store = new MemoryStore();
+    expect(loadSettings(store).liveView).toBe("grey");
+    store.set("phone-settings", JSON.stringify({ liveShows: "video" }));
+    expect(loadSettings(store).liveView).toBe("grey");
+    store.set("phone-settings", JSON.stringify({ liveShows: "chain" }));
+    expect(loadSettings(store).liveView).toBe("chain");
+    store.set("phone-settings", JSON.stringify({ liveShows: "chain", liveView: "color" }));
+    expect(loadSettings(store).liveView).toBe("color");
   });
 
   it("parse focal lengths as the core accepts them (5 to 500 mm), comma or point", () => {

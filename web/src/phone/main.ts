@@ -1182,7 +1182,7 @@ function renderSettings(): void {
   select.value = presetKey(chains, settings.chain);
   $<HTMLSelectElement>("s-shade").value = settings.shade;
   $<HTMLSelectElement>("s-live").value = settings.liveSize;
-  $<HTMLSelectElement>("s-shows").value = settings.liveShows;
+  $<HTMLSelectElement>("s-view").value = settings.liveView;
   $<HTMLSelectElement>("s-keep").value = String(settings.keepPhotos);
   settingsPins.value = String(defaultPins(settings, chains));
   const focal = $<HTMLInputElement>("s-focal");
@@ -1234,8 +1234,9 @@ $<HTMLSelectElement>("s-live").onchange = (e) => {
   toast(liveSize === "fast" ? "The live camera reads a smaller picture once the focal length is known: faster, for close-up shots."
     : "The live camera reads the full picture: slower, but reaches a chain farther away.");
 };
-$<HTMLSelectElement>("s-shows").onchange = (e) => {
-  setSettings({ ...settings, liveShows: (e.target as HTMLSelectElement).value === "chain" ? "chain" : "video" });
+$<HTMLSelectElement>("s-view").onchange = (e) => {
+  const v = (e.target as HTMLSelectElement).value;
+  setSettings({ ...settings, liveView: v === "chain" || v === "color" ? v : "grey" });
 };
 $<HTMLSelectElement>("s-keep").onchange = (e) => {
   const keepPhotos = Number((e.target as HTMLSelectElement).value);
