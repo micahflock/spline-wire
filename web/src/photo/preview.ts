@@ -56,3 +56,41 @@ function jpeg(src: CanvasImageSource, size: Size, quality: number): Promise<Blob
     else reject(new Error("could not encode the preview"));
   }, "image/jpeg", quality));
 }
+
+/** A grey copy of a preview, for pages that show photos grey (the phone's Live camera
+ * shows grey; the desktop page always). Made once when the photo is shown rather than
+ * with a CSS filter: Safari ignores filter functions on an SVG <image>, where the editor
+ * draws the photo. Only what is shown: the core measures the original. Null if this
+ * browser cannot decode or encode it (the colour copy is then shown). */
+export async function greyCopy(preview: Blob): Promise<Blob | null> {
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(preview);
+  } catch {
+    return null;
+  }
+  const c = document.createElement("canvas");
+  try {
+    c.width = bmp.width;
+    c.height = bmp.height;
+    const g = c.getContext("2d", { willReadFrequently: true })!;
+    g.drawImage(bmp, 0, 0);
+    const img = g.getImageData(0, 0, c.width, c.height);
+    greyPixels(img.data);
+    g.putImageData(img, 0, 0);
+    return await new Promise<Blob | null>((resolve) => c.toBlob(resolve, "image/jpeg", 0.85));
+  } catch {
+    return null;
+  } finally {
+    bmp.close();
+    c.width = c.height = 0;                        // give the canvas memory back now (iOS counts it)
+  }
+}
+
+/** RGBA pixels to grey in place, by the luma detection reads (Pillow's "L", as pipeline/decode.ts). */
+export function greyPixels(rgba: Uint8ClampedArray): void {
+  for (let i = 0; i < rgba.length; i += 4) {
+    rgba[i] = rgba[i + 1] = rgba[i + 2] = (rgba[i]! * 19595 + rgba[i + 1]! * 38470 + rgba[i + 2]! * 7471 + 0x8000) >>> 16;
+  }
+}
+
