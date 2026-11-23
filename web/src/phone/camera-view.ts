@@ -50,6 +50,8 @@ export interface Still {
   frameSize: Size;
   /** From the shutter to the still's bytes. */
   ms: number;
+  /** For a frame: why takePhoto gave no photo ("NotSupportedError: …"), if it was tried. */
+  why?: string;
 }
 
 export interface CameraDeps {
@@ -918,18 +920,29 @@ export class CameraView {
     const facing = this.track.getSettings().facingMode ?? null;
     const t0 = performance.now();
     try {
+      // The fast stream (camera/stream.ts) goes back to the full sensor for the
+      // still: on the owner's iPhone (build 25) takePhoto gave no photo with it,
+      // and the still was the 1440×1920 video frame.
+      const wasFast = this.fast;
+      if (wasFast) await this.fullForStill();
+      this.stats.takePhotoError = null;
       const photo = await this.takePhoto();
+      if (!photo && wasFast) this.deps.fullStream?.(camera);
       const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
       let still: Still;
       if (photo) {
-        await this.checkStill(photo, camera);
+        if (wasFast) await this.checkStill(photo, camera);
         const ext = photo.type === "image/png" ? "png" : "jpg";
         still = { file: new File([photo], `photo-${stamp}.${ext}`, { type: photo.type || "image/jpeg" }), kind: "photo",
           camera, facing, frameFocal: null, frameChain, frameSize, ms: performance.now() - t0 };
       } else {
         const blob = await this.grabFrame();
+        // The chain as the live view saw it, in this (possibly larger) frame's pixels.
+        const k = Math.max(v.videoWidth, v.videoHeight) / Math.max(frameSize.width, frameSize.height);
         still = { file: new File([blob], `frame-${stamp}.jpg`, { type: "image/jpeg" }), kind: "frame",
-          camera, facing, frameFocal: this.focal(), frameChain, frameSize, ms: performance.now() - t0 };
+          camera, facing, frameFocal: this.focal(), frameChain: k === 1 ? frameChain : frameChain.map(([x, y]) => [x * k, y * k] as Point),
+          frameSize: { width: v.videoWidth, height: v.videoHeight }, ms: performance.now() - t0,
+          ...(this.stats.takePhotoError ? { why: this.stats.takePhotoError } : {}) };
       }
       this.stats.still = `${still.kind} ${still.file.size} B in ${Math.round(still.ms)} ms`;
       this.close();
@@ -943,10 +956,26 @@ export class CameraView {
     }
   }
 
-  /** With the fast stream: did the still keep its full size? If not, this
-   * camera opens at full size from now on (the still is used all the same). */
+  /** The fast stream back at the full sensor for the still: the photo sizes
+   * read again, and the video given up to 2 s to come at the new size. Left
+   * as it is if the camera will not change. */
+  private async fullForStill(): Promise<void> {
+    const track = this.track, v = this.video;
+    if (!track) return;
+    try {
+      await track.applyConstraints({ ...FULL_STREAM, ...FRAME_RATE });
+      this.fast = false;
+      const full = 0.9 * Math.max(FULL_STREAM.width.ideal, FULL_STREAM.height.ideal);
+      for (let t = 0; t < 2000 && Math.max(v.videoWidth, v.videoHeight) < full; t += 50) await new Promise((r) => setTimeout(r, 50));
+      if (this.capture) this.caps = this.capture.getPhotoCapabilities().catch(() => null);
+    } catch (e) {
+      this.stats.stream = `full size for the still refused: ${(e as Error).name}`;
+    }
+  }
+
+  /** Taken while the stream was fast: did the still keep its full size? If not,
+   * this camera opens at full size from now on (the still is used all the same). */
   private async checkStill(photo: Blob, camera: string): Promise<void> {
-    if (!this.fast) return;
     try {
       const size = stillSize(new Uint8Array(await photo.slice(0, 256 * 1024).arrayBuffer()));
       this.stats.stillSize = size ? `${size.width}×${size.height}` : null;

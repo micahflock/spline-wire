@@ -174,7 +174,8 @@ async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | n
       chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), shade: settings.shade, side: settings.side, edits: NO_EDITS,
       status: "queued", doc: null, failure: null, pixels: made?.pixels ?? null, preview: made?.previewSize ?? null, autoSend: paired(),
       measuredWith: null, exif, focal,
-      camera: still ? { label: still.camera, still: still.kind, frameChain: still.frameChain, frameSize: still.frameSize, fov: null, ms: Math.round(still.ms) } : null,
+      camera: still ? { label: still.camera, still: still.kind, frameChain: still.frameChain, frameSize: still.frameSize, fov: null, ms: Math.round(still.ms),
+        ...(still.why ? { why: still.why } : {}) } : null,
     };
     const blobs: Partial<Record<BlobKind, Blob>> = { original: file, preview: made?.preview, thumb: made?.thumb };
     let kept = false;
@@ -623,7 +624,7 @@ function renderResult(): void {
   const info = doc?.info;
   const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
   const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
-  const via = r.via === "camera" ? (r.camera?.still === "frame" ? "page camera, video frame" : "page camera")
+  const via = r.via === "camera" ? (r.camera?.still === "frame" ? `page camera, video frame${r.camera.why ? ` (takePhoto: ${r.camera.why})` : ""}` : "page camera")
     : r.via === "take" ? "system camera" : "library";
   const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
   const gone = !!r.photoDeleted;

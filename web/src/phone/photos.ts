@@ -107,6 +107,8 @@ export interface CameraNote {
   /** The live view's scale against the still's, once measured: 1 when they agree. */
   fov: number | null;
   ms: number;
+  /** For a frame: why takePhoto gave no photo, if it was tried. */
+  why?: string;
 }
 
 /** Photos kept by default (Settings, Photos kept): past it the oldest lose their

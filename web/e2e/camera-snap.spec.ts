@@ -43,7 +43,7 @@ test.afterEach(async () => {
  * (Settings): Chromium's fake camera scales its portrait file to the fast
  * stream's landscape 1920×1440, where a phone gives a portrait 1440×1920
  * (camera/stream.ts); `fast` streams a landscape scene and leaves Settings as they are. */
-async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false, liveView?: string): Promise<Page> {
+async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false, liveView?: string, noPhoto = false): Promise<Page> {
   const out = sceneDir(span, dark, tilt, fast);
   fs.mkdirSync(out, { recursive: true });
   execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, fast ? "4032x3024" : "3024x4032", "snap", String(span), ...(dark ? ["dark"] : []),
@@ -57,6 +57,11 @@ async function phoneAt(span: number, query = "", dark = false, tilt?: number, fa
   await context.addInitScript(([shade, liveSize, liveView]) => localStorage.setItem("splinewire-phone:phone-settings",
     JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize, ...(liveView ? { liveView } : {}) })),
     [dark ? "dark" : "light", fast ? "fast" : "full", liveView ?? ""]);
+  // takePhoto refused, as on the owner's iPhone with the fast stream (build 25).
+  if (noPhoto) await context.addInitScript(() => {
+    const IC = (globalThis as { ImageCapture?: { prototype: { takePhoto(): Promise<Blob> } } }).ImageCapture;
+    if (IC) IC.prototype.takePhoto = () => Promise.reject(new DOMException("refused in this test", "NotSupportedError"));
+  });
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("[page error]", e.message));
   await page.goto(`phone/${query}`);
@@ -209,3 +214,23 @@ test("Live camera shows only the chain: no video seen, every rim still tracked, 
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
   await measured(page);
 });
+
+test("the fast stream when takePhoto gives nothing: the still is a full-size frame, says why, and the camera opens full size next time", async () => {
+  const page = await phoneAt(0.4, "", false, undefined, true, undefined, true);
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  expect((await stats(page)).size).toBe("1920×1440 (fast)");
+  await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator("#r-meta")).toContainText("4032×3024", { timeout: 30_000 });            // the frame at full size
+  await expect(page.locator("#r-meta")).toContainText("video frame (takePhoto: NotSupportedError");
+  const refused = await page.evaluate(() => JSON.parse(localStorage.getItem("splinewire-phone:phone-settings")!).fullStreamCameras as string[]);
+  expect(refused.length).toBe(1);
+  await measured(page);
+  // Next time this camera opens at full size, and says why.
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect.poll(async () => (await stats(page)).size, { timeout: 10_000 }).toBe("4032×3024");
+  expect((await stats(page)).stream).toMatch(/came back small/);
+});
+

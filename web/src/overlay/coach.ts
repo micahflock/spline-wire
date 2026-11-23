@@ -37,7 +37,10 @@ export const COACH = {
    * second (camera-view.ts), so readings can be ~1 s apart and a phone is
    * slower: 1.5 s. */
   STALE_MS: 1500,
-  /** A problem is shown, and breaks a hold, once it has lasted this long. */
+  /** A problem is shown, and breaks a hold, once it has lasted this long. One
+   * is the exception: the still is taken only once every reading of a whole
+   * hold had the full pin count (the owner, 2026-11-23); a reading with a pin
+   * short starts the countdown again, though the hold stays steady (green). */
   PROBLEM_MS: 250,
   /** Motion is measured against the newest reading at least this much older
    * (session.ts): pin centres jitter by a fraction of a pixel from frame to
@@ -116,6 +119,8 @@ export class Coach {
   private done = false;
   private state: CoachState = blank(0);
   private arrow: ArrowTrack = NO_ARROW;
+  /** Since when every reading had the full pin count (null: the last did not). */
+  private fullSince: number | null = null;
   /** Holds broken, by the problem that broke them (for the camera view's diagnostics). */
   readonly breaks: Partial<Record<Problem, number>> = {};
 
@@ -129,6 +134,7 @@ export class Coach {
     this.goodSince = null;
     this.lastT = null;
     this.since.clear();
+    this.fullSince = null;
     this.arrow = NO_ARROW;
     this.state = blank(this.state.pinsExpected);
   }
@@ -140,6 +146,9 @@ export class Coach {
 
     const holding = this.goodSince !== null;
     const found = check(r, holding);
+    // The countdown runs only while every reading has had the full pin count.
+    if (found.includes("no-chain") || found.includes("pins-missing")) this.fullSince = null;
+    else this.fullSince ??= r.t;
     const stale = this.lastT !== null && r.t - this.lastT > COACH.STALE_MS;
     this.lastT = r.t;
 
@@ -152,7 +161,7 @@ export class Coach {
     // A hold rides out problems that have not lasted: it stays steady, and
     // goes on counting, but does not end on such a reading.
     if (holding && !stale && found.length > 0 && shown.length === 0) {
-      const hold = Math.min(0.99, (r.t - this.goodSince!) / COACH.HOLD_MS);
+      const hold = Math.min(0.99, this.counted(r.t) / COACH.HOLD_MS);
       return (this.state = { ...base, phase: "steady", problems: [], hold, straighter });
     }
     if (found.length > 0 || stale) {
@@ -166,12 +175,19 @@ export class Coach {
       });
     }
     if (this.goodSince === null) this.goodSince = r.t;
-    const hold = Math.min(1, (r.t - this.goodSince) / COACH.HOLD_MS);
+    const hold = Math.min(1, this.counted(r.t) / COACH.HOLD_MS);
     if (hold >= 1) {
       this.done = true;
       return (this.state = { ...base, phase: "capture", problems: [], hold: 1, straighter, arrow: null });
     }
     return (this.state = { ...base, phase: "steady", problems: [], hold, straighter });
+  }
+
+  /** How long the countdown has run at `t`: since the hold began, and since
+   * the pin count was last short, whichever is later. */
+  private counted(t: number): number {
+    if (this.goodSince === null || this.fullSince === null) return 0;
+    return t - Math.max(this.goodSince, this.fullSince);
   }
 }
 
