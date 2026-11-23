@@ -34,6 +34,43 @@ interface DesktopWindow { desktop: { timings(): Promise<Timing[]> } }
 const log = (...a: unknown[]) => console.log("[desktop]", ...a);
 const kib = (b: number) => `${(b / 1024).toFixed(1)} KiB`;
 
+/** A small JPEG in three bands, red, green and blue (made in the page): a photo whose colour shows. */
+async function colourJpeg(page: Page): Promise<Buffer> {
+  const b64 = await page.evaluate(async () => {
+    const c = document.createElement("canvas");
+    c.width = 600;
+    c.height = 400;
+    const g = c.getContext("2d")!;
+    ["#e01010", "#10c010", "#1010e0"].forEach((fill, i) => {
+      g.fillStyle = fill;
+      g.fillRect(i * 200, 0, 200, 400);
+    });
+    const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), "image/jpeg", 0.95));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let s = "";
+    for (const x of bytes) s += String.fromCharCode(x);
+    return btoa(s);
+  });
+  return Buffer.from(b64, "base64");
+}
+
+/** The RGB of the middle of each band of the photo an SVG <image> shows (its blob: address). */
+async function bandColours(page: Page, image: string): Promise<number[][]> {
+  return page.locator(image).evaluate(async (el) => {
+    const blob = await (await fetch(el.getAttribute("href")!)).blob();
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement("canvas");
+    c.width = bmp.width;
+    c.height = bmp.height;
+    const g = c.getContext("2d")!;
+    g.drawImage(bmp, 0, 0);
+    return [1, 3, 5].map((k) => [...g.getImageData(Math.round((k / 6) * bmp.width), Math.round(bmp.height / 2), 1, 1).data.slice(0, 3)]);
+  });
+}
+
+const spread = (rgb: number[]) => Math.max(...rgb) - Math.min(...rgb);
+
+
 let pipe: NativePhoto;
 let broken: string;               // a crop with too few pins
 let context: BrowserContext;
@@ -292,3 +329,12 @@ test("dropped files: one that is not a photo, and a photo with too few pins, sho
   log(`drop to answer: not a photo ${notPhoto.sinceDrop} ms (the engine loading again after the reload),`,
       `then a cropped photo ${crop.sinceDrop} ms (engine loaded)`);
 });
+
+test("a photo measured here is shown grey (the curve and pins stand out); the core reads the original", async () => {
+  await drop("colour.jpg", await colourJpeg(page), "image/jpeg");
+  await expect(page.locator(".here .photo-svg image")).toHaveAttribute("href", /^blob:/, { timeout: 60_000 });
+  await expect.poll(async () => Math.max(...(await bandColours(page, ".here .photo-svg image")).map(spread))).toBeLessThanOrEqual(4);
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.locator(".item.draft")).toHaveCount(0);
+});
+
