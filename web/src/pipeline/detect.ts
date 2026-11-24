@@ -450,7 +450,8 @@ function refineDot(gray: GrayF, cand: Candidate, passes = 2, margin: [number, nu
     center_px: [e.cx, e.cy],
     outer_axes_px: [Math.max(e.width, e.height), Math.min(e.width, e.height)],
     inner_axes_px: [0, 0],
-    angle_deg: e.angle,
+    // OpenCV's angle is its first axis's, which may be the minor one (detect._major_angle).
+    angle_deg: e.angle + (e.height > e.width ? 90 : 0),
     residual_px: res,
     contrast: contrastMed,
     polarity: 1,

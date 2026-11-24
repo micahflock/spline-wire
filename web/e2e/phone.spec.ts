@@ -136,13 +136,13 @@ test.afterAll(async () => {
   await context?.close();
 });
 
-const pins = () => page.locator("#overlay circle[data-k]");
+const pins = () => page.locator("#overlay [data-k]");
 const selectedId = () => page.locator("#photos li.on").getAttribute("data-id");
 const viewBox = async () => (await page.locator("#photo").getAttribute("viewBox"))!.split(" ").map(Number);
 const lastMs = () => page.evaluate(() => (window as unknown as PhoneWindow).phone.timings.at(-1)!.ms);
 
 async function pinPositions(): Promise<Point[]> {
-  return page.evaluate(() => [...document.querySelectorAll<SVGCircleElement>("#overlay circle[data-k]")]
+  return page.evaluate(() => [...document.querySelectorAll<SVGGraphicsElement>("#overlay [data-k]")]
     .filter((c) => c.classList.contains("ov-pin") || c.classList.contains("ov-mine"))
     .sort((a, b) => Number(a.dataset.k) - Number(b.dataset.k))
     .map((c): [number, number] => [Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))]));
@@ -211,7 +211,7 @@ test("a photo taken while the engine loads is measured when it is ready", async 
 test("a tap on a pin removes it, Undo brings it back", async () => {
   await page.locator("#photo").scrollIntoViewIfNeeded();
   const before = await viewBox();
-  await page.touchscreen.tap(...Object.values(await center('#overlay circle[data-k="5"]')) as [number, number]);
+  await page.touchscreen.tap(...Object.values(await center('#overlay [data-k="5"]')) as [number, number]);
   await expect(pins()).toHaveCount(12);
   await expect(page.locator("#overlay .ov-removed")).toHaveCount(1);
   await expect(page.locator("#numbers")).toContainText("12 of 13");
@@ -258,7 +258,7 @@ test("the object side: Outside, a tapped point, Inside", async () => {
   await page.locator("#photo").scrollIntoViewIfNeeded();
   // The pipe's chain bends round the object: its middle pin's far side, away from the ends, is inside.
   const p = await page.evaluate(() => {
-    const cs = [...document.querySelectorAll<SVGCircleElement>("#overlay circle.ov-pin")];
+    const cs = [...document.querySelectorAll<SVGGraphicsElement>("#overlay .ov-pin")];
     const mid = cs[6]!.getBoundingClientRect(), a = cs[0]!.getBoundingClientRect(), z = cs[12]!.getBoundingClientRect();
     const ends = { x: (a.x + z.x) / 2, y: (a.y + z.y) / 2 };
     const m = { x: mid.x + mid.width / 2, y: mid.y + mid.height / 2 };
@@ -441,7 +441,7 @@ test.describe("paired with a computer", () => {
     await desktop.close();                             // the computer's page is closed
     await expect(page.locator("#link-text")).toHaveText("Computer not open");
     await page.locator("#photo").scrollIntoViewIfNeeded();
-    await page.touchscreen.tap(...Object.values(await center('#overlay circle[data-k="3"]')) as [number, number]);
+    await page.touchscreen.tap(...Object.values(await center('#overlay [data-k="3"]')) as [number, number]);
     await expect(pins()).toHaveCount(12);
     await expect(page.locator("#send-note")).toHaveText(/Queued: the computer's page is not open. The change goes/);
     await expect(page.locator('#outbox li[data-state="queued-no-computer"]')).toHaveCount(1);

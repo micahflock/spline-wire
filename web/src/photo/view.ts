@@ -16,6 +16,9 @@ import {
 } from "../editor/viewport";
 import { overlaySvg, type Extra } from "./draw";
 
+/** Where pixel (0, 0)'s top-left corner is in photo px (setImage). */
+export const PIXEL_ORIGIN = -0.5;
+
 export type TapHandler = (at: Pt, slackPhotoPx: number, kind: PointerKind) => void;
 
 export class PhotoEditor {
@@ -60,10 +63,14 @@ export class PhotoEditor {
   }
 
   /** The photo to draw under the markers: a downscaled copy (`url`) stretched
-   * over the original's pixel size, which is what the markers are in. */
+   * over the original's pixel size, which is what the markers are in. Detection
+   * puts a pixel's centre at its integer coordinates (OpenCV's convention), and
+   * an SVG image at 0 puts it half a pixel further on: the photo starts at -0.5. */
   setImage(url: string | null, pixels: Size | null): void {
     if (url && pixels) {
       this.image.setAttribute("href", url);
+      this.image.setAttribute("x", String(PIXEL_ORIGIN));
+      this.image.setAttribute("y", String(PIXEL_ORIGIN));
       this.image.setAttribute("width", String(pixels.width));
       this.image.setAttribute("height", String(pixels.height));
     } else {

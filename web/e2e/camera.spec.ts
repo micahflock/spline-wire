@@ -211,7 +211,7 @@ test("with the right pin count it holds steady, takes the still, and measures it
 
   const item = page.locator("#photos li").first();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
-  await expect(page.locator("#overlay circle[data-k]")).toHaveCount(13);
+  await expect(page.locator("#overlay [data-k]")).toHaveCount(13);
   await expect(page.locator("#r-meta")).toContainText("page camera");
   await expect(page.locator("#r-meta")).toContainText("live view scale");
   const meta = await page.locator("#r-meta").textContent();
@@ -247,7 +247,7 @@ test("with the right pin count it holds steady, takes the still, and measures it
     "d = s.measure({'chain': json.loads(sys.argv[2]), 'saved_focal_35mm': 24, 'focal_override_35mm': focal})",
     "print(json.dumps({'pins': [[p['x'], p['y']] for p in d['view']['pins']], 'size': [s.size[0], s.size[1]]}))",
   ].join("\n"), still, JSON.stringify(scene.chain), String(got.focal)], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").at(-1)!) as { pins: Point[]; size: [number, number] };
-  const px = await page.evaluate(() => [...document.querySelectorAll<SVGCircleElement>("#overlay circle[data-k]")]
+  const px = await page.evaluate(() => [...document.querySelectorAll<SVGGraphicsElement>("#overlay [data-k]")]
     .sort((a, b) => Number(a.dataset.k) - Number(b.dataset.k))
     .map((c): [number, number] => [Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))]));
   const along = (pins: Point[]) => Math.max(...px.map((p, i) => Math.hypot(p[0] - pins[i]![0], p[1] - pins[i]![1])));
@@ -274,7 +274,7 @@ test("without ImageCapture (Firefox) the still is the video frame, measured with
   await expect(page.locator("#photos li")).toHaveCount(before + 1, { timeout: 30_000 });
   const item = page.locator("#photos li").first();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
-  await expect(page.locator("#overlay circle[data-k]")).toHaveCount(13, { timeout: 30_000 });
+  await expect(page.locator("#overlay [data-k]")).toHaveCount(13, { timeout: 30_000 });
   await expect(page.locator("#r-meta")).toContainText("page camera, video frame");
   await expect(page.locator("#numbers")).toContainText("your saved focal length (a video frame has no camera data)");
   await expect(page.locator("#numbers")).toContainText("24.0 mm");
@@ -471,7 +471,7 @@ test("a camera that is not allowed falls back to the system camera", async () =>
     await expect(p.locator("#mode-upload")).toHaveAttribute("aria-pressed", "true");
     const item = p.locator("#photos li").first();
     await expect(item).toHaveAttribute("data-status", "done", { timeout: 180_000 });
-    await expect(p.locator("#overlay circle[data-k]")).toHaveCount(13);
+    await expect(p.locator("#overlay [data-k]")).toHaveCount(13);
     await expect(p.locator("#r-meta")).toContainText("system camera");
     await expect(p.locator("#numbers")).toContainText("from the photo");
     await ctx.close();

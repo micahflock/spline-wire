@@ -21,7 +21,7 @@ export interface Fiducial {
   center_px: Vec2;
   outer_axes_px: Vec2;       // ellipse (major, minor) diameters
   inner_axes_px: Vec2;       // a ring's hole; (0, 0) for a dot
-  angle_deg: number;
+  angle_deg: number;         // the major axis, degrees from +x (image y down)
   residual_px: number;
   contrast: number;
   polarity: number;          // +1 light on dark, -1 dark on light

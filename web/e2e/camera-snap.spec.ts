@@ -85,7 +85,7 @@ function costs(st: CameraStats): string {
 async function measured(page: Page): Promise<void> {
   const item = page.locator("#photos li").first();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
-  await expect(page.locator("#overlay circle[data-k]")).toHaveCount(13);
+  await expect(page.locator("#overlay [data-k]")).toHaveCount(13);
   log(await page.locator("#r-meta").textContent());
 }
 

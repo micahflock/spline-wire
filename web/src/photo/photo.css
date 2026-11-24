@@ -16,9 +16,6 @@ html.photos-grey img.th { filter: grayscale(1); }
 .ov-unused { stroke: var(--ov-unused); stroke-dasharray: 5 3; }
 .ov-pending { stroke: #fff; stroke-dasharray: 3 3; animation: ov-pulse .8s ease-in-out infinite alternate; }
 @keyframes ov-pulse { from { opacity: 1; } to { opacity: .25; } }
-.ov-label { fill: var(--ov-pin); stroke: #0b0e11; paint-order: stroke; stroke-width: 3px; vector-effect: non-scaling-stroke;
-  font-family: var(--f-data); font-weight: 500; }
-.ov-label.mine { fill: var(--ov-mine); }
 .ov-edge { fill: none; stroke: var(--ov-edge); stroke-width: 3.5px; vector-effect: non-scaling-stroke; }
 .ov-side { fill: var(--ov-edge); stroke: #0b0e11; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
 .photo-svg g * { pointer-events: none; }

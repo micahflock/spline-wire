@@ -72,7 +72,12 @@ export interface MeasurementResult {
 export interface Marker {
   x: number;
   y: number;
+  /** The fiducial's outline as detected, an ellipse: its semi-axes (r the major)
+   * and its major axis's direction, degrees from +x (y down). A pin added by hand
+   * before any measurement has only r. */
   r: number;
+  r2?: number;
+  angle?: number;
   /** Position along the chain, for pins on it. */
   k?: number;
   /** Index into Edits.add, for pins added by hand. */

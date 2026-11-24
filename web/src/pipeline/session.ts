@@ -276,8 +276,11 @@ export class PhotoSession {
   view(): PhotoView | null {
     if (this.detected === null && this.last === null) return null;
     const edits = this.edits, r = this.last;
+    // The fiducial's outline as detected: an ellipse (the photo's perspective),
+    // r and r2 its semi-axes, angle its major axis's direction in degrees.
     const marker = (f: Fiducial, extra: Record<string, unknown> = {}) => ({
-      x: pyRound(f.center_px[0], 2), y: pyRound(f.center_px[1], 2), r: pyRound(f.outer_axes_px[0] / 2, 1), ...extra,
+      x: pyRound(f.center_px[0], 2), y: pyRound(f.center_px[1], 2), r: pyRound(f.outer_axes_px[0] / 2, 1),
+      r2: pyRound(f.outer_axes_px[1] / 2, 1), angle: pyRound(((f.angle_deg % 180) + 180) % 180, 1), ...extra,
     });
     let pins: PhotoView["pins"], unused: PhotoView["unused"], gaps: number[], curve: [number, number][];
     let sidePx: [number, number] | null = null;
