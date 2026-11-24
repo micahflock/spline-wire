@@ -172,15 +172,25 @@ select { max-width: 55%; }
   background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 3px; font-size: 15px; opacity: 0; pointer-events: none;
   transition: opacity .2s; z-index: 10; }
 #toast.on { opacity: 1; }
-/* Over the camera view (a pairing code it saw), above the shutter. */
+/* Over the camera view (a pairing code it saw), above the diagnostics. */
 html.cam-on #toast { z-index: 30; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 160px); }
 
-/* The camera view: full screen, black, the video shown whole (what the still holds), the chain traced
-   over it on a canvas, the coach's words at the top, the shutter with its hold ring at the bottom. */
+/* The camera view: a card floating over the page (dimmed round it, so the page is seen to be still
+   there), black, the video shown whole (what the still holds), the chain traced over it on a canvas,
+   the coach's words at the top (it takes the still itself: no shutter), the diagnostics at the bottom. The card keeps clear of
+   the notch and the home bar, so nothing inside it needs the safe areas. */
 html.cam-on, html.cam-on body { overflow: hidden; }
-.cam { position: fixed; inset: 0; z-index: 20; background: #000; color: #fff; }
-.cam-live { position: absolute; inset: 0; }
-.cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.cam { --cam-gap: 14px; --cam-radius: 26px; --cam-pad: 12px;
+  position: fixed; inset: 0; z-index: 20; background: rgba(14, 13, 11, .42); color: #fff; }
+.cam-live, .cam-fail { position: absolute; overflow: hidden; isolation: isolate; border-radius: var(--cam-radius);
+  top: max(var(--cam-gap), env(safe-area-inset-top)); bottom: max(var(--cam-gap), env(safe-area-inset-bottom));
+  left: max(var(--cam-gap), env(safe-area-inset-left)); right: max(var(--cam-gap), env(safe-area-inset-right));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .08);
+  animation: cam-in .22s cubic-bezier(.2, .8, .2, 1); }
+.cam-live { background: #000; }
+@keyframes cam-in { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+@media (prefers-reduced-motion: reduce) { .cam-live, .cam-fail { animation: none; } }
+.cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
 .cam canvas { pointer-events: none; }
 .cam.flash video { opacity: .6; transition: opacity .1s; }
 /* Settings, Live camera shows: grey and dimmed (the default), so the trace and the arrow stand out.
@@ -191,7 +201,7 @@ html.cam-on, html.cam-on body { overflow: hidden; }
 .cam.chain-only canvas { background: #000; }
 .cam.chain-only.flash canvas { background: #444; transition: background .1s; }
 .cam-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 10px;
-  padding: max(10px, env(safe-area-inset-top)) var(--gutter-r) 10px var(--gutter-l); background: linear-gradient(rgba(0,0,0,.55), transparent); }
+  padding: var(--cam-pad) var(--cam-pad) 10px; background: linear-gradient(rgba(0,0,0,.55), transparent); }
 .cam-btn { width: 44px; height: 44px; border: none; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; font-size: 20px; flex: none; }
 /* Pins found, on its own line above the coach's message: the top bar has no room
    for it beside Upload and the camera menu (it wrapped a word a line on an iPhone). */
@@ -199,21 +209,13 @@ html.cam-on, html.cam-on body { overflow: hidden; }
 .cam-say .cam-count, .cam-say .cam-count:empty { display: block; min-height: 1.25em; margin: 0 0 2px; opacity: 1;
   font-size: 15px; font-weight: 500; white-space: nowrap; }
 .cam-switch { max-width: 42%; min-height: 40px; background: rgba(0,0,0,.45); color: #fff; border: 1px solid rgba(255,255,255,.4); font-size: 13px; }
-.cam-say { position: absolute; left: var(--gutter-l); right: var(--gutter-r); top: calc(max(10px, env(safe-area-inset-top)) + 58px);
+.cam-say { position: absolute; left: var(--cam-pad); right: var(--cam-pad); top: calc(var(--cam-pad) + 58px);
   text-align: center; text-shadow: 0 1px 4px #000; pointer-events: none; }
 .cam-say b { display: block; font: 700 23px/1.2 var(--f-ui); }
 .cam-say span { display: block; font-size: 15px; margin-top: 4px; opacity: .9; }
 .cam-say span:empty { display: none; }
 .cam-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 24px var(--gutter-r) max(12px, env(safe-area-inset-bottom)) var(--gutter-l); background: linear-gradient(transparent, rgba(0,0,0,.6)); }
-.cam-shutter { width: 84px; height: 84px; border: none; background: none; padding: 0; }
-.cam-shutter svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.cam-shutter .ring-bg { fill: none; stroke: rgba(255,255,255,.35); stroke-width: 6; }
-.cam-shutter .ring { fill: none; stroke: #4cc27a; stroke-width: 6; stroke-dasharray: 226.2; stroke-dashoffset: 226.2; }
-.cam-shutter .dot { fill: #fff; }
-.cam-shutter:active .dot { fill: #ddd; }
-.cam-shutter:disabled { opacity: .5; }
-.cam-shutter[data-phase="adjusting"] .ring-bg { stroke: rgba(242,183,5,.6); }
+  padding: 24px var(--cam-pad) 14px; background: linear-gradient(transparent, rgba(0,0,0,.6)); }
 .cam-pill { border: 1px solid rgba(255,255,255,.5); background: rgba(0,0,0,.45); color: #fff; font-size: 14px; padding: 6px 12px; border-radius: 999px; min-height: 40px; flex: none; }
 .cam-teach { border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 14px; padding: 8px 14px; border-radius: 999px; min-height: 36px; }
 .cam-teach { background: rgba(178,106,0,.85); }
@@ -222,7 +224,7 @@ html.cam-on, html.cam-on body { overflow: hidden; }
 .cam-info { font-size: 10.5px; opacity: .75; margin: 0; text-align: left; width: 100%; max-width: 100%; }
 .cam-info > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cam-info > div:last-child { white-space: normal; overflow-wrap: anywhere; }
-.cam-fail { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px;
-  padding: 24px var(--gutter-r) 24px var(--gutter-l); background: var(--paper); color: var(--ink); font-size: 15.5px; }
+.cam-fail { display: flex; flex-direction: column; justify-content: center; gap: 12px;
+  padding: 24px 20px; background: var(--paper); color: var(--ink); font-size: 15.5px; }
 .cam-fail b { font-size: 20px; }
 .cam-fail p { margin: 0; }

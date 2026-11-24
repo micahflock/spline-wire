@@ -113,7 +113,7 @@ async function setChain(key: string, pins: number): Promise<void> {
 async function openCamera(): Promise<void> {
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
-  await expect(page.locator("#cam-shutter")).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator("#cam-live")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
 }
 
 async function closeCamera(): Promise<void> {
@@ -197,12 +197,9 @@ test("the overlay coaches: no chain, pins missing", async () => {
 test("with the right pin count it holds steady, takes the still, and measures it as native Python does", async () => {
   await setChain("oring", 13);
   await openCamera();
-  // Catch the hold while the ring fills (700 ms of good readings).
-  await expect(page.locator("#cam-shutter")).toHaveAttribute("data-phase", "steady", { timeout: 30_000 });
-  await page.waitForFunction(() => {
-    const ring = document.getElementById("cam-ring");
-    return !!ring && Number(ring.style.strokeDashoffset) < 0.6 * 2 * Math.PI * 36;
-  }, null, { polling: "raf", timeout: 5000 }).catch(() => {});
+  // Catch the hold while the lock-on rings close (700 ms of good readings).
+  await expect(page.locator("#cam-live")).toHaveAttribute("data-phase", "steady", { timeout: 30_000 });
+  await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(SHOTS, "steady.png") });
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the still was taken, the camera released
   expect(await liveTracks()).toBe(0);
@@ -339,7 +336,7 @@ test("a permission prompt that hides the page does not close the camera view (iO
   try {
     await p.goto("phone/");
     await p.locator("#take-camera").click();
-    await expect(p.locator("#cam-shutter")).toBeEnabled({ timeout: 20_000 });
+    await expect(p.locator("#cam-live")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
     await expect(p.locator("#cam")).toBeVisible();
     await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
     await expect(p.locator("#cam-info")).toContainText("grab in a worker", { timeout: 10_000 });
@@ -390,7 +387,7 @@ test("switching from iOS's triple camera to its main lens does not close the cam
   try {
     await p.goto("phone/");
     await p.locator("#take-camera").click();
-    await expect(p.locator("#cam-shutter")).toBeEnabled({ timeout: 20_000 });
+    await expect(p.locator("#cam-live")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
     await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
     await expect(p.locator("#cam")).toBeVisible();
     await expect(p.locator("#cam-info")).toContainText("Back Camera");               // switched to the main lens

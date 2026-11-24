@@ -1,7 +1,9 @@
-// The phone page's camera (web-build.md D16, step 5): a full-screen live view
+// The phone page's camera (web-build.md D16, step 5): a live view (a card over the page)
 // of the rear camera with the chain traced over it, a coach that says what to
-// fix, and the still taken when the chain has been steady for a moment (or
-// when the person presses the shutter, which always works).
+// fix, and the still taken when the chain has been steady for a moment. There
+// is no shutter: the coach takes the still (Upload instead is the way round it).
+// The card carries the coach's phase (data-phase) and whether the view is
+// ready to take a still (data-ready), for the tests.
 //
 // The decisions are in src/camera/ (which camera, focal lengths for frames),
 // src/overlay/ (blobs, coach, the loop) and lenses.ts; this file is the
@@ -48,7 +50,7 @@ export interface Still {
   /** The chain the overlay last saw, in video pixels, and the video's size: to compare fields of view. */
   frameChain: Point[];
   frameSize: Size;
-  /** From the shutter to the still's bytes. */
+  /** From the coach's call to the still's bytes. */
   ms: number;
   /** For a frame: why takePhoto gave no photo ("NotSupportedError: …"), if it was tried. */
   why?: string;
@@ -199,7 +201,7 @@ export class CameraView {
   private vfcStalled = false;
   /** The chain's centre on the canvas when last drawn: where a fading arrow stays. */
   private centre: Point | null = null;
-  private shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
+  private shown = { title: "", detail: "", pins: "", phase: "", info: "" };
   private infoAt = 0;
   private readonly el: Record<string, HTMLElement>;
   private readonly video: VideoWithCallback;
@@ -208,13 +210,12 @@ export class CameraView {
   constructor(private readonly deps: CameraDeps) {
     void uaData().then((d) => (this.ua = d));
     const $ = (id: string) => document.getElementById(id) as HTMLElement;
-    this.el = Object.fromEntries(["cam", "cam-say-title", "cam-say-detail", "cam-count", "cam-ring", "cam-info", "cam-fail",
-      "cam-fail-title", "cam-fail-text", "cam-switch", "cam-shutter", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
+    this.el = Object.fromEntries(["cam", "cam-say-title", "cam-say-detail", "cam-count", "cam-info", "cam-fail",
+      "cam-fail-title", "cam-fail-text", "cam-switch", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
     this.video = $("cam-video") as VideoWithCallback;
     this.canvas = $("cam-overlay") as HTMLCanvasElement;
     $("cam-close").onclick = () => this.close();
     $("cam-fail-close").onclick = () => this.close();
-    this.el["cam-shutter"]!.onclick = () => void this.shoot();
     this.el["cam-teach"]!.onclick = () => deps.teach();
     $("cam-fail-system").onclick = () => {
       this.close();
@@ -268,7 +269,7 @@ export class CameraView {
     this.arrowShown.reset();
     this.holdShown.reset();
     this.centre = null;
-    this.shown = { title: "", detail: "", pins: "", hold: -1, phase: "", info: "" };
+    this.shown = { title: "", detail: "", pins: "", phase: "", info: "" };
     this.el["cam"]!.hidden = false;
     this.stats.shows = this.deps.settings().liveView;
     this.el["cam"]!.classList.toggle("chain-only", this.stats.shows === "chain");
@@ -278,7 +279,7 @@ export class CameraView {
     document.documentElement.classList.add("cam-on");
     history.pushState({ camera: true }, "");
     this.say("Starting the camera…", "");
-    this.setShutter(false);
+    this.setReady(false);
 
     const md = navigator.mediaDevices;
     if (!window.isSecureContext || !md?.getUserMedia) {
@@ -345,7 +346,7 @@ export class CameraView {
       whyNotWorker(location.search), undefined, canvasAsked(location.search));
     this.stats.grab = this.grabText();
     this.qr = new QrScan((text) => this.deps.code?.(text));
-    this.setShutter(true);
+    this.setReady(true);
     this.loop(gen);
   }
 
@@ -832,14 +833,7 @@ export class CameraView {
     this.say(say.title, say.detail);
     const pins = pinsText(st);
     if (pins !== this.shown.pins) this.el["cam-count"]!.textContent = this.shown.pins = pins;
-    const hold = st.phase === "capture" || st.phase === "captured" ? 1 : st.hold;
-    if (Math.abs(hold - this.shown.hold) > 0.01 || st.phase !== this.shown.phase) {
-      const ring = this.el["cam-ring"]!;
-      ring.style.strokeDashoffset = String(RING * (1 - hold));
-      this.el["cam-shutter"]!.dataset.phase = st.phase;
-      this.shown.hold = hold;
-      this.shown.phase = st.phase;
-    }
+    if (st.phase !== this.shown.phase) this.el["cam-live"]!.dataset.phase = this.shown.phase = st.phase;
     const now = performance.now();
     if (now - this.infoAt > 500) {
       this.infoAt = now;
@@ -885,8 +879,9 @@ export class CameraView {
     if (detail !== this.shown.detail) this.el["cam-say-detail"]!.textContent = this.shown.detail = detail;
   }
 
-  private setShutter(on: boolean): void {
-    (this.el["cam-shutter"] as HTMLButtonElement).disabled = !on;
+  /** Whether the view can take a still now (not while one is being taken). */
+  private setReady(on: boolean): void {
+    this.el["cam-live"]!.dataset.ready = String(on);
   }
 
   private fail(why: "insecure" | "error", e: Error | null): void {
@@ -906,11 +901,11 @@ export class CameraView {
 
   // ---- the still ----
 
-  /** Take the still now: from the shutter, or from the coach after a steady hold. */
+  /** Take the still now: from the coach after a steady hold. */
   async shoot(): Promise<void> {
     if (this.shooting || !this.track || !this.open) return;
     this.shooting = true;
-    this.setShutter(false);
+    this.setReady(false);
     this.say("Taking the photo…", "Keep still for a moment.");
     this.el["cam"]!.classList.add("flash");
     const v = this.video;
@@ -949,7 +944,7 @@ export class CameraView {
       this.deps.still(still);
     } catch (e) {
       this.shooting = false;
-      this.setShutter(true);
+      this.setReady(true);
       this.say("Couldn't take the photo.", (e as Error).message);
     } finally {
       this.el["cam"]?.classList.remove("flash");
@@ -1014,9 +1009,6 @@ export class CameraView {
     }, "image/jpeg", 0.95));
   }
 }
-
-/** The shutter ring's circumference (r = 36 in its 80×80 box). */
-export const RING = 2 * Math.PI * 36;
 
 async function cameras(): Promise<CameraInfo[]> {
   try {
