@@ -88,7 +88,8 @@ describe("delivery", () => {
     const phone = page("phone");
     phone.link.start();
     await settle();
-    const a = curve(), b = curve();
+    // Ids order by the millisecond: b one later, or two made in the same one come in either order.
+    const now = Date.now(), a = curve(newCurveId(now)), b = curve(newCurveId(now + 1));
     await phone.outbox.put(a);
     await phone.outbox.put(b);
     expect(phone.outbox.items.map((i) => i.state)).toEqual(["queued", "queued"]);
