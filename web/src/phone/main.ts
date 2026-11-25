@@ -1241,14 +1241,16 @@ function renderPairing(): void {
   // Curves still on their way, then those delivered during this visit.
   const items = outbox?.items ?? [];
   const rows = [
-    ...items.map((i) => ({ id: i.curve.id, name: i.curve.photo, rev: i.curve.rev ?? 1,
+    ...items.map((i) => ({ id: i.curve.id, name: nameOfSent(i.curve.id, i.curve.photo), rev: i.curve.rev ?? 1,
       d: delivery({ id: i.curve.id, room: "", rev: 1, key: "", remoteRev: 0 }, items, linkStatus) })),
     ...[...new Set(outbox?.delivered ?? [])].slice(-10).reverse().filter((id) => !items.some((i) => i.curve.id === id))
       .map((id) => ({ id, name: nameOfSent(id), rev: 1, d: "delivered" as const })),
   ];
   $("outbox").replaceChildren(...rows.map((row) => {
-    const state = el("div", { className: `state${row.d === "delivered" ? " ok" : ""}`, textContent: deliveryText(row.d, row.rev) });
-    const li = el("li", {}, el("div", { className: "what" }, el("b", { textContent: row.name })), state);
+    // One line a curve: its name, a word for where it is (the sentence is in the text above and in Settings), Don't send.
+    const state = el("span", { className: `state${row.d === "delivered" ? " ok" : ""}`, textContent: OUTBOX_WORD[row.d] });
+    state.title = deliveryText(row.d, row.rev);
+    const li = el("li", {}, el("span", { className: "what", textContent: row.name }), state);
     li.dataset.curve = row.id;
     li.dataset.state = row.d;
     const r = recordOfCurve(row.id);
@@ -1277,9 +1279,15 @@ function recordOfCurve(id: string): PhotoRecord | undefined {
   return undefined;
 }
 
-function nameOfSent(id: string): string {
-  return recordOfCurve(id)?.name ?? "a curve";
+/** What the outbox calls a curve: as the page does (its name, else "Curve 18:42"), or the photo's file name once it is gone from the phone. */
+function nameOfSent(id: string, photo = "a curve"): string {
+  const r = recordOfCurve(id);
+  return r ? titleOf(r) : photo;
 }
+
+const OUTBOX_WORD: Record<ReturnType<typeof delivery>, string> = {
+  "queued-no-computer": "Queued", "queued-offline": "Queued", sent: "Sent", delivered: "Delivered",
+};
 
 $("link-chip").onclick = () => {
   const box = $("pair-box");

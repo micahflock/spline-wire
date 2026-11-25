@@ -456,6 +456,21 @@ test.describe("paired with a computer", () => {
     await expect(pins()).toHaveCount(12);
     await expect(page.locator("#send-note")).toHaveText(/Queued: the computer's page is not open. The change goes/);
     await expect(page.locator("#link-text")).toHaveText("Off · 1 curve queued");
+    // The details open in place, one line a curve, the pill and its details one shape (in dark, as on the owner's iPhone).
+    await collapse();
+    await page.locator("#link-chip").tap();
+    await expect(page.locator('#outbox li[data-state="queued-no-computer"] .state')).toHaveText("Queued");
+    const [chip, box] = [(await page.locator("#link-chip").boundingBox())!, (await page.locator("#pair-box").boundingBox())!];
+    expect(Math.abs(box.x - chip.x)).toBeLessThan(1);
+    expect(Math.abs(box.width - chip.width)).toBeLessThan(1);
+    const rowHeights = await page.locator("#outbox li").evaluateAll((li) => li.map((e) => e.getBoundingClientRect().height));
+    expect(Math.max(...rowHeights)).toBeLessThan(50);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.locator("#pair-box").screenshot({ path: path.join(SHOTS, "pairing-queued-dark.png") });
+    await page.screenshot({ path: path.join(SHOTS, "pairing-queued-dark-page.png") });
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.locator("#link-chip").tap();
+    await expand();
     await expect(page.locator('#outbox li[data-state="queued-no-computer"]')).toHaveCount(1);
     await expect(page.locator('#outbox li button')).toHaveCount(0);       // a change to a delivered curve is not held back
     desktop = await openDesktop();

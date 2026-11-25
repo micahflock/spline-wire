@@ -1,8 +1,8 @@
 // The phone page's camera (web-build.md D16, step 5): a live view (a card over the page)
 // of the rear camera with the chain traced over it, a coach that says what to
 // fix, and the still taken when the chain has been steady for a moment. There
-// is no shutter: the coach takes the still, the orange bar under its words filling
-// as the hold does (the library picker on the page is the way round it).
+// is no shutter: the coach takes the still, the lock-on rings on the pins showing
+// the hold (the library picker on the page is the way round it).
 // The diagnostics sit behind the Debug key. The card carries the coach's phase (data-phase) and whether the view is
 // ready to take a still (data-ready), for the tests.
 //
@@ -212,7 +212,7 @@ export class CameraView {
     void uaData().then((d) => (this.ua = d));
     const $ = (id: string) => document.getElementById(id) as HTMLElement;
     this.el = Object.fromEntries(["cam", "cam-say-title", "cam-say-detail", "cam-count", "cam-info", "cam-fail",
-      "cam-fail-title", "cam-fail-text", "cam-switch", "cam-teach", "cam-live", "cam-hold"].map((id) => [id, $(id)]));
+      "cam-fail-title", "cam-fail-text", "cam-switch", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
     this.video = $("cam-video") as VideoWithCallback;
     this.canvas = $("cam-overlay") as HTMLCanvasElement;
     $("cam-close").onclick = () => this.close();
@@ -764,7 +764,6 @@ export class CameraView {
         // Lock-on: a ring round each pin closing in on it as the hold fills,
         // meeting the pin's own ring as the still is taken (overlay/animate.ts).
         const hold = this.holdShown.update(phase === "steady" ? view.state.hold : phase === "capture" || phase === "captured" ? 1 : 0, now);
-        this.holdBar(hold);
         if (hold > 0) {
           const R = lockRadius(r, hold), tick = Math.min(R - r, 0.35 * r);
           g.save();
@@ -817,7 +816,7 @@ export class CameraView {
         }
         this.drawArrowEased(g, target, now, color, dpr, { ox, oy, w: vw * k, h: vh * k });
       } else {
-        this.holdBar(this.holdShown.update(0, now));
+        this.holdShown.update(0, now);
         this.drawArrowEased(g, null, now, color, dpr, { ox, oy, w: vw * k, h: vh * k });
       }
     }
@@ -890,13 +889,6 @@ export class CameraView {
       this.el["cam-info"]!.replaceChildren(...lines.map((l) => Object.assign(document.createElement("div"), { textContent: l })));
     }
     this.el["cam-teach"]!.hidden = !!f;
-  }
-
-  /** The hold's progress: the orange bar under the coach's words, full as the still is taken. */
-  private holdBar(hold: number): void {
-    const w = `${Math.round(Math.max(0, Math.min(1, hold)) * 100)}%`;
-    const bar = this.el["cam-hold"]!;
-    if (bar.style.width !== w) bar.style.width = w;
   }
 
   private say(title: string, detail: string): void {
