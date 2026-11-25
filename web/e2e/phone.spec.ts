@@ -1,6 +1,6 @@
 // The phone page end to end, at a phone's size with touch (Pixel 7 in Chromium):
 // take a synthetic photo while the engine loads, check its pins against native
-// Python, edit by touch, change the side, copy the points, reload, an error;
+// Python, edit by touch in the expanded view, swap the side, copy the points, reload, an error;
 // then pair with a minimal desktop through the dev relay and send the curve.
 // Last, the second visit's load time with and without the service worker.
 //
@@ -137,7 +137,20 @@ test.afterAll(async () => {
 });
 
 const pins = () => page.locator("#overlay [data-k]");
-const selectedId = () => page.locator("#photos li.on").getAttribute("data-id");
+const tile = (id: string, p: Page = page) => p.locator(`#photos .tile[data-id="${id}"]`);
+const selectedId = () => page.locator("#photos .tile.on").getAttribute("data-id");
+
+/** The working curve card grown to fill the screen (the editor and the sheet are in it); waits for its animation. */
+async function expand(p: Page = page): Promise<void> {
+  if (await p.locator("#xv").isHidden()) await p.locator("#expand").tap();
+  await expect(p.locator("#xv")).toBeVisible();
+  await expect(p.locator("#xv")).not.toHaveClass(/opening/);
+}
+
+async function collapse(p: Page = page): Promise<void> {
+  if (await p.locator("#xv").isVisible()) await p.locator("#collapse").tap();
+  await expect(p.locator("#xv")).toBeHidden();
+}
 const viewBox = async () => (await page.locator("#photo").getAttribute("viewBox"))!.split(" ").map(Number);
 const lastMs = () => page.evaluate(() => (window as unknown as PhoneWindow).phone.timings.at(-1)!.ms);
 
@@ -186,7 +199,7 @@ test("a photo taken while the engine loads is measured when it is ready", async 
   await page.goto("phone/");
   await expect(page.locator("#engine")).toBeVisible();
   await page.setInputFiles("#take", pipe.photo);
-  const item = page.locator("#photos li").first();
+  const item = page.locator("#photos .tile").first();
   await expect(item).toHaveAttribute("data-status", /loading|queued/);
   release();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 180_000 });
@@ -197,7 +210,7 @@ test("a photo taken while the engine loads is measured when it is ready", async 
   const px = await pinPositions();
   const fwd = Math.max(...px.map((p, i) => Math.hypot(p[0] - pipe.pins_px[i]![0], p[1] - pipe.pins_px[i]![1])));
   expect(fwd).toBeLessThan(PX_TOLERANCE);
-  await expect(page.locator("#numbers")).toContainText("13 of 13");
+  await expect(page.locator("#numbers")).toContainText("13 / 13");
   await expect(page.locator("#numbers")).toContainText("from the photo");
   await expect(page.locator("#r-tag")).toHaveText(/OK|CHECK/);
   const stats = await page.evaluate(() => (window as unknown as PhoneWindow).phone.core.call("stats", {}));
@@ -209,12 +222,12 @@ test("a photo taken while the engine loads is measured when it is ready", async 
 });
 
 test("a tap on a pin removes it, Undo brings it back", async () => {
-  await page.locator("#photo").scrollIntoViewIfNeeded();
+  await expand();
   const before = await viewBox();
   await page.touchscreen.tap(...Object.values(await center('#overlay [data-k="5"]')) as [number, number]);
   await expect(pins()).toHaveCount(12);
   await expect(page.locator("#overlay .ov-removed")).toHaveCount(1);
-  await expect(page.locator("#numbers")).toContainText("12 of 13");
+  await expect(page.locator("#numbers")).toContainText("12 / 13");
   const removed = await lastMs();
   expect(await viewBox()).toEqual(before);         // an edit keeps the view
   await tapButton("Undo the last pin change");
@@ -229,11 +242,12 @@ test("a tap on a pin removes it, Undo brings it back", async () => {
   await tapButton("Remove all pin changes");
   await expect(page.locator("#overlay .ov-hand, #overlay .ov-mine")).toHaveCount(0);
   await expect(pins()).toHaveCount(13);
+  await page.screenshot({ path: path.join(SHOTS, "expanded-light.png") });
   log(`re-measure after a tap: removed ${removed} ms, undone ${undone} ms`);
 });
 
-test("a drag pans and a pinch zooms, and neither adds a pin", async () => {
-  await page.locator("#photo").scrollIntoViewIfNeeded();
+test("a drag pans and a pinch zooms, and neither adds a pin; a double tap fits the chain again", async () => {
+  await expand();
   const c = await center("#photo");
   const start = await viewBox();
   await touch([[{ x: c.x, y: c.y }, { x: c.x + 90, y: c.y + 40 }]]);
@@ -246,35 +260,29 @@ test("a drag pans and a pinch zooms, and neither adds a pin", async () => {
   await page.waitForTimeout(300);
   await expect(pins()).toHaveCount(13);
   await expect(page.locator("#overlay .ov-hand, #overlay .ov-mine, #overlay .ov-removed")).toHaveCount(0);
-  await tapButton("Fit the chain to the view");
-  expect((await viewBox())[2]).toBeCloseTo(start[2]!, 1);
+  // No Fit key: a double tap fits the chain to the view, and is no edit.
+  await page.touchscreen.tap(c.x, c.y);
+  await page.touchscreen.tap(c.x, c.y);
+  await expect.poll(async () => (await viewBox())[2]!).toBeCloseTo(start[2]!, 1);
+  await page.waitForTimeout(500);
+  await expect(pins()).toHaveCount(13);
+  await expect(page.locator("#overlay .ov-hand, #overlay .ov-mine, #overlay .ov-removed")).toHaveCount(0);
 });
 
-test("the object side: Outside, a tapped point, Inside", async () => {
-  await tapButton(/^Outside$/);
-  await expect(page.locator("#side-now")).toContainText("outside of the bend");
-  await tapButton("Tap its side");
-  await expect(page.locator("#hint")).toContainText("object's side");
-  await page.locator("#photo").scrollIntoViewIfNeeded();
-  // The pipe's chain bends round the object: its middle pin's far side, away from the ends, is inside.
-  const p = await page.evaluate(() => {
-    const cs = [...document.querySelectorAll<SVGGraphicsElement>("#overlay .ov-pin")];
-    const mid = cs[6]!.getBoundingClientRect(), a = cs[0]!.getBoundingClientRect(), z = cs[12]!.getBoundingClientRect();
-    const ends = { x: (a.x + z.x) / 2, y: (a.y + z.y) / 2 };
-    const m = { x: mid.x + mid.width / 2, y: mid.y + mid.height / 2 };
-    return { x: m.x + (ends.x - m.x) * 0.5, y: m.y + (ends.y - m.y) * 0.5 };
-  });
-  await page.touchscreen.tap(p.x, p.y);
-  await expect(page.locator("#overlay .ov-side")).toHaveCount(1);
-  await expect(page.locator("#side-now")).toContainText("from your tap");
-  await expect(pins()).toHaveCount(13);                // the side tap is not an edit
-  await tapButton(/^Inside$/);
-  await expect(page.locator("#side-now")).toContainText("inside of the bend");
-  await expect(page.locator("#overlay .ov-side")).toHaveCount(0);
+test("Swap side puts the curve on the other side of the chain, and back; no tapping its side", async () => {
+  await expect(page.locator("#numbers")).toContainText("Inside");
+  await expect(page.getByRole("button", { name: "Tap its side" })).toHaveCount(0);
+  await page.locator("#x-swap").tap();                 // in the expanded view
+  await expect(page.locator("#numbers")).toContainText("Outside");
+  await expect(pins()).toHaveCount(13);                 // not an edit
+  await collapse();
+  await page.locator("#swap").tap();                   // on the card
+  await expect(page.locator("#numbers")).toContainText("Inside");
+  await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
 });
 
 test("Copy points puts the Fusion add-in's table on the clipboard", async () => {
-  await expect(page.locator("#photos li.on")).toHaveAttribute("data-status", "done");
+  await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
   await tapButton("Copy points");
   await expect(page.locator("#toast")).toContainText("Copied");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -297,15 +305,14 @@ test("Copy points puts the Fusion add-in's table on the clipboard", async () => 
 
 test("a reload keeps the photo and its measurement", async () => {
   await page.reload();
-  const item = page.locator(`#photos li[data-id="${photoId}"]`);
+  const item = tile(photoId);
   await expect(item).toHaveAttribute("data-status", "done");
   await expect(pins()).toHaveCount(13);                // from the stored measurement, before the engine is back
-  await expect(page.locator("#numbers")).toContainText("13 of 13");
+  await expect(page.locator("#numbers")).toContainText("13 / 13");
   await expect(page.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
 });
 
 test("settings learn a focal length per lens, not from a selfie, and offer it as the saved one", async () => {
-  await page.locator("#settings summary").tap();
   // The synthetic photo has the 35 mm tag but names no camera or lens: nothing to remember it under (D17).
   await expect(page.locator("#s-offer")).toBeHidden();
   await page.setInputFiles("#s-teach", selfie);
@@ -321,23 +328,29 @@ test("settings learn a focal length per lens, not from a selfie, and offer it as
   await tapButton("Use it");
   await expect(page.locator("#s-focal")).toHaveValue("26");
   await expect(page.locator("#s-offer")).toBeHidden();
-  await page.locator("#settings summary").tap();
 });
 
 test("an error is shown as is, and the photo can still be fixed by hand", async () => {
   await page.setInputFiles("#choose", broken);
-  const item = page.locator("#photos li").first();
+  const item = page.locator("#photos .tile").first();
   await expect(item).toHaveAttribute("data-status", "error", { timeout: 120_000 });
   await expect(page.locator("#r-problem")).toContainText("pins in a row");
   await expect(page.locator("#r-problem .raw")).toContainText("taking the perspective out needs at least");
   await expect(page.locator("#r-tag")).toHaveText("FAILED");
-  await expect(page.locator("#overlay .ov-unused").first()).toBeVisible();
+  await expect(page.locator("#result")).toHaveClass(/\bbad\b/);
+  await expect(page.locator("#swap")).toBeHidden();       // nothing to swap on a failed curve
+  await expect(item.locator(".dot.bad")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Copy points" })).toBeDisabled();
   await page.screenshot({ path: path.join(SHOTS, "error-light.png"), fullPage: true });
+  await expand();
+  await expect(page.locator("#xv")).toHaveClass(/\bbad\b/);
+  await expect(page.locator("#overlay .ov-unused").first()).toBeVisible();
   await page.emulateMedia({ colorScheme: "dark" });
+  await page.screenshot({ path: path.join(SHOTS, "expanded-error-dark.png") });
+  await collapse();
   await page.screenshot({ path: path.join(SHOTS, "error-dark.png"), fullPage: true });
-  await page.locator(`#photos li[data-id="${photoId}"] button.open`).tap();
-  await expect(page.locator("#numbers")).toContainText("13 of 13");
+  await tile(photoId).tap();
+  await expect(page.locator("#numbers")).toContainText("13 / 13");
   await page.locator("#result").scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(SHOTS, "measured-dark.png"), fullPage: true });
   await page.emulateMedia({ colorScheme: "light" });
@@ -347,19 +360,17 @@ test("an error is shown as is, and the photo can still be fixed by hand", async 
 
 test("dark rims on light links are found once Colours says so", async () => {
   await page.setInputFiles("#choose", darkRims);
-  const item = page.locator("#photos li").first();
+  const item = page.locator("#photos .tile").first();
   await expect(item).toHaveAttribute("data-status", "error", { timeout: 120_000 });
   await expect(page.locator("#r-problem")).toContainText("No chain found");
   await expect(page.locator("#r-problem")).toContainText("choose that under Colours in Settings");
-  await page.locator("#settings summary").tap();
   await page.locator("#s-shade").selectOption("dark");
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
-  await expect(page.locator("#numbers")).toContainText("13 of 13");
+  await expect(page.locator("#numbers")).toContainText("13 / 13");
   // Back to the light chain for what follows, with the light photo open (so it is not measured again).
-  await page.locator(`#photos li[data-id="${photoId}"] button.open`).tap();
+  await tile(photoId).tap();
   await page.locator("#s-shade").selectOption("light");
-  await page.locator("#settings summary").tap();
-  await expect(page.locator(`#photos li[data-id="${photoId}"]`)).toHaveAttribute("data-status", "done");
+  await expect(tile(photoId)).toHaveAttribute("data-status", "done");
 });
 
 test.describe("paired with a computer", () => {
@@ -389,13 +400,13 @@ test.describe("paired with a computer", () => {
   const received = (p: Page = desktop) => p.evaluate(() =>
     JSON.parse(localStorage.getItem("splinewire-desktop:inbox") ?? "[]") as Curve[]);
   const items = (p: Page = desktop) => p.locator("#list button.item[data-id]");
-  const phoneItem = (id: string) => page.locator(`#photos li[data-id="${id}"]`);
+  const phoneItem = (id: string) => tile(id);
   /** A photo added on the phone (from the library), measured; its id. */
   const addPhoto = async () => {
-    const before = await page.locator("#photos li").count();
+    const before = await page.locator("#photos .tile").count();
     await page.setInputFiles("#choose", pipe.photo);
-    await expect(page.locator("#photos li")).toHaveCount(before + 1);
-    const id = (await page.locator("#photos li").first().getAttribute("data-id"))!;
+    await expect(page.locator("#photos .tile")).toHaveCount(before + 1);
+    const id = (await page.locator("#photos .tile").first().getAttribute("data-id"))!;
     await expect(phoneItem(id)).toHaveAttribute("data-status", "done", { timeout: 60_000 });
     return id;
   };
@@ -410,9 +421,9 @@ test.describe("paired with a computer", () => {
     });
     await page.goto(`phone/?relay=${encodeURIComponent(demo.relay.url)}${secret}`);
     await expect(page).toHaveURL(/\/phone\/\?relay=[^#]*$/);   // the secret is taken off the address
-    await expect(page.locator("#link-text")).toHaveText("Computer connected");
+    await expect(page.locator("#link-text")).toHaveText(/^Linked/);
     await expect(phoneItem(photoId)).toHaveAttribute("data-status", "done");
-    await phoneItem(photoId).locator("button.open").tap();
+    await phoneItem(photoId).tap();
     await expect(page.locator("#send-note")).toContainText("Taken before this phone was paired");
     // The engine is new after the navigation: the files sent are the ones kept with the photo when it was measured.
     await tapButton("Send to computer");
@@ -433,17 +444,18 @@ test.describe("paired with a computer", () => {
 
   test("a change on the phone replaces the curve on the computer, also one made while it is closed", async () => {
     const id = (await received())[0]!.id;
-    await tapButton(/^Outside$/);                     // the object side changed
+    await page.locator("#swap").tap();                 // the object side changed
     await expect.poll(async () => (await received()).map((c) => [c.id, c.rev, c.object_side])).toEqual([[id, 2, "outside"]]);
     await expect(items()).toHaveCount(1);
     await expect(desktop.locator("#toast")).toContainText("Changed on the phone");
     await expect(page.locator("#send-note")).toHaveText("Delivered to the computer, with your changes.");
     await desktop.close();                             // the computer's page is closed
-    await expect(page.locator("#link-text")).toHaveText("Computer not open");
-    await page.locator("#photo").scrollIntoViewIfNeeded();
+    await expect(page.locator("#link-text")).toHaveText("Off");
+    await expand();
     await page.touchscreen.tap(...Object.values(await center('#overlay [data-k="3"]')) as [number, number]);
     await expect(pins()).toHaveCount(12);
     await expect(page.locator("#send-note")).toHaveText(/Queued: the computer's page is not open. The change goes/);
+    await expect(page.locator("#link-text")).toHaveText("Off · 1 curve queued");
     await expect(page.locator('#outbox li[data-state="queued-no-computer"]')).toHaveCount(1);
     await expect(page.locator('#outbox li button')).toHaveCount(0);       // a change to a delivered curve is not held back
     desktop = await openDesktop();
@@ -453,7 +465,13 @@ test.describe("paired with a computer", () => {
     await expect(pins()).toHaveCount(13);
     await expect.poll(async () => (await received()).map((c) => [c.rev, c.diagnostics.missing_pins])).toEqual([[4, 0]]);
     await expect(items()).toHaveCount(1);
+    await collapse();
+    await page.locator("#link-chip").tap();             // the pairing details, in place
+    await expect(page.locator("#pair-box")).toBeVisible();
+    await expect(page.locator("#link-who")).not.toBeEmpty();      // the computer's name, from its hello
     await page.screenshot({ path: path.join(SHOTS, "paired-light.png"), fullPage: true });
+    await page.locator("#link-chip").tap();
+    await expect(page.locator("#pair-box")).toBeHidden();
   });
 
   test("a photo taken while paired goes by itself; stars and deletions stay in step both ways", async () => {
@@ -464,20 +482,26 @@ test.describe("paired with a computer", () => {
     await expect(page.locator("#send-note")).toHaveText(/Delivered to the computer/);
     const bCurve = (await curveOf(first))!.id;
 
-    // A star set on the phone shows on the computer; one taken off there goes off on the phone.
-    await phoneItem(photoId).locator("button.star").tap();
+    // A star set on the phone (the card's) shows on the computer; one taken off there goes off on the phone.
+    await phoneItem(photoId).tap();
+    await page.locator("#star").tap();
+    await expect(page.getByRole("textbox", { name: "Name of the curve" })).toBeFocused();   // starring offers a name
+    await page.getByRole("textbox", { name: "Name of the curve" }).press("Escape");
+    await expect(phoneItem(photoId).locator(".tl")).toHaveCount(1);
     await expect(desktop.locator(`button.item[data-id="${first}"] .starred`)).toHaveCount(1);
     await desktop.locator(`button.item[data-id="${first}"]`).click();
     await expect(desktop.locator('[data-act="star"]')).toHaveAttribute("aria-pressed", "true");
     await desktop.locator('[data-act="star"]').click();
-    await expect(phoneItem(photoId).locator("button.star")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("#star")).toHaveAttribute("aria-pressed", "false");
+    await expect(phoneItem(photoId).locator(".tl")).toHaveCount(0);
     // Starred on the computer while the phone's page is closed: the phone has it when it opens.
     await desktop.locator('[data-act="star"]').click();
     await page.goto("phone/");                          // the phone's page reloaded, paired
     await page.goto(`phone/?relay=${encodeURIComponent(demo.relay.url)}`);
-    await expect(page.locator("#link-text")).toHaveText("Computer connected");
-    await expect(phoneItem(photoId).locator("button.star")).toHaveAttribute("aria-pressed", "true");
-    await phoneItem(photoId).scrollIntoViewIfNeeded();
+    await expect(page.locator("#link-text")).toHaveText(/^Linked/);
+    await expect(phoneItem(photoId).locator(".tl")).toHaveCount(1);
+    await phoneItem(photoId).tap();
+    await expect(page.locator("#star")).toHaveAttribute("aria-pressed", "true");
     await page.screenshot({ path: path.join(SHOTS, "paired-star.png") });
     await desktop.screenshot({ path: path.join(SHOTS, "desktop-star.png") });
 
@@ -497,8 +521,11 @@ test.describe("paired with a computer", () => {
       expect(d.message()).toContain("from this phone and the computer");
       void d.accept();
     });
-    await phoneItem(c).locator("button.del").tap();
+    await phoneItem(c).tap();
+    await expand();
+    await page.locator("#delete").tap();                // in the expanded view's sheet
     await expect(phoneItem(c)).toHaveCount(0);
+    await expect(page.locator("#xv")).toBeHidden();
     desktop = await openDesktop();
     await expect(items()).toHaveCount(1);
     expect((await received()).map((x) => x.id)).toEqual([first]);
@@ -510,14 +537,16 @@ test.describe("paired with a computer", () => {
     const first = (await received())[0]!.id;
     const row = desktop.locator(`button.item[data-id="${first}"]`);
     await row.click();
-    // Renamed on the phone, in the photo's header.
-    await phoneItem(photoId).locator("button.open").tap();
+    // Renamed on the phone, in the expanded view's title.
+    await phoneItem(photoId).tap();
+    await expand();
     await tapButton("Rename");
     const field = page.getByRole("textbox", { name: "Name of the curve" });
     await field.fill("Pipe 1.5in, left");
     await field.press("Enter");
+    await expect(page.locator("#x-name")).toHaveText("Pipe 1.5in, left");
     await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
-    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe 1.5in, left");
+    await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe 1\.5in, left,/);
     await expect(row.locator(".name")).toHaveText("Pipe 1.5in, left");
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe 1.5in, left");
     await expect(desktop.locator(".view .meta")).toContainText("pipe.jpg");          // the photo's name, for reference
@@ -527,8 +556,8 @@ test.describe("paired with a computer", () => {
     await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Pipe, left");
     await desktop.keyboard.press("Enter");
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe, left");
-    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe, left");
-    await expect(page.locator("#r-name")).toHaveText("Pipe, left");
+    await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe, left,/);
+    await expect(page.locator("#x-name")).toHaveText("Pipe, left");
     // Escape does not; a click elsewhere does, and the click still goes where it was meant.
     await desktop.getByRole("button", { name: "Rename" }).click();
     await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Not this");
@@ -539,16 +568,20 @@ test.describe("paired with a computer", () => {
     await desktop.getByRole("button", { name: /Star/ }).click();
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe bend");
     await expect(desktop.getByRole("button", { name: /Star/ })).toHaveAttribute("aria-pressed", "false");   // starred before: the click unstarred it
-    await expect(phoneItem(photoId).locator(".name")).toHaveText("Pipe bend");
+    await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe bend,/);
     // The phone's own files take the name too.
+    await collapse();
     const download = page.waitForEvent("download");
     await page.locator("#downloads button", { hasText: "CSV" }).first().tap();
     expect((await download).suggestedFilename()).toBe("Pipe bend-curve.csv");
-    // An empty name gives the photo's back, on both.
+    // An empty name: the phone calls it after its time, the computer after its photo.
+    await expand();
     await tapButton("Rename");
     await field.fill("");
     await field.press("Enter");
-    await expect(page.locator("#r-name")).toHaveText("pipe.jpg");
+    await expect(page.locator("#x-name")).toHaveText(/^Curve \d\d:\d\d$/);
+    await expect(page.locator("#r-name")).toHaveText("");
+    await collapse();
     await expect(row.locator(".name")).toHaveText("pipe.jpg");
     await desktop.close();
   });
@@ -565,9 +598,9 @@ test.describe("paired with a computer", () => {
       expect(await page.evaluate(() => (window as unknown as { loadMark?: number }).loadMark)).toBe(marker);  // not reloaded
       await expect(page).toHaveURL(/\/phone\/\?relay=[^#]*$/);
       await expect(page.locator("#toast")).toContainText("Paired with the computer");
-      await expect(page.locator("#link-text")).toHaveText("Computer connected");
+      await expect(page.locator("#link-text")).toHaveText(/^Linked/);
       await otherDesktop.close();
-      await expect(page.locator("#link-text")).toHaveText("Computer not open");
+      await expect(page.locator("#link-text")).toHaveText(/^Off/);
     } finally {
       await other.close();
     }
@@ -594,10 +627,9 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
     };
   }), id);
   await p.goto("phone/");
-  await p.locator("#settings summary").tap();
   await p.selectOption("#s-keep", "1");
   await p.setInputFiles("#take", pipe.photo);
-  const items = p.locator("#photos li");
+  const items = p.locator("#photos .tile");
   await expect(items.first()).toHaveAttribute("data-status", "done", { timeout: 180_000 });
   const first = (await items.first().getAttribute("data-id"))!;
   const want = await p.evaluate((id) => (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id }), first);
@@ -607,18 +639,24 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   await p.setInputFiles("#take", pipe.photo);
   await expect(items).toHaveCount(2);
   await expect(items.first()).toHaveAttribute("data-status", "done", { timeout: 180_000 });
-  const old = p.locator(`#photos li[data-id="${first}"]`);
-  await expect(old.locator(".meta")).toContainText("curve only", { timeout: 15_000 });
+  const old = tile(first, p);
+  await expect(old).toHaveAttribute("data-photo", "deleted", { timeout: 15_000 });
   expect(await blobKinds(first)).toEqual(["outputs", "thumb"]);
   await expect(p.locator("#space")).toContainText("1 photo (");
   await expect(p.locator("#space")).toContainText("1 curve without its photo");
 
   // After a reload, with the core holding nothing, the old curve is copied and downloaded from its kept files.
   await p.reload();
-  await old.locator("button.open").tap();
-  await expect(p.locator("#r-status")).toContainText("deleted to save space");
-  await expect(p.locator("#editor")).toBeHidden();
-  await expect(p.getByRole("button", { name: "Outside" })).toBeDisabled();
+  await old.tap();
+  await expect(p.locator("#card-nophoto")).toHaveText("Photo deleted · curve kept");
+  await expect(p.locator("#card-pic svg path.cv")).toHaveCount(1);     // the curve, drawn without its photo
+  await expect(p.locator("#swap")).toBeDisabled();
+  await expand(p);
+  await expect(p.locator("#hint")).toContainText("deleted to save space");
+  await expect(p.locator("#photo")).toBeHidden();
+  await expect(p.locator("#x-drawing svg")).toBeVisible();
+  await expect(p.locator("#undo")).toBeDisabled();
+  await collapse(p);
   await tap("Copy points");
   await expect(p.locator("#toast")).toContainText("Copied");
   expect(await p.evaluate(() => navigator.clipboard.readText())).toBe(want.files.tsv);
@@ -634,7 +672,7 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   });
   await tap("Delete photos, keep curves");
   await expect(p.locator("#toast")).toContainText("Deleted 1 photo, kept the curves.");
-  await expect(items.locator(".meta", { hasText: "curve only" })).toHaveCount(2);
+  await expect(p.locator('#photos .tile[data-photo="deleted"]')).toHaveCount(2);
   await expect(p.getByRole("button", { name: "Delete photos, keep curves" })).toBeHidden();
 
   // Clear history: nothing left, after a reload too.
@@ -659,14 +697,13 @@ test("photos shown grey while the live camera is (the default), in colour when i
   await p.goto("phone/");
   await p.setInputFiles("#take", { name: "colour.jpg", mimeType: "image/jpeg", buffer: await colourJpeg(p) });
   await expect(p.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
-  // Grey: each band's three channels equal (to JPEG's rounding), and the thumbnail filtered.
+  // Grey: each band's three channels equal (to JPEG's rounding), in the editor and on the card.
   await expect.poll(async () => (await spreads(p, "#photo-img"))?.most ?? Infinity).toBeLessThanOrEqual(4);
-  expect(await p.locator("#r-thumb").evaluate((t) => getComputedStyle(t).filter)).toBe("grayscale(1)");
+  await expect.poll(async () => (await spreads(p, "#card-pic image"))?.most ?? Infinity).toBeLessThanOrEqual(4);
   // Live camera shows: in colour. The photo is shown again in colour.
-  await p.locator("#settings summary").tap();
   await p.selectOption("#s-view", "color");
   await expect.poll(async () => (await spreads(p, "#photo-img"))?.least ?? 0).toBeGreaterThan(100);
-  expect(await p.locator("#r-thumb").evaluate((t) => getComputedStyle(t).filter)).toBe("none");
+  await expect.poll(async () => (await spreads(p, "#card-pic image"))?.least ?? 0).toBeGreaterThan(100);
   await ctx.close();
 });
 

@@ -48,8 +48,8 @@ export function sayFor(state: CoachState, ctx: SayContext): Say {
   }
 }
 
-/** "11 of 13 pins", or nothing before a chain is seen. */
+/** "11 / 13 pins" (shown uppercase, the found number green), or nothing before a chain is seen. */
 export function pinsText(state: CoachState): string {
   if (state.phase === "searching" || state.pinsFound === 0) return "";
-  return `${state.pinsFound} of ${state.pinsExpected} pins`;
+  return `${state.pinsFound} / ${state.pinsExpected} pins`;
 }

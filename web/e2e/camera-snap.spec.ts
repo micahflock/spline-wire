@@ -83,7 +83,7 @@ function costs(st: CameraStats): string {
 }
 
 async function measured(page: Page): Promise<void> {
-  const item = page.locator("#photos li").first();
+  const item = page.locator("#photos .tile").first();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
   await expect(page.locator("#overlay [data-k]")).toHaveCount(13);
   log(await page.locator("#r-meta").textContent());
@@ -96,7 +96,7 @@ test("span 0.55: the live view finds the snap chain's rims, takes the still, and
   await expect(page.locator("#cam")).toBeVisible();
   await expect(page.locator("#cam")).not.toHaveClass(/\bgrey\b|chain-only/);
   expect(await page.locator("#cam-video").evaluate((v) => getComputedStyle(v).filter)).toBe("none");
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   const st = await stats(page);
   log(`0.55: ${costs(st)}`);
   expect(st.grab).toMatch(/^main/);
@@ -108,7 +108,7 @@ test("span 0.30: tracked in a finer region, every rim found, the still taken and
   const page = await phoneAt(0.3);
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   // Settings' default: the video shown grey and dimmed; only what is shown, the frames read keep their colour.
   await expect(page.locator("#cam")).toHaveClass(/\bgrey\b/);
   expect(await page.locator("#cam-video").evaluate((v) => getComputedStyle(v).filter)).toBe("grayscale(1) brightness(0.6)");
@@ -126,7 +126,7 @@ test("span 0.22: every rim found and tracked, and the coach asks to come closer"
   const page = await phoneAt(0.22);
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   await expect(page.locator("#cam-say-title")).toHaveText("Move closer", { timeout: 30_000 });
   // Watch it for a while: tracked throughout, all 13 pins, no still.
   const before = await stats(page);
@@ -136,9 +136,9 @@ test("span 0.22: every rim found and tracked, and the coach asks to come closer"
   expect(st.grab).toBe("worker");                         // Chromium has VideoFrame: the worker grabs
   expect(st.regions.track - before.regions.track).toBeGreaterThan(10);
   expect(st.regions.full + st.regions.tile).toBe(before.regions.full + before.regions.tile);   // never lost
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins");
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins");
   await expect(page.locator("#cam-info")).toContainText("track");
-  expect(await page.locator("#photos li").count()).toBe(0);
+  expect(await page.locator("#photos .tile").count()).toBe(0);
   await page.screenshot({ path: path.resolve(ROOT, "web/test-results/camera-scene-snap-0.22/too-far.png") });
 });
 
@@ -147,7 +147,7 @@ test("dark rims on light links (Colours: dark): tracked in the worker, every rim
   await expect(page.locator("#s-shade")).toHaveValue("dark");
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   const st = await stats(page);
   log(`dark 0.30: ${costs(st)}`);
   expect(st.regions.track).toBeGreaterThan(0);
@@ -160,7 +160,7 @@ test("tilted 32 degrees: no still, and an arrow the way to move the phone", asyn
   const truth = JSON.parse(fs.readFileSync(path.join(sceneDir(0.4, false, 32), "camera.json"), "utf-8")) as { move_dir: [number, number] };
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   await expect(page.locator("#cam-say-title")).toHaveText("Tilt the phone flatter over the chain", { timeout: 30_000 });
   await expect(page.locator("#cam-say-detail")).toHaveText(/arrow/);
   await expect.poll(async () => (await stats(page)).arrow, { timeout: 10_000 }).not.toBeNull();
@@ -169,7 +169,7 @@ test("tilted 32 degrees: no still, and an arrow the way to move the phone", asyn
   const off = (Math.acos(Math.min(1, arrow[0] * truth.move_dir[0] + arrow[1] * truth.move_dir[1])) * 180) / Math.PI;
   log(`tilt 32: arrow (${arrow.map((v) => v.toFixed(3)).join(", ")}), truth (${truth.move_dir.map((v) => v.toFixed(3)).join(", ")}): ${off.toFixed(1)} degrees off`);
   expect(off).toBeLessThan(15);
-  expect(await page.locator("#photos li").count()).toBe(0);                // too tilted for the still
+  expect(await page.locator("#photos .tile").count()).toBe(0);                // too tilted for the still
   await page.screenshot({ path: path.join(sceneDir(0.4, false, 32), "arrow.png") });
 });
 
@@ -179,7 +179,7 @@ test("the fast stream: 1920×1440 once the focal length is known, every rim trac
   const page = await phoneAt(0.4, "", false, undefined, true);
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   // The info lines (size among them) are refreshed twice a second: wait for the first.
   await expect.poll(async () => (await stats(page)).size, { timeout: 10_000 }).toBe("1920×1440 (fast)");
   const st = await stats(page);
@@ -201,7 +201,7 @@ test("Live camera shows only the chain: no video seen, every rim still tracked, 
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toHaveClass(/chain-only/);
   await expect(page.locator("#cam")).not.toHaveClass(/\bgrey\b/);
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   // The video plays under the overlay, which is opaque: what the screen shows is the overlay alone.
   expect(await page.locator("#cam-overlay").evaluate((c) => getComputedStyle(c).backgroundColor)).toBe("rgb(0, 0, 0)");
   expect(await page.locator("#cam-video").evaluate((v) => (v as HTMLVideoElement).paused)).toBe(false);
@@ -220,7 +220,7 @@ test("the fast stream when takePhoto gives nothing: the still is a full-size fra
   const page = await phoneAt(0.4, "", false, undefined, true, undefined, true);
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   await expect.poll(async () => (await stats(page)).size, { timeout: 10_000 }).toBe("1920×1440 (fast)");
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });
   await expect(page.locator("#r-meta")).toContainText("4032×3024", { timeout: 30_000 });            // the frame at full size
@@ -230,7 +230,7 @@ test("the fast stream when takePhoto gives nothing: the still is a full-size fra
   await measured(page);
   // Next time this camera opens at full size, and says why.
   await page.locator("#take-camera").click();
-  await expect(page.locator("#cam-count")).toHaveText("13 of 13 pins", { timeout: 30_000 });
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
   await expect.poll(async () => (await stats(page)).size, { timeout: 10_000 }).toBe("4032×3024");
   expect((await stats(page)).stream).toMatch(/came back small/);
 });

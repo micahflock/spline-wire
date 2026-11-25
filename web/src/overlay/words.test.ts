@@ -36,7 +36,7 @@ describe("what the camera view says", () => {
   });
 
   it("counts pins once a chain is seen", () => {
-    expect(pinsText(state({}))).toBe("11 of 13 pins");
+    expect(pinsText(state({}))).toBe("11 / 13 pins");
     expect(pinsText(state({ phase: "searching", pinsFound: 0 }))).toBe("");
   });
 });
