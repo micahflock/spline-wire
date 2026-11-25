@@ -7,192 +7,227 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Spline Wire</title>
-<!-- The phone page (web-build.md, step 2): take a photo of the chain, measure it
-     here with the core worker, fix it by touch, then copy, share or send the curve. -->
+<!-- The phone page (web-build.md, step 2; layout and look from for UI review/phone/BRIEF.md): take a
+     photo of the chain, measure it here with the core worker, fix it by touch, then copy, share or send the curve. -->
 <script type="module" src="../src/phone/main.ts"></script>
 </head>
 <body>
-<header class="top">
-  <svg width="36" height="13" viewBox="0 0 24 12" aria-hidden="true">
-    <rect x="1" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/><rect x="10" y="2.2" width="13" height="7.6" rx="3.8" fill="var(--brand)" opacity=".75"/>
-    <circle cx="5.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="14.8" cy="6" r="2" fill="var(--brand-dot)"/>
-  </svg>
-  <h1>Spline Wire</h1>
-  <span class="spacer"></span>
-  <a class="chip" id="link-chip" href="#computer"><span class="lamp" id="lamp"></span><span id="link-text" role="status">Not paired</span></a>
-</header>
-
 <main class="wrap">
+  <header class="top">
+    <h1 class="word">spline<span>·</span>wire</h1>
+    <span class="spacer"></span>
+    <div class="pins" id="s-pins" role="group" aria-label="Pins in the chain">
+      <span class="lg">PINS</span><input type="number" inputmode="numeric" min="3" max="999" aria-label="Pins in the chain"><button
+        type="button" class="k" data-step="1" aria-label="One pin more">+</button><button type="button" class="k" data-step="-1" aria-label="One pin fewer">−</button>
+    </div>
+  </header>
+  <div id="chain-strip" class="strip-box"></div>
+
   <div class="engine" id="engine" role="status" aria-live="polite">
-    <div class="engine-text"><span id="engine-stage">Getting the measuring engine ready…</span><span class="mono" id="engine-pct"></span></div>
-    <div class="bar"><div id="engine-bar"></div></div>
-    <p class="small" id="engine-note">The first visit downloads about 40 MB, once. You can take the photo meanwhile.</p>
-    <button type="button" class="btn" id="engine-retry" hidden>Try again</button>
+    <div class="ln"><i id="engine-bar"></i></div>
+    <div class="tx"><span><span id="engine-stage">Getting the measuring engine ready…</span> <span id="engine-note"></span></span><span id="engine-pct"></span></div>
   </div>
 
-  <section class="shoot-box" aria-label="Photo">
-    <div class="seg mode" role="group" aria-label="How to give the photo">
-      <button type="button" id="mode-live" data-mode="live" aria-pressed="true">Live camera</button>
-      <button type="button" id="mode-upload" data-mode="upload" aria-pressed="false">Upload a photo</button>
-    </div>
-    <div id="live-box">
-      <button type="button" class="shoot" id="take-camera">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-        Take photo
-      </button>
-      <p class="small">The camera shows the chain it finds, says what to fix, and takes the photo once the chain has been
-        still for a moment.</p>
-    </div>
-    <div id="upload-box" hidden>
-      <label class="shoot">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 5 5 3-3 5 5"/></svg>
-        Choose from library
-        <input type="file" accept="image/*" multiple id="choose" class="file">
-      </label>
-      <label class="lib">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-        Take with the system camera
-        <input type="file" accept="image/*" capture="environment" id="take" class="file">
-      </label>
-      <p class="small">Library photos keep the focal length. The system camera's photos lose it on iPhone and Pixel phones,
-        so it then comes from Settings (your saved or learned focal length) or is estimated from the chain, which is less
-        accurate. The live camera is off in this mode.</p>
-    </div>
-  </section>
+  <div class="capture" aria-label="Photo">
+    <button type="button" class="ck scan" id="take-camera">
+      <span class="leg">A</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8V4h4M17 4h4v4M21 16v4h-4M7 20H3v-4"/><circle cx="12" cy="12" r="3"/></svg>
+      <b>Scan</b><small>live video</small>
+    </button>
+    <label class="ck" id="upload">
+      <span class="leg">B</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
+      <b>Upload</b><small>from library</small>
+      <input type="file" accept="image/*" multiple id="choose" class="file">
+    </label>
+  </div>
 
-  <section class="result" id="result" hidden aria-labelledby="r-name">
-    <div class="hd">
-      <img class="th" id="r-thumb" alt="">
-      <div class="who"><div class="name" id="r-name"></div><div class="meta mono" id="r-meta"></div></div>
-      <span class="tag" id="r-tag"></span>
-      <button type="button" class="btn small plain ren" id="rename">Rename</button>
-    </div>
-    <div class="status" id="r-status" role="status" aria-live="polite"></div>
-    <div class="problem" id="r-problem" hidden></div>
-
-    <div class="editor" id="editor">
-      <svg id="photo" class="photo-svg" role="img" aria-label="The photo with the measured chain"><image id="photo-img" x="-0.5" y="-0.5" preserveAspectRatio="none"/><g id="overlay"></g></svg>
-      <div class="tools">
-        <button type="button" class="btn" id="undo" aria-label="Undo the last pin change">Undo</button>
-        <button type="button" class="btn" id="reset" aria-label="Remove all pin changes">Reset</button>
-        <span class="spacer"></span>
-        <button type="button" class="btn" id="fit" aria-label="Fit the chain to the view">Fit</button>
-      </div>
-      <p class="hint" id="hint">Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom.</p>
-    </div>
-
-    <div class="sidebox">
-      <div class="label">Object side<span class="muted" id="side-now"></span></div>
-      <div class="seg" role="group" aria-label="Which side of the chain touched the object">
-        <button type="button" data-side="inside" aria-pressed="false">Inside</button>
-        <button type="button" data-side="outside" aria-pressed="false">Outside</button>
-        <button type="button" data-side="tap" aria-pressed="false" id="side-tap">Tap its side</button>
-      </div>
-    </div>
-    <div class="field"><span>Pins in this photo</span>
-      <div class="stepper" id="r-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
-        inputmode="numeric" min="3" max="999" aria-label="Pins in this photo"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
-
-    <dl class="numbers" id="numbers"></dl>
-    <ul class="msgs warn" id="warnings" aria-label="Warnings"></ul>
-    <ul class="msgs note" id="notes" aria-label="Notes"></ul>
-
-    <div class="actions">
-      <button type="button" class="key" id="copy">Copy points</button>
-      <button type="button" class="btn big" id="send" hidden>Send to computer</button>
-      <button type="button" class="btn big" id="share" hidden>Share files</button>
-    </div>
-    <p class="small" id="send-note" role="status" aria-live="polite"></p>
-    <div class="downloads" id="downloads" aria-label="Downloads"></div>
-  </section>
-
-  <section aria-labelledby="photos-title" id="photos-box" hidden>
-    <h3 id="photos-title">Photos on this phone</h3>
-    <ul class="photos" id="photos"></ul>
-    <p class="small muted">Photos stay on this phone. Only the measured curve is sent.</p>
-    <p class="small" id="space" role="status"></p>
-    <div class="tidy">
-      <button type="button" class="btn" id="free-space">Delete photos, keep curves</button>
-      <button type="button" class="btn" id="clear-all">Clear history</button>
-    </div>
-  </section>
-
-  <section aria-labelledby="computer" class="computer">
-    <h3 id="computer">Computer</h3>
+  <button type="button" class="pill" id="link-chip" aria-expanded="false" aria-controls="pair-box">
+    <span class="lamp" id="lamp"></span><span class="who" id="link-who"></span><span class="st" id="link-text" role="status">Not paired</span><span class="chev" aria-hidden="true">▾</span>
+  </button>
+  <div class="pair" id="pair-box" hidden>
     <p id="pair-text"></p>
-    <ul class="photos outbox" id="outbox" aria-label="Curves sent to the computer"></ul>
-    <button type="button" class="btn" id="unpair" hidden>Forget this computer</button>
+    <ul class="outbox" id="outbox" aria-label="Curves sent to the computer"></ul>
+    <button type="button" class="btn plain" id="unpair" hidden>Forget this computer</button>
+  </div>
+
+  <div class="engine-fail" id="engine-fail" hidden role="alert">
+    <b>Couldn't load the measuring engine</b>
+    <span id="engine-why"></span>
+    <button type="button" class="btn" id="engine-retry">Try again</button>
+  </div>
+
+  <section class="work" id="result" hidden aria-label="Working curve">
+    <div class="pic" id="card-pic"></div>
+    <span class="nophoto" id="card-nophoto" hidden>Photo deleted · curve kept</span>
+    <div class="status mono" id="r-status" role="status" aria-live="polite"></div>
+    <div class="problem" id="r-problem" hidden></div>
+    <div class="fl tl">
+      <button type="button" class="star" id="star" aria-pressed="false" aria-label="Favourite">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.7 5.9 6.4.7-4.8 4.3 1.4 6.3L12 16.8 6.3 20l1.4-6.3L2.9 9.4l6.4-.7z" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="nm" id="r-name"></span>
+    </div>
+    <div class="fl tr"><span class="time mono" id="r-time"></span><span class="tag" id="r-tag"></span></div>
+    <div class="fl bl">
+      <button type="button" class="swap" id="swap" aria-label="Swap the curve to the other side of the chain">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9c4-5 12-5 16 0M4 15c4 5 12 5 16 0"/><path d="M17 5l3 4-4 1M7 19l-3-4 4-1"/></svg>
+        Swap side
+      </button>
+    </div>
+    <div class="fl br">
+      <button type="button" class="exp" id="expand" aria-label="Expand the photo to fix its pins" aria-controls="xv" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>
+      </button>
+    </div>
   </section>
 
-  <details class="settings" id="settings">
-    <summary>Settings</summary>
-    <div class="field"><label for="s-chain">Chain</label><select id="s-chain"></select></div>
-    <div class="field"><label for="s-shade">Colours</label><select id="s-shade">
-      <option value="light">Light dots or rims on dark links</option>
-      <option value="dark">Dark dots or rims on light links</option></select></div>
-    <div class="field"><label for="s-live">Live camera</label><select id="s-live">
-      <option value="fast">Fast once the focal length is known</option>
-      <option value="full">Always full resolution</option></select></div>
-    <div class="field"><label for="s-view">Live camera shows</label><select id="s-view">
-      <option value="grey">The video in grey, dimmed, with the chain over it</option>
-      <option value="color">The video in colour, with the chain over it</option>
-      <option value="chain">Only the chain it finds, no video</option></select></div>
-    <div class="field"><label for="s-keep">Photos kept</label><select id="s-keep">
-      <option value="1">The newest only</option>
-      <option value="3">The newest 3</option>
-      <option value="10">The newest 10</option>
-      <option value="30">The newest 30</option></select></div>
-    <p class="small">Older photos are deleted to save space and their curves kept: they can still be copied, downloaded
-      and sent, but their pins can no longer be fixed.</p>
-    <div class="field"><span>Pins in the chain</span>
-      <div class="stepper" id="s-pins"><button type="button" data-step="-1" aria-label="One pin fewer">−</button><input type="number"
-        inputmode="numeric" min="3" max="999" aria-label="Pins in the chain"><button type="button" data-step="1" aria-label="One pin more">+</button></div></div>
-    <div class="field"><label for="s-focal">Phone's focal length, mm (35 mm equiv.)</label>
-      <input id="s-focal" class="num" inputmode="decimal" placeholder="none"></div>
-    <div class="offer" id="s-offer" hidden>
-      <span id="s-offer-text"></span>
-      <button type="button" class="btn" id="s-offer-yes">Use it</button>
-      <button type="button" class="btn plain" id="s-offer-no">No</button>
+  <section id="photos-box" hidden aria-label="Past curves">
+    <div class="hist" id="photos"></div>
+    <button type="button" class="more" id="more" aria-expanded="false" aria-label="Show the full history"><span>•••</span></button>
+  </section>
+
+  <section class="settings" id="settings" aria-labelledby="settings-title">
+    <h2 id="settings-title">Settings</h2>
+
+    <div class="grp" id="this-curve" hidden>
+      <h3>This curve</h3>
+      <div class="row"><span>Sending</span><span class="v" id="send-note" role="status" aria-live="polite"></span></div>
+      <div class="acts">
+        <button type="button" class="key" id="copy">Copy points</button>
+        <button type="button" class="btn" id="share" hidden>Share files</button>
+        <button type="button" class="btn" id="send" hidden>Send to computer</button>
+      </div>
+      <div class="downloads" id="downloads" aria-label="Downloads"></div>
     </div>
-    <p class="small">Used only for photos that arrive without camera data, which iPhones often strip. Main (1×) camera:
-      24&nbsp;mm on iPhone 14&nbsp;Pro, iPhone 15 and later; 26&nbsp;mm on earlier models. Shoot at 1×.</p>
-    <div class="lenses-box">
-      <div class="label">Focal length by lens</div>
-      <ul class="lenses" id="s-lenses"></ul>
+
+    <div class="grp">
+      <h3>Chain</h3>
+      <div class="row"><label for="s-chain">Chain</label><select id="s-chain"></select></div>
+      <div class="row"><label for="s-shade">Colours</label><select id="s-shade">
+        <option value="light">Light dots or rims on dark links</option>
+        <option value="dark">Dark dots or rims on light links</option></select></div>
+    </div>
+
+    <div class="grp">
+      <h3>Live camera</h3>
+      <div class="row"><label for="s-live">Speed</label><select id="s-live">
+        <option value="fast">Fast once the focal length is known</option>
+        <option value="full">Always full resolution</option></select></div>
+      <div class="row"><label for="s-view">Shows</label><select id="s-view">
+        <option value="grey">The video in grey, dimmed, with the chain over it</option>
+        <option value="color">The video in colour, with the chain over it</option>
+        <option value="chain">Only the chain it finds, no video</option></select></div>
+      <div class="row"><span>Use the system camera instead</span>
+        <label class="btn" id="take-label">Take photo<input type="file" accept="image/*" capture="environment" id="take" class="file"></label></div>
+      <p class="small">The system camera's photos lose the focal length on iPhone and Pixel phones, so it then comes from your
+        saved or learned focal length below, or is estimated from the chain, which is less accurate.</p>
+    </div>
+
+    <div class="grp">
+      <h3>Focal length</h3>
+      <div class="row"><label for="s-focal">Phone's focal length, mm <small class="mono muted">(35 mm eq.)</small></label>
+        <input id="s-focal" class="num" inputmode="decimal" placeholder="none"></div>
+      <div class="offer" id="s-offer" hidden>
+        <span id="s-offer-text"></span>
+        <button type="button" class="btn" id="s-offer-yes">Use it</button>
+        <button type="button" class="btn plain" id="s-offer-no">No</button>
+      </div>
+      <p class="small">Used only for photos that arrive without camera data, which iPhones often strip. Main (1×) camera:
+        24&nbsp;mm on iPhone 14&nbsp;Pro, iPhone 15 and later; 26&nbsp;mm on earlier models. Shoot at 1×.</p>
+      <ul class="lenses" id="s-lenses" aria-label="Focal length by lens"></ul>
       <p class="small" id="s-teach-note">Learned from photos that carry it, never from the front camera. Android's in-page camera
         often leaves it out: teach it once from any photo this phone's main camera took.</p>
-      <label class="btn">Teach from a photo<input type="file" accept="image/*" id="s-teach" class="file"></label>
+      <div class="row"><span>Teach from a photo</span><label class="btn">Choose photo<input type="file" accept="image/*" id="s-teach" class="file"></label></div>
+      <div class="row"><label for="s-override">Use for every photo, mm</label>
+        <input id="s-override" class="num" inputmode="decimal" placeholder="off"></div>
+      <p class="small">Leave it off unless a lens reports a wrong focal length.</p>
+      <p class="small bad-text" id="s-error" role="alert"></p>
     </div>
-    <div class="field"><label for="s-override">Use this focal length for every photo, mm</label>
-      <input id="s-override" class="num" inputmode="decimal" placeholder="off"></div>
-    <p class="small">Leave it off unless a lens reports a wrong focal length.</p>
-    <p class="small bad-text" id="s-error" role="alert"></p>
-  </details>
 
-  <details class="tips">
-    <summary>For a good photo</summary>
-    <ul>
-      <li>Lay the chain flat on a plain surface, dots facing up.</li>
-      <li>Get the whole chain in the frame and fill most of it.</li>
-      <li>Shoot at 1× (no zoom), straight down. The camera takes the photo once the chain has been still for a moment.</li>
-      <li>Avoid glare and hard shadows on the chain.</li>
-    </ul>
-  </details>
+    <div class="grp">
+      <h3>Photos</h3>
+      <div class="row"><label for="s-keep">Photos kept</label><select id="s-keep">
+        <option value="1">The newest only</option>
+        <option value="3">The newest 3</option>
+        <option value="10">The newest 10</option>
+        <option value="30">The newest 30</option></select></div>
+      <div class="row"><span>On this phone</span><span class="v" id="space" role="status"></span></div>
+      <div class="acts">
+        <button type="button" class="btn" id="free-space">Delete photos, keep curves</button>
+        <button type="button" class="btn" id="clear-all">Clear history</button>
+      </div>
+      <p class="small">Older photos are deleted to save space and their curves kept: they can still be copied, downloaded
+        and sent, but their pins can no longer be fixed. Photos stay on this phone. Only the measured curve is sent.</p>
+    </div>
+
+    <div class="grp tips">
+      <h3>For a good photo</h3>
+      <ul>
+        <li>Lay the chain flat on a plain surface, dots facing up.</li>
+        <li>Get the whole chain in the frame and fill most of it.</li>
+        <li>Shoot at 1× (no zoom), straight down. The camera takes the photo once the chain has been still for a moment.</li>
+        <li>Avoid glare and hard shadows on the chain.</li>
+      </ul>
+    </div>
+    <footer class="foot mono" id="build"></footer>
+  </section>
 </main>
-<footer class="foot mono" id="build"></footer>
+
+<div class="xv" id="xv" hidden role="dialog" aria-modal="true" aria-labelledby="x-name">
+  <div class="xbar">
+    <div class="tt"><div id="x-name"></div><small class="mono" id="r-meta"></small></div>
+    <span class="tag" id="x-tag"></span>
+  </div>
+  <div class="vp" id="editor">
+    <svg id="photo" class="photo-svg" role="img" aria-label="The photo with the measured chain"><image id="photo-img" x="-0.5" y="-0.5" preserveAspectRatio="none"/><g id="overlay"></g></svg>
+    <div class="drawing" id="x-drawing" hidden></div>
+    <div class="fl bl">
+      <button type="button" class="swap" id="x-swap" aria-label="Swap the curve to the other side of the chain">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9c4-5 12-5 16 0M4 15c4 5 12 5 16 0"/><path d="M17 5l3 4-4 1M7 19l-3-4 4-1"/></svg>
+        Swap side
+      </button>
+    </div>
+    <div class="fl br">
+      <button type="button" class="exp" id="collapse" aria-label="Collapse">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 10h-6V4M14 10l7-7M4 14h6v6M10 14l-7 7"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="sheet" id="sheet">
+    <div class="tools">
+      <button type="button" class="btn" id="undo" aria-label="Undo the last pin change">Undo</button>
+      <button type="button" class="btn" id="reset" aria-label="Remove all pin changes">Reset</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="rename">Rename</button>
+      <button type="button" class="btn plain danger" id="delete">Delete</button>
+    </div>
+    <p class="hint" id="hint">Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom, double-tap to fit.</p>
+    <div class="row"><span>Pins in this photo</span>
+      <div class="pins" id="r-pins" role="group" aria-label="Pins in this photo"><input type="number" inputmode="numeric" min="3" max="999"
+        aria-label="Pins in this photo"><button type="button" class="k" data-step="1" aria-label="One pin more">+</button><button
+        type="button" class="k" data-step="-1" aria-label="One pin fewer">−</button></div></div>
+    <table class="spec"><caption>Measurement</caption><tbody id="numbers"></tbody></table>
+    <ul class="msgs warn" id="warnings" aria-label="Warnings"></ul>
+    <ul class="msgs note" id="notes" aria-label="Notes"></ul>
+  </div>
+</div>
+
 <div class="cam" id="cam" hidden role="dialog" aria-modal="true" aria-label="Camera">
   <div class="cam-live" id="cam-live">
     <video id="cam-video" playsinline muted autoplay></video>
     <canvas id="cam-overlay" aria-hidden="true"></canvas>
     <div class="cam-top">
       <button type="button" class="cam-btn" id="cam-close" aria-label="Close the camera">✕</button>
-      <button type="button" class="cam-pill" id="cam-upload">Upload instead</button>
+      <span class="spacer"></span>
       <select id="cam-switch" class="cam-switch" aria-label="Camera" hidden></select>
     </div>
-    <div class="cam-say" role="status" aria-live="polite"><span class="cam-count mono" id="cam-count" aria-live="off"></span><b id="cam-say-title"></b><span id="cam-say-detail"></span></div>
+    <div class="cam-say" role="status" aria-live="polite"><span class="cam-count mono" id="cam-count" aria-live="off"></span><b id="cam-say-title"></b><span id="cam-say-detail"></span>
+      <div class="cam-hold" aria-hidden="true"><i id="cam-hold"></i></div></div>
+    <div class="cam-info mono" id="cam-info" hidden></div>
     <div class="cam-bottom">
+      <button type="button" class="cam-debug" id="cam-debug" aria-expanded="false" aria-controls="cam-info">DEBUG</button>
       <button type="button" class="cam-teach" id="cam-teach" hidden>Focal length unknown: teach it from a photo</button>
-      <div class="cam-info mono" id="cam-info"></div>
     </div>
   </div>
   <div class="cam-fail" id="cam-fail" hidden>
@@ -200,7 +235,7 @@
     <p id="cam-fail-text"></p>
     <p>The system camera works too, but its photos lose the focal length on iPhone and Pixel phones. It then comes from
       Settings (your saved focal length) or is estimated from the chain, which is less accurate.</p>
-    <button type="button" class="shoot" id="cam-fail-system">Use the system camera</button>
+    <button type="button" class="ck scan" id="cam-fail-system"><b>Use the system camera</b></button>
     <button type="button" class="btn" id="cam-fail-upload">Upload a photo instead</button>
     <button type="button" class="btn plain" id="cam-fail-close">Close</button>
   </div>

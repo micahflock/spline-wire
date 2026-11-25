@@ -140,7 +140,7 @@ test("the overlay coaches: no chain, pins missing", async () => {
   await setChain("oring", 15);
   await openCamera();
   await expect(page.locator("#cam-say-title")).toHaveText("Part of the chain is out of view", { timeout: 30_000 });
-  await expect(page.locator("#cam-count")).toHaveText("13 of 15 pins");
+  await expect(page.locator("#cam-count")).toHaveText("13 / 15 pins");
   await page.screenshot({ path: path.join(SHOTS, "adjusting.png") });
 
   // The performance budget, measured while it runs: the overlay's cost per
@@ -190,7 +190,7 @@ test("the overlay coaches: no chain, pins missing", async () => {
     `CPU canvas (willReadFrequently) ${parts.cpu[0]!.toFixed(1)} + ${parts.cpu[1]!.toFixed(1)} ms`);
   expect(analysed).toBeGreaterThan(5);
   expect(p95(lag)).toBeLessThan(150);           // a tap is still answered at once; CI has no GPU either
-  expect(await page.locator("#photos li").count()).toBe(0);           // pins missing: no shot
+  expect(await page.locator("#photos .tile").count()).toBe(0);           // pins missing: no shot
   await closeCamera();
 });
 
@@ -206,7 +206,7 @@ test("with the right pin count it holds steady, takes the still, and measures it
   const st = await stats();
   log(`still: ${st.still}; takePhoto ${st.takePhotoMs ?? "-"} ms${st.takePhotoError ? `, failed: ${st.takePhotoError}` : ""}`);
 
-  const item = page.locator("#photos li").first();
+  const item = page.locator("#photos .tile").first();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
   await expect(page.locator("#overlay [data-k]")).toHaveCount(13);
   await expect(page.locator("#r-meta")).toContainText("page camera");
@@ -261,15 +261,15 @@ test("with the right pin count it holds steady, takes the still, and measures it
 
 test("without ImageCapture (Firefox) the still is the video frame, measured with the saved focal length and marked so", async () => {
   await page.evaluate(() => delete (window as { ImageCapture?: unknown }).ImageCapture);
-  const before = await page.locator("#photos li").count();
+  const before = await page.locator("#photos .tile").count();
   await openCamera();
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });
   // The photo joins the list once its preview is encoded. Chromium encodes a
   // canvas's toBlob in idle time: it waits up to 1 s for an idle period, then
   // up to 5 s more before it forces the encode, so in a busy headless run the
   // photo can arrive 7-8 s after the camera closes (measured 2026-11-18).
-  await expect(page.locator("#photos li")).toHaveCount(before + 1, { timeout: 30_000 });
-  const item = page.locator("#photos li").first();
+  await expect(page.locator("#photos .tile")).toHaveCount(before + 1, { timeout: 30_000 });
+  const item = page.locator("#photos .tile").first();
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
   await expect(page.locator("#overlay [data-k]")).toHaveCount(13, { timeout: 30_000 });
   await expect(page.locator("#r-meta")).toContainText("page camera, video frame");
@@ -278,29 +278,32 @@ test("without ImageCapture (Firefox) the still is the video frame, measured with
   log(`frame still: ${(await stats()).still}; ${await page.locator("#r-meta").textContent()}`);
 });
 
-test("Upload a photo turns the camera off, Live camera opens it again, and the choice is kept", async () => {
-  await expect(page.locator("#mode-live")).toHaveAttribute("aria-pressed", "true");
-  await page.locator("#mode-upload").click();
-  await expect(page.locator("#upload-box")).toBeVisible();
-  await expect(page.locator("#live-box")).toBeHidden();
-  await expect(page.locator("#upload-box")).toContainText("Library photos keep the focal length");
+test("Scan opens the camera and closing it gives it back; Upload never opens it; the diagnostics wait behind Debug", async () => {
+  // No mode switch and no Upload key in the camera view (for UI review/phone/BRIEF.md): Scan and Upload are two keys.
+  await expect(page.locator("#mode-live, #mode-upload, #cam-upload")).toHaveCount(0);
+  await expect(page.locator("#cam")).toBeHidden();
   const opened = await page.evaluate(() => (window as unknown as PhoneWindow).__streams.length);
-  await page.locator("#mode-live").click();                     // opens the camera at once
+  await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
   await expect.poll(liveTracks).toBe(1);
   expect(await page.evaluate(() => (window as unknown as PhoneWindow).__streams.length)).toBe(opened + 1);
-  await page.locator("#cam-upload").click();                    // from inside the camera view
+  await expect(page.locator("#cam-info")).toBeHidden();
+  await page.locator("#cam-debug").click();
+  await expect(page.locator("#cam-info")).toBeVisible();
+  await expect(page.locator("#cam-debug")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#cam-info")).toContainText("frame");
+  await page.screenshot({ path: path.join(SHOTS, "camera-debug.png") });
+  await page.locator("#cam-debug").click();
+  await expect(page.locator("#cam-info")).toBeHidden();
+  await page.locator("#cam-close").click();
   await expect(page.locator("#cam")).toBeHidden();
   expect(await liveTracks()).toBe(0);
-  await expect(page.locator("#mode-upload")).toHaveAttribute("aria-pressed", "true");
-  await page.screenshot({ path: path.join(SHOTS, "upload-mode.png") });
+  // A reload opens no camera; Upload opens the library picker, not the camera.
   await page.reload();
-  await expect(page.locator("#mode-upload")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#upload-box")).toBeVisible();
   expect(await liveTracks()).toBe(0);
-  await page.locator("#mode-live").click();
-  await expect.poll(liveTracks).toBe(1);
-  await page.locator("#cam-close").click();
+  const chooser = page.waitForEvent("filechooser");
+  await page.locator("#upload").click();
+  expect((await chooser).isMultiple()).toBe(true);
   expect(await liveTracks()).toBe(0);
 });
 
@@ -338,7 +341,7 @@ test("a permission prompt that hides the page does not close the camera view (iO
     await p.locator("#take-camera").click();
     await expect(p.locator("#cam-live")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
     await expect(p.locator("#cam")).toBeVisible();
-    await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
+    await expect(p.locator("#cam-count")).toHaveText("13 / 15 pins", { timeout: 30_000 });
     await expect(p.locator("#cam-info")).toContainText("grab in a worker", { timeout: 10_000 });
     log(`after a prompt: ${await p.locator("#cam-info").textContent()}`);
     // Leaving the page once the camera is open still gives it back.
@@ -388,7 +391,7 @@ test("switching from iOS's triple camera to its main lens does not close the cam
     await p.goto("phone/");
     await p.locator("#take-camera").click();
     await expect(p.locator("#cam-live")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
-    await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
+    await expect(p.locator("#cam-count")).toHaveText("13 / 15 pins", { timeout: 30_000 });
     await expect(p.locator("#cam")).toBeVisible();
     await expect(p.locator("#cam-info")).toContainText("Back Camera");               // switched to the main lens
     await expect(p.locator("#toast")).not.toContainText("The camera closed");
@@ -434,7 +437,7 @@ for (const turn of [90, 270] as const) {
       await p.goto("phone/");
       await p.locator("#take-camera").click();
       await expect(p.locator("#cam-info")).toContainText(`grab in a worker (frames turned ${turn}°)`, { timeout: 30_000 });
-      await expect(p.locator("#cam-count")).toHaveText("13 of 15 pins", { timeout: 30_000 });
+      await expect(p.locator("#cam-count")).toHaveText("13 / 15 pins", { timeout: 30_000 });
       const info = await p.locator("#cam-info > div").allTextContents();
       log(`frames turned ${turn}°: ${info.join(" | ")}`);
       expect(info.length).toBe(11);                                            // one item a line
@@ -465,8 +468,7 @@ test("a camera that is not allowed falls back to the system camera", async () =>
     expect(await fc.element().getAttribute("capture")).toBe("environment");
     await fc.setFiles(path.join(OUT, "camera.jpg"));
     await expect(p.locator("#cam")).toBeHidden();
-    await expect(p.locator("#mode-upload")).toHaveAttribute("aria-pressed", "true");
-    const item = p.locator("#photos li").first();
+    const item = p.locator("#photos .tile").first();
     await expect(item).toHaveAttribute("data-status", "done", { timeout: 180_000 });
     await expect(p.locator("#overlay [data-k]")).toHaveCount(13);
     await expect(p.locator("#r-meta")).toContainText("system camera");

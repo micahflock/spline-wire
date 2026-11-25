@@ -30,6 +30,8 @@ import { forgetPairing, phoneSecret, secretFromHash } from "../relay/pairing";
 import { LocalStore } from "../relay/store";
 import { CameraView, type Still } from "./camera-view";
 import { curveFrom } from "./curve";
+import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg } from "./drawings";
+import { TapFilter } from "./taps";
 import { NO_EXIF, exifOfFile, type Exif } from "./exif";
 import { focalOffer, isFront, learn, lensFocal, lensName, offerKey } from "./lenses";
 import { Measurer, type Update } from "./measurer";
@@ -43,7 +45,7 @@ import {
   type Settings, type Shade,
 } from "./settings";
 import {
-  ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, photoFocalText, readNote, readWarning, spaceText,
+  ENGINE_STAGE, errorAdvice, errorTitle, failureText, measurementRows, photoFocalText, readNote, readWarning, spaceText,
 } from "./wording";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -54,6 +56,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 };
 
 const NO_EDITS: Edits = { add: [], remove: [] };
+const history_ = window.history;
 
 const store = new LocalStore("splinewire-phone:");
 let settings: Settings = loadSettings(store);
@@ -231,7 +234,8 @@ function learnFrom(exif: Exif, size: { width: number; height: number } | null, s
 async function deletePhoto(id: string): Promise<void> {
   const r = records.get(id);
   const s = r && room ? syncOf(r, room) : null;
-  if (!r || !confirm(s ? `Delete ${displayName(r)} from this phone and the computer?` : `Delete ${displayName(r)} from this phone?`)) return;
+  if (!r || !confirm(s ? `Delete ${titleOf(r)} from this phone and the computer?` : `Delete ${titleOf(r)} from this phone?`)) return;
+  closeExpanded();
   if (s) {
     // The computer deletes its copy when it hears this: now if it is open, else when next it is.
     deletedIds.add([s.id]);
@@ -248,15 +252,14 @@ async function removePhoto(id: string): Promise<void> {
   void core.call("close", { photo: id }).catch(() => {});
 }
 
-/** The photo whose name is being edited in the result's header, if any. */
-let renaming: string | null = null;
+/** The photo whose name is being edited, and where: the card's name (after starring it) or the expanded view's title. */
+let renaming: { id: string; host: HTMLElement } | null = null;
 
-$("rename").onclick = () => {
-  const r = selected ? records.get(selected) : undefined;
-  if (!r) return;
-  renaming = r.id;
+function startRename(r: PhotoRecord, host: HTMLElement): void {
+  if (renaming) endRename(true);
+  renaming = { id: r.id, host };
   const input = document.createElement("input");
-  Object.assign(input, { className: "rename", value: displayName(r), maxLength: 100, placeholder: r.name, enterKeyHint: "done" });
+  Object.assign(input, { className: "rename", value: nameOf(r).text, maxLength: 100, placeholder: "Name this curve", enterKeyHint: "done" });
   input.setAttribute("aria-label", "Name of the curve");
   input.onkeydown = (e) => {
     if (e.key === "Enter" || e.key === "Escape") {
@@ -265,39 +268,61 @@ $("rename").onclick = () => {
     }
   };
   input.onblur = () => endRename(true);
-  $("r-name").replaceChildren(input);
-  $("rename").style.visibility = "hidden";             // its place kept: the header does not move under a tap
+  host.replaceChildren(input);
   input.focus();
   input.select();
-};
+}
 
-/** Enter or leaving the field keeps the name, Escape does not; empty gives the file's name back.
- * The header and the list's entry change in place: a tap that left the field must not lose its target. */
+/** Enter or leaving the field keeps the name, Escape does not; empty clears it (the curve is
+ * then called after its time). The names change in place: a tap that left the field must not lose its target. */
 function endRename(keep: boolean): void {
-  const r = renaming ? records.get(renaming) : undefined;
-  const input = $("r-name").querySelector("input");
+  const r = renaming ? records.get(renaming.id) : undefined;
+  const input = renaming?.host.querySelector("input");
   renaming = null;
   if (!r || !input) return;
   if (keep && setName(r, input.value)) {
     persist(r);
     const s = room ? syncOf(r, room) : null;
     if (s) sendChange([s.id]);
+    renderList();
   }
-  $("r-name").textContent = displayName(r);
-  $("rename").style.visibility = "";
-  const item = document.querySelector(`#photos li[data-id="${CSS.escape(r.id)}"] .name`);
-  if (item) item.textContent = displayName(r);
+  renderResult();
 }
 
-function toggleStar(id: string): void {
-  const r = records.get(id);
+$("rename").onclick = () => {
+  const r = selected ? records.get(selected) : undefined;
+  if (r) startRename(r, $("x-name"));
+};
+
+/** The card's star: starring opens the name field in place; un-starring clears the name. */
+$("star").onclick = () => {
+  const r = selected ? records.get(selected) : undefined;
   if (!r) return;
-  setStar(r, !starOf(r).on);
+  const on = !starOf(r).on;
+  setStar(r, on);
+  if (!on) setName(r, "");
   persist(r);
   const s = room ? syncOf(r, room) : null;
   if (s) sendChange([s.id]);
   renderList();
+  renderResult();
+  if (on) startRename(r, $("r-name"));
+};
+
+$("delete").onclick = () => {
+  if (selected) void deletePhoto(selected);
+};
+
+/** When the photo was taken: the time today, else the day. */
+function timeOf(r: PhotoRecord): string {
+  const d = new Date(r.added);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
+
+/** What the page calls a curve: the person's name for it, else "Curve 18:42". */
+const titleOf = (r: PhotoRecord): string => nameOf(r).text || `Curve ${timeOf(r)}`;
 
 function drop(id: string): void {
   records.delete(id);
@@ -305,9 +330,6 @@ function drop(id: string): void {
   measurer.forget(id);
   histories.delete(id);
   for (const k of ["original", "preview", "thumb", "outputs"]) memBlobs.delete(`${id}:${k}`);
-  const u = thumbUrls.get(id);
-  if (u) URL.revokeObjectURL(u);
-  thumbUrls.delete(id);
   if (selected === id) void select(order[0] ?? null);
   renderList();
 }
@@ -408,15 +430,13 @@ function engineProgress(p: Progress): void {
   $("engine-bar").style.width = `${p.fraction * 100}%`;
 }
 
+/** The engine's line under the header while it loads (a 2 px bar and a mono label); a failure shows where the card is, with Try again. */
 async function startEngine(): Promise<void> {
   const box = $("engine");
   box.hidden = false;
-  box.classList.remove("bad");
-  $("engine-retry").hidden = true;
+  $("engine-fail").hidden = true;
   $("engine-note").textContent = engine === "typescript" ? ""
-    : navigator.serviceWorker?.controller
-      ? "Loading from this phone, about 10 s. You can take the photo meanwhile."
-      : "The first visit downloads about 40 MB, once. You can take the photo meanwhile.";
+    : navigator.serviceWorker?.controller ? "· from this phone, about 10 s" : "· first visit, 40 MB once";
   try {
     const [loaded] = await Promise.all([core.preload(), chainsLoaded]);
     debug.engine = { readyAt: performance.now(), ms: loaded.ms };
@@ -427,11 +447,9 @@ async function startEngine(): Promise<void> {
       : `core ${v.splinewire ?? "?"} · Pyodide ${v.pyodide ?? "?"} · OpenCV ${v.opencv ?? "?"} · ready in ${(loaded.ms / 1000).toFixed(1)} s`);
     measurer.coreReady();
   } catch (e) {
-    box.classList.add("bad");
-    $("engine-stage").textContent = "Couldn't load the measuring engine.";
-    $("engine-pct").textContent = "";
-    $("engine-note").textContent = `${(e as Error).message}. Check the connection and try again.`;
-    $("engine-retry").hidden = false;
+    box.hidden = true;
+    $("engine-why").textContent = `${(e as Error).message}. Check the connection and try again.`;
+    $("engine-fail").hidden = false;
   }
 }
 
@@ -471,10 +489,13 @@ async function startServiceWorker(): Promise<void> {
 
 let selected: string | null = null;
 let pending: Pt | null = null;
-let picking = false;                          // "tap its side" mode
 let previewUrl: string | null = null;
 const svg = $("photo") as unknown as SVGSVGElement;
-const editor = new PhotoEditor(svg, tap);
+// A double tap fits the chain to the view; a single tap edits once the double-tap window has passed (taps.ts).
+const taps = new TapFilter(tap, () => editor.frame());
+const editor = new PhotoEditor(svg, (p, slack, kind) => taps.tap(p, slack, kind));
+// The view grows and shrinks (the expanded view's animation, the phone turned): keep the same part in view.
+new ResizeObserver(() => editor.refit()).observe(svg);
 
 async function select(id: string | null): Promise<void> {
   if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -482,7 +503,7 @@ async function select(id: string | null): Promise<void> {
   editor.clear();
   selected = id;
   pending = null;
-  picking = false;
+  taps.cancel();
   renderList();
   renderResult();
   const r = id ? records.get(id) : undefined;
@@ -499,19 +520,12 @@ async function select(id: string | null): Promise<void> {
   if (shown && r.pixels) previewUrl = URL.createObjectURL(shown);
   editor.setImage(previewUrl, r.pixels);
   editor.frame();
+  renderResult();                      // the card's picture, now that the photo is here
 }
 
 function tap(p: Pt, slack: number): void {
   const r = selected ? records.get(selected) : undefined;
   if (!r || r.photoDeleted || measurer.busy(r.id)) return;
-  if (picking) {
-    picking = false;
-    r.side = [p.x, p.y];
-    pending = p;
-    remeasure(r.id, true);
-    renderResult();
-    return;
-  }
   const v = r.doc?.view;
   if (!v) return;
   const { edits, mark } = editsAfterTap(v, p, slack);
@@ -547,30 +561,25 @@ $("reset").onclick = () => {
   remeasure(r.id, true);
   renderResult();
 };
-$("fit").onclick = () => editor.frame();
-addEventListener("resize", () => editor.refit());
+addEventListener("resize", () => renderStrip());
 
 const hasEdits = (e: Edits) => e.add.length > 0 || e.remove.length > 0;
 
-// Object side and pins of the selected photo.
-for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg button")) {
-  b.onclick = () => {
-    const r = selected ? records.get(selected) : undefined;
-    if (!r || r.photoDeleted) return;
-    const s = b.dataset.side!;
-    if (s === "tap") {
-      picking = !picking;
-      renderResult();
-      return;
-    }
-    picking = false;
-    r.side = s as Side;
-    settings = { ...settings, side: s as Side };     // new photos start with the side last chosen
-    saveSettings(store, settings);
-    remeasure(r.id, true);
-    renderResult();
-  };
+/** Swap side: the curve to the other side of the chain from the one it was measured on.
+ * New photos start with the side last chosen. */
+function swapSide(): void {
+  const r = selected ? records.get(selected) : undefined;
+  if (!r || r.photoDeleted) return;
+  const now = r.doc?.result?.object_side ?? (Array.isArray(r.side) ? "inside" : r.side);
+  const side: Side = now === "inside" ? "outside" : "inside";
+  r.side = side;
+  settings = { ...settings, side };
+  saveSettings(store, settings);
+  remeasure(r.id, true);
+  renderResult();
 }
+$("swap").onclick = swapSide;
+$("x-swap").onclick = swapSide;
 
 let pinsTimer: ReturnType<typeof setTimeout> | undefined;
 const photoPins = stepper($("r-pins"), () => (selected ? records.get(selected)?.pins ?? 13 : 13), (n) => {
@@ -623,30 +632,36 @@ function tagOf(r: PhotoRecord): [string, string] {
 function renderResult(): void {
   const r = selected ? records.get(selected) : undefined;
   $("result").hidden = !r;
-  if (!r) return;
+  $("this-curve").hidden = !r;
+  if (!r) {
+    closeExpanded();
+    return;
+  }
   const doc = r.doc;
   const busy = measurer.busy(r.id);
-  if (renaming !== r.id) $("r-name").textContent = displayName(r);
-  $("rename").style.visibility = renaming === r.id ? "hidden" : "";
-  const info = doc?.info;
-  const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
-  const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
-  const via = r.via === "camera" ? (r.camera?.still === "frame" ? `page camera, video frame${r.camera.why ? ` (takePhoto: ${r.camera.why})` : ""}` : "page camera")
-    : r.via === "take" ? "system camera" : "library";
-  const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
   const gone = !!r.photoDeleted;
-  $("r-meta").textContent = [gone ? "photo deleted" : "", size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
   const [tag, label] = tagOf(r);
-  const t = $("r-tag");
-  t.className = `tag ${tag}`;
-  t.textContent = label;
-  void thumbInto($<HTMLImageElement>("r-thumb"), r.id);
+  const failed = tag === "bad";
 
-  const ok = r.status === "done" && !!doc?.ok;
-  const status = $("r-status");
-  status.textContent = STATUS_WORDS[r.status] ||
-    (ok ? `Measured: ${doc!.result!.curve_points} points. ${paired() ? "Copy them, or send them to the computer." : "Copy them, share them or download them."}` : "")
-    + (gone ? " The photo was deleted to save space; the curve is kept, but its pins can no longer be fixed." : "");
+  // The card: the photo cropped to the chain and the curve, or the drawing once the photo is deleted.
+  const card = $("result");
+  for (const c of ["chk", "bad"]) card.classList.toggle(c, tag === c);
+  card.classList.toggle("gone", gone);
+  renderCardPicture(r);
+  $("card-nophoto").hidden = !gone;
+  const star = $("star");
+  star.setAttribute("aria-pressed", String(starOf(r).on));
+  star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);
+  if (renaming?.host.id !== "r-name") $("r-name").textContent = nameOf(r).text;
+  $("r-time").textContent = timeOf(r);
+  for (const t of [$("r-tag"), $("x-tag")]) {
+    t.className = `tag ${tag}`;
+    t.textContent = label;
+  }
+  $("r-status").textContent = STATUS_WORDS[r.status];
+  $("swap").hidden = failed;
+  for (const b of [$<HTMLButtonElement>("swap"), $<HTMLButtonElement>("x-swap")]) b.disabled = gone;
+  $("x-swap").hidden = failed;
 
   // What went wrong: a person's error as is, under a plain heading; a bug with its type.
   const problem = $("r-problem");
@@ -663,35 +678,48 @@ function renderResult(): void {
   }
   problem.hidden = !problem.childElementCount;
 
-  const v = doc?.view;
-  $("editor").hidden = gone || (!r.pixels && !v);
-  svg.classList.toggle("wait", busy);
-  svg.classList.toggle("picking", picking);
-  editor.show(v ?? null, { pending });
-  const edited = !!v && hasEdits(v.edits);
-  $<HTMLButtonElement>("undo").disabled = busy || !history(r.id).canUndo;
-  $<HTMLButtonElement>("reset").disabled = busy || !edited;
-  $("hint").textContent = picking
-    ? "Tap the photo on the object's side of the chain."
-    : v ? "Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom." : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
+  // The expanded view: its title, the editor and the sheet.
+  const xv = $("xv");
+  for (const c of ["chk", "bad"]) xv.classList.toggle(c, tag === c);
+  if (renaming?.host.id !== "x-name") $("x-name").textContent = titleOf(r);
+  const info = doc?.info;
+  const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
+  const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
+  const via = r.via === "camera" ? (r.camera?.still === "frame" ? `page camera, video frame${r.camera.why ? ` (takePhoto: ${r.camera.why})` : ""}` : "page camera")
+    : r.via === "take" ? "system camera" : "library";
+  const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
+  $("r-meta").textContent = [gone ? "photo deleted · curve kept" : r.name, size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
 
-  const sideKey = Array.isArray(r.side) ? "tap" : r.side;
-  for (const b of document.querySelectorAll<HTMLButtonElement>(".sidebox .seg button")) {
-    b.setAttribute("aria-pressed", String(picking ? b.dataset.side === "tap" : b.dataset.side === sideKey));
-    b.disabled = gone;
+  const v = doc?.view;
+  svg.classList.toggle("wait", busy);
+  svg.toggleAttribute("hidden", gone);
+  editor.show(gone ? null : v ?? null, { pending });
+  const drawing = $("x-drawing");
+  drawing.hidden = !gone;
+  const drawn = gone && doc?.curve ? curveDrawing(doc.curve, 1, { big: true }) : "";
+  if (drawing.dataset.key !== `${r.id}:${drawn.length}`) {
+    drawing.innerHTML = drawn;
+    drawing.dataset.key = `${r.id}:${drawn.length}`;
   }
-  const res = doc?.result;
-  $("side-now").textContent = res ? `${SIDE_TEXT[res.object_side]}${Array.isArray(r.side) ? ", from your tap" : ""}` : "";
+  const edited = !!v && hasEdits(v.edits);
+  $<HTMLButtonElement>("undo").disabled = busy || gone || !history(r.id).canUndo;
+  $<HTMLButtonElement>("reset").disabled = busy || gone || !edited;
+  $("hint").textContent = gone ? "The photo was deleted to save space; the curve is kept, but its pins can no longer be fixed."
+    : v ? "Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom, double-tap to fit."
+    : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
   photoPins.value = String(r.pins);
   for (const c of $("r-pins").querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) c.disabled = gone;
 
+  const res = doc?.result;
   const focalDetail = res && r.focal && res.focal_source === "override" && settings.focalOverride35 === null ? photoFocalText(r.focal) : undefined;
-  $("numbers").replaceChildren(...(res ? numbers(res, r.pins, focalDetail) : []).map(([k, val, s, warn]) =>
-    el("div", { className: warn ? "chk" : "" }, el("dt", { textContent: k }), el("dd", {}, val, el("span", { className: "s", textContent: s })))));
+  $("numbers").replaceChildren(...(res ? measurementRows(res, r.pins, focalDetail) : []).map(([k, val, sub, warn]) =>
+    el("tr", { className: warn ? "chk" : "" }, el("th", { textContent: k, scope: "row" }), el("td", {}, val, ...(sub ? [el("small", { textContent: sub })] : [])))));
   const item = (x: { title: string; text: string }) => el("li", {}, el("b", { textContent: x.title }), x.text);
   $("warnings").replaceChildren(...(res?.warnings ?? []).map((w) => readWarning(w)).map(item));
   $("notes").replaceChildren(...(res?.notes ?? []).map((n) => readNote(n)).map(item));
 
+  // Settings, This curve: copy, share, send, the files.
+  const ok = r.status === "done" && !!doc?.ok;
   $<HTMLButtonElement>("copy").disabled = !ok || busy;
   $("share").hidden = !canShareFiles();
   $<HTMLButtonElement>("share").disabled = !ok || busy;
@@ -705,25 +733,37 @@ function renderResult(): void {
   }) : []));
 }
 
+/** The card's picture, drawn again only when it changes (the photo's <image> is not reloaded on every update). */
+function renderCardPicture(r: PhotoRecord): void {
+  const pic = $("card-pic");
+  const doc = r.doc, v = doc?.view;
+  let html = "";
+  if (r.photoDeleted || (!r.pixels && !v)) {
+    html = doc?.curve ? curveDrawing(doc.curve, CARD_ASPECT, { pad: 10, big: true }) : "";
+  } else {
+    const photo = v ? { width: v.width, height: v.height } : r.pixels!;
+    const marks = v ? (v.pins.length ? v.pins : v.unused).map((m): [number, number] => [m.x, m.y]) : [];
+    const crop = marks.length >= 2 ? cardCrop(marks, v!.r, photo, CARD_ASPECT)
+      : clampBox(fitBox([0, 0, photo.width, photo.height], CARD_ASPECT, 0), photo.width, photo.height);
+    const href = previewUrl && selected === r.id && r.pixels ? previewUrl : null;
+    html = cardSvg({ href, photo, crop, curve: doc?.ok && v ? v.curve : null });
+  }
+  if (pic.dataset.html !== html) {
+    pic.innerHTML = html;
+    pic.dataset.html = html;
+  }
+}
+const CARD_ASPECT = 1.8;
+
 const DOWNLOADS: [OutputKind, string][] = [["dxf", "DXF"], ["svg", "SVG 1:1"], ["csv", "CSV"], ["json", "JSON"], ["fusion_csv", "Fusion CSV"]];
 
 // ---- the list of photos ----
 
-const thumbUrls = new Map<string, string>();
+/** The history's first rows; ••• shows the rest. */
+const TILES = 12;
+let fullHistory = false;
 
-async function thumbInto(image: HTMLImageElement, id: string): Promise<void> {
-  let url = thumbUrls.get(id);
-  if (!url) {
-    const blob = await getBlob(id, "thumb");
-    if (!blob || !records.has(id)) {
-      image.removeAttribute("src");
-      return;
-    }
-    url = thumbUrls.get(id) ?? URL.createObjectURL(blob);
-    thumbUrls.set(id, url);
-  }
-  if (image.getAttribute("src") !== url) image.src = url;
-}
+const STAR_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.7 5.9 6.4.7-4.8 4.3 1.4 6.3L12 16.8 6.3 20l1.4-6.3L2.9 9.4l6.4-.7z" stroke-linejoin="round"/></svg>';
 
 function renderList(): void {
   $("photos-box").hidden = order.length === 0;
@@ -731,36 +771,130 @@ function renderList(): void {
   const withPhoto = all.filter((r) => !r.photoDeleted);
   $("space").textContent = spaceText(withPhoto.length, withPhoto.reduce((n, r) => n + r.size, 0), all.length - withPhoto.length, settings.keepPhotos);
   $("free-space").hidden = withPhoto.length === 0;
-  const list = $("photos");
-  list.replaceChildren(...order.map((id) => {
-    const r = records.get(id)!;
-    const [tag, label] = tagOf(r);
-    const th = el("img", { className: "th", alt: "" });
-    void thumbInto(th, id);
-    const when = new Date(r.added).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    const open = el("button", { type: "button", className: "open" }, th,
-      el("span", { className: "who" }, el("span", { className: "name", textContent: displayName(r) }),
-        el("span", { className: "meta mono", textContent: `${when} · ${r.pins} pins${r.photoDeleted ? " · curve only" : ""}` })),
-      el("span", { className: `tag ${tag}`, textContent: label }));
-    open.setAttribute("aria-label", `Open ${displayName(r)}, ${label}`);
-    open.onclick = () => {
-      void select(id);
-      $("result").scrollIntoView({ behavior: "smooth", block: "start" });
-    };
-    const starred = starOf(r).on;
-    const star = el("button", { type: "button", className: `star${starred ? " on" : ""}`, textContent: starred ? "★" : "☆" });
-    star.setAttribute("aria-label", `Star ${displayName(r)}`);
-    star.setAttribute("aria-pressed", String(starred));
-    star.onclick = () => toggleStar(id);
-    const del = el("button", { type: "button", className: "del", textContent: "×" });
-    del.setAttribute("aria-label", `Delete ${displayName(r)}`);
-    del.onclick = () => void deletePhoto(id);
-    const li = el("li", { className: id === selected ? "on" : "" }, open, star, del);
-    li.dataset.id = id;
-    li.dataset.status = r.status;
-    return li;
-  }));
+  const shown = fullHistory ? order : order.slice(0, TILES);
+  $("photos").replaceChildren(...shown.map((id) => tile(records.get(id)!)));
+  const more = $("more");
+  more.hidden = order.length <= TILES;
+  more.setAttribute("aria-expanded", String(fullHistory));
+  more.setAttribute("aria-label", fullHistory ? "Show less history" : "Show the full history");
+  more.firstElementChild!.textContent = fullHistory ? "▲" : "•••";
 }
+
+/** A past curve: only the chain and the curve, no photo; its star and name, and a dot for Check or Failed. */
+function tile(r: PhotoRecord): HTMLButtonElement {
+  const [tag, label] = tagOf(r);
+  const b = el("button", { type: "button", className: `tile${r.id === selected ? " on" : ""}` });
+  const c = r.doc?.curve;
+  b.innerHTML = c && c.pins.length > 1 ? curveDrawing(c, 1) : `<span class="wait">${tag === "bad" ? "—" : "…"}</span>`;
+  if (starOf(r).on) {
+    const name = el("span", { textContent: nameOf(r).text });
+    const tl = el("span", { className: "tl" }, name);
+    tl.insertAdjacentHTML("afterbegin", STAR_ICON);
+    b.append(tl);
+  }
+  if (tag === "chk" || tag === "bad") b.append(el("span", { className: `dot ${tag}` }));
+  b.setAttribute("aria-label", `Open ${titleOf(r)}, ${label}`);
+  b.dataset.id = r.id;
+  b.dataset.status = r.status;
+  if (r.photoDeleted) b.dataset.photo = "deleted";
+  b.onclick = () => {
+    void select(r.id);
+    scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
+  };
+  return b;
+}
+
+$("more").onclick = () => {
+  fullHistory = !fullHistory;
+  renderList();
+};
+
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ---- the expanded view ----
+
+let expanded = false;
+
+/** The card grown to fill the screen (FLIP from its rect, about 320 ms), with the editor and the sheet. */
+function openExpanded(): void {
+  if (expanded || !selected) return;
+  expanded = true;
+  const xv = $("xv");
+  const from = $("result").getBoundingClientRect();
+  document.documentElement.classList.add("xv-on");
+  xv.hidden = false;
+  $("expand").setAttribute("aria-expanded", "true");
+  history_.pushState({ ...(history_.state ?? {}), expanded: true }, "");
+  renderResult();
+  editor.frame();
+  if (!reducedMotion()) {
+    xv.classList.add("opening");
+    Object.assign(xv.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: "3px" });
+    void xv.offsetWidth;
+    xv.classList.add("anim");
+    Object.assign(xv.style, { left: "0px", top: "0px", width: `${innerWidth}px`, height: `${innerHeight}px`, borderRadius: "0px" });
+    afterTransition(xv, () => {
+      xv.classList.remove("anim", "opening");
+      xv.removeAttribute("style");
+      editor.frame();
+    });
+  }
+  $<HTMLButtonElement>("collapse").focus({ preventScroll: true });
+}
+
+/** Back to the card: the same way it came. `fromHistory`: the back gesture did it. */
+function closeExpanded(fromHistory = false): void {
+  if (!expanded) return;
+  expanded = false;
+  taps.cancel();
+  if (renaming?.host.id === "x-name") endRename(true);
+  const xv = $("xv");
+  const done = () => {
+    xv.hidden = true;
+    xv.classList.remove("anim", "closing");
+    xv.removeAttribute("style");
+    document.documentElement.classList.remove("xv-on");
+  };
+  $("expand").setAttribute("aria-expanded", "false");
+  if (!fromHistory && history_.state?.expanded) history_.back();
+  const card = $("result");
+  if (reducedMotion() || card.hidden) {
+    done();
+    return;
+  }
+  const to = card.getBoundingClientRect();
+  xv.classList.add("closing");
+  Object.assign(xv.style, { left: "0px", top: "0px", width: `${innerWidth}px`, height: `${innerHeight}px` });
+  void xv.offsetWidth;
+  xv.classList.add("anim");
+  Object.assign(xv.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: "3px" });
+  afterTransition(xv, done);
+  $<HTMLButtonElement>("expand").focus({ preventScroll: true });
+}
+
+function afterTransition(e: HTMLElement, then: () => void): void {
+  let ran = false;
+  const once = () => {
+    if (ran) return;
+    ran = true;
+    e.removeEventListener("transitionend", end);
+    then();
+  };
+  const end = (ev: TransitionEvent) => {
+    if (ev.target === e && ev.propertyName === "height") once();
+  };
+  e.addEventListener("transitionend", end);
+  setTimeout(once, 450);
+}
+
+$("expand").onclick = openExpanded;
+$("collapse").onclick = () => closeExpanded();
+addEventListener("popstate", () => {
+  if (expanded && !history_.state?.expanded) closeExpanded(true);
+});
+addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Escape" && expanded && !renaming && !cameraView.isOpen) closeExpanded();
+});
 
 // ---- copy, share, download ----
 
@@ -956,7 +1090,13 @@ async function startPairing(hash = location.hash): Promise<void> {
       },
       message: (m) => {
         outbox?.onMessage(m);
-        if (m.type === "hello" && m.role === "desktop") sendFullState();
+        if (m.type === "hello" && m.role === "desktop") {
+          sendFullState();
+          if (m.device && m.device !== computerName()) {
+            store.set("computer", m.device);
+            renderPairing();
+          }
+        }
         if (m.type === "state") onState(m);
       },
     },
@@ -966,7 +1106,6 @@ async function startPairing(hash = location.hash): Promise<void> {
   renderPairing();
   renderResult();
 }
-const history_ = window.history;
 
 /** Everything this phone holds of its curves: the computer answers with all it holds. */
 function sendFullState(): void {
@@ -1026,8 +1165,16 @@ async function syncCurve(r: PhotoRecord): Promise<void> {
   }
 }
 
+/** The computer's name, as its page says in its hello ("" until it has). */
+const computerName = (): string => store.get("computer") ?? "";
+/** When this visit last saw a curve delivered: the pill's "sent 18:42". */
+let lastSent: number | null = null;
+let deliveredSeen = 0;
+
 function outboxChanged(): void {
   if (!outbox) return;
+  if (outbox.delivered.length > deliveredSeen) lastSent = Date.now();
+  deliveredSeen = outbox.delivered.length;
   renderPairing();
   if (selected) renderResult();
 }
@@ -1049,7 +1196,7 @@ function renderSend(r: PhotoRecord, enabled: boolean): void {
   } else if (offer.kind === "send") {
     note.textContent = "Taken before this phone was paired: send it, and the computer follows your changes from then on.";
   } else if (offer.kind === "unpaired" && r.status === "done") {
-    note.textContent = "To send curves to a computer, pair this phone with it (see Computer below).";
+    note.textContent = "No computer paired: tap the computer pill at the top to pair one.";
   }
 }
 
@@ -1062,25 +1209,30 @@ $("send").onclick = async () => {
   toast("Sent to the computer. Changes you make to it here follow.");
 };
 
+/** The computer pill: a lamp, the computer's name and how it is (linked; off, with curves queued; not paired). */
 function renderPairing(): void {
   const lamp = $("lamp");
   const chip = $("link-text");
   const text = $("pair-text");
   $("unpair").hidden = !secret;
+  $("link-who").textContent = secret ? computerName() : "";
+  const queued = outbox?.items.length ?? 0;
+  const waiting = queued ? ` · ${queued === 1 ? "1 curve" : `${queued} curves`} queued` : "";
   if (!secret) {
     lamp.className = "lamp";
-    chip.textContent = "Not paired";
-    text.textContent = "Not paired. To send curves to a computer, open the Spline Wire site on the computer and point Take photo's live camera (or the phone's Camera app) at the code it shows. Copy points, Share and the downloads work without it.";
+    chip.textContent = "Not paired · tap to pair a computer";
+    text.textContent = "Not paired. To send curves to a computer, open the Spline Wire site on the computer and point Scan (or the phone's Camera app) at the code it shows. Pairing is done once per phone. Copy points, Share and the downloads work without it.";
   } else if (!relayUrl) {
     lamp.className = "lamp bad";
     chip.textContent = "No relay";
     text.textContent = "Paired, but this build of the site has no relay address, so curves can't be sent. Copy points, Share and the downloads still work.";
   } else {
     const s = linkStatus;
+    const at = lastSent ? ` · sent ${new Date(lastSent).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}` : "";
     const [cls, short, long] =
-      s.state === "open" && s.peers > 0 ? ["ok", "Computer connected", "Paired. The computer's page is open: each photo's curve goes there once measured, and your changes follow."]
-      : s.state === "open" ? ["chk", "Computer not open", "Paired. The computer's page is not open: curves wait here until it is."]
-      : s.state === "waiting" ? ["bad", "Can't reach relay", `Paired, but the relay can't be reached${s.problem ? ` (${s.problem})` : ""}. Curves wait here and go when it is back.`]
+      s.state === "open" && s.peers > 0 ? ["ok", `Linked${waiting || at}`, "Paired. The computer's page is open: each photo's curve goes there once measured, and your changes follow."]
+      : s.state === "open" ? ["chk", `Off${waiting}`, "Paired. The computer's page is not open: curves wait here until it is."]
+      : s.state === "waiting" ? ["bad", `Can't reach the relay${waiting}`, `Paired, but the relay can't be reached${s.problem ? ` (${s.problem})` : ""}. Curves wait here and go when it is back.`]
       : ["", "Connecting…", "Paired. Connecting to the relay…"];
     lamp.className = `lamp ${cls}`;
     chip.textContent = short;
@@ -1096,7 +1248,7 @@ function renderPairing(): void {
   ];
   $("outbox").replaceChildren(...rows.map((row) => {
     const state = el("div", { className: `state${row.d === "delivered" ? " ok" : ""}`, textContent: deliveryText(row.d, row.rev) });
-    const li = el("li", {}, el("div", { className: "what" }, el("b", { textContent: row.name }), state));
+    const li = el("li", {}, el("div", { className: "what" }, el("b", { textContent: row.name })), state);
     li.dataset.curve = row.id;
     li.dataset.state = row.d;
     const r = recordOfCurve(row.id);
@@ -1129,11 +1281,19 @@ function nameOfSent(id: string): string {
   return recordOfCurve(id)?.name ?? "a curve";
 }
 
+$("link-chip").onclick = () => {
+  const box = $("pair-box");
+  box.hidden = !box.hidden;
+  $("link-chip").setAttribute("aria-expanded", String(!box.hidden));
+};
+
 $("unpair").onclick = () => {
   if (!confirm("Forget this computer? Curves not yet delivered are dropped. To pair again, scan the computer's code.")) return;
   for (const i of [...(outbox?.items ?? [])]) outbox?.forget(i.curve.id);
   link?.stop();
   forgetPairing(store);
+  store.remove("computer");
+  lastSent = null;
   link = null;
   outbox = null;
   secret = null;
@@ -1182,6 +1342,16 @@ addEventListener("online", () => link?.retryNow());
 
 // ---- settings ----
 
+/** The chain strip under the header: one pin per pin of the chain, the new link popping in on +. */
+let strip = { pins: 0, width: 0 };
+function renderStrip(): void {
+  const box = $("chain-strip");
+  const pins = defaultPins(settings, chains), width = Math.round(box.clientWidth) || 358;
+  if (pins === strip.pins && width === strip.width) return;
+  box.innerHTML = stripSvg(pins, width, strip.pins && pins === strip.pins + 1 && width === strip.width ? pins - 1 : -1);
+  strip = { pins, width };
+}
+
 function renderSettings(): void {
   const select = $<HTMLSelectElement>("s-chain");
   if (!select.options.length || select.options.length !== Object.keys(chains).length) {
@@ -1194,6 +1364,7 @@ function renderSettings(): void {
   document.documentElement.classList.toggle("photos-grey", photosGrey());
   $<HTMLSelectElement>("s-keep").value = String(settings.keepPhotos);
   settingsPins.value = String(defaultPins(settings, chains));
+  renderStrip();
   const focal = $<HTMLInputElement>("s-focal");
   if (document.activeElement !== focal) focal.value = settings.savedFocal35?.toString() ?? "";
   const override = $<HTMLInputElement>("s-override");
@@ -1345,15 +1516,9 @@ const cameraView = new CameraView({
   engineReady: () => true,
   analyse: (points) => live.analyse(points),
   still: (still) => void addFiles([still.file], "camera", still).catch((e: Error) => toast(`Couldn't add the photo: ${e.message}`)),
-  systemCamera: () => {
-    setMode("upload");
-    $("take").click();
-  },
-  upload: () => setMode("upload"),
-  teach: () => {
-    ($("settings") as HTMLDetailsElement).open = true;     // a closed <details> may not pass the click on
-    $("s-teach").click();
-  },
+  systemCamera: () => $("take").click(),
+  upload: () => $("choose").click(),
+  teach: () => $("s-teach").click(),
   // Said, so that a camera view that closes unexpectedly tells the person (and us) why.
   closedBy: (why) => toast(`The camera closed: ${why}.`, 6000),
   code: cameraCode,
@@ -1364,25 +1529,6 @@ const cameraView = new CameraView({
 debug.cameraView = cameraView;
 debug.camera = cameraView.stats;
 $("take-camera").onclick = () => void cameraView.start();
-
-/** Live camera or Upload a photo, remembered. Upload releases the camera
- * entirely; choosing Live opens it (a tap is the right moment to ask for it). */
-function setMode(mode: Settings["photoMode"], open = false): void {
-  if (mode === "upload") cameraView.close();
-  if (mode !== settings.photoMode) setSettings({ ...settings, photoMode: mode });
-  renderMode();
-  if (mode === "live" && open) void cameraView.start();
-}
-
-function renderMode(): void {
-  const live = settings.photoMode === "live";
-  $("live-box").hidden = !live;
-  $("upload-box").hidden = live;
-  $("mode-live").setAttribute("aria-pressed", String(live));
-  $("mode-upload").setAttribute("aria-pressed", String(!live));
-}
-$("mode-live").onclick = () => setMode("live", true);
-$("mode-upload").onclick = () => setMode("upload");
 
 for (const [id, via] of [["take", "take"], ["choose", "choose"]] as const) {
   const input = $<HTMLInputElement>(id);
@@ -1398,7 +1544,7 @@ $("engine-retry").onclick = () => void startEngine();
 
 async function main(): Promise<void> {
   footer();
-  renderMode();
+  renderStrip();
   core.onProgress = engineProgress;
   chainsLoaded = fetch(new URL("../chains.json", location.href)).then(async (r) => {
     if (!r.ok) throw new Error(`chains.json: HTTP ${r.status}`);
