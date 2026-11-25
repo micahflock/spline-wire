@@ -59,6 +59,8 @@ let native: Native;
 let page: Page;
 let engine: "typescript" | "python" = "typescript";
 const log = (...a: unknown[]) => console.log(`[core ${engine}]`, ...a);
+/** Every URL the page and its workers requested. */
+const requests: string[] = [];
 const mib = (b: number | null) => (b == null ? "?" : `${(b / 2 ** 20).toFixed(0)} MiB`);
 
 test.describe.configure({ mode: "serial" });
@@ -79,6 +81,7 @@ test.describe(kind, () => {
       const name = path.basename(new URL(route.request().url()).pathname, ".jpg") as keyof Native["photos"];
       return route.fulfill({ path: native.photos[name].photo, contentType: "image/jpeg" });
     });
+    context.on("request", (r) => requests.push(r.url()));      // workers' too
     page = await context.newPage();
     page.on("console", (m) => { if (m.type() === "error") console.log("[page]", m.text()); });
     await openCore(page, engine);
@@ -214,10 +217,15 @@ test.describe(kind, () => {
   });
 
   test("an iPhone HEIC photo: the HEIF decoder loads on demand and keeps the EXIF focal length", async () => {
-    const before = await page.evaluate(() => performance.getEntriesByType("resource").filter((e) => /pillow_heif/.test(e.name)).length);
-    expect(before).toBe(0);                          // JPEG photos never load it
+    // The TypeScript engine decodes HEIC with libheif in wasm (pipeline/heif.ts); Python with pillow-heif.
+    const decoder = engine === "typescript" ? /libheif/ : /pillow_heif/;
+    const loaded = (re: RegExp) => requests.filter((u) => re.test(u));
+    expect(loaded(decoder)).toEqual([]);             // JPEG photos never load it
     const { doc, ms } = await measure("heic", "heic", { chain: native.chain });
     log(`HEIC: measured in ${(ms / 1000).toFixed(2)} s, decoder included`);
+    expect(loaded(decoder).length).toBeGreaterThan(0);
+    // Chromium cannot decode HEIC itself, and the TypeScript engine no longer hands it to Pyodide.
+    if (engine === "typescript") expect(loaded(/pyodide|pillow_heif/)).toEqual([]);
     expect(doc.ok).toBe(true);
     expect(doc.info.format).toBe("HEIF");
     expect(doc.result!.focal_source).toBe("exif");

@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "jsqr": "1.4.0",
+    "libheif-js": "1.23.5",
     "qrcode-generator": "2.0.4"
   }
 }

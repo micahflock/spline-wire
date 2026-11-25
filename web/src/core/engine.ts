@@ -4,19 +4,21 @@
 // nothing to download and nothing to load. Pages make it exactly as they made
 // worker.ts, and the protocol is unchanged.
 //
-// One exception: a HEIC photo the browser cannot decode (every browser but
-// Safari). Such a photo is handed, with all its later commands, to the
-// Pyodide worker (worker.ts, with pillow-heif), started inside this one the
-// first time it is needed.
+// A HEIC photo the browser cannot decode (every browser but Safari) is
+// decoded with libheif in WebAssembly (src/pipeline/heif.ts), loaded only
+// then. It used to go to the Pyodide worker, whose loading made the first
+// HEIC photo take about 10 s.
 
-import { focalPxFrom35mm, PhotoSession } from "../pipeline/session";
+import { PhotoSession } from "../pipeline/session";
+import { isHeif, photoInfo } from "../pipeline/photo-info";
 import { decodeToGray } from "../pipeline/decode";
 import { PipelineError } from "../pipeline/errors";
 import { analyse } from "../pipeline/live";
 import { specFromDict } from "../pipeline/chain";
-import { readExif } from "../phone/exif";
+import heifWasmUrl from "libheif-js/libheif-wasm/libheif.wasm?url";
 import { MAX_OPEN_PHOTOS, type Command, type Commands, type Failure, type Request, type Response } from "./protocol";
-import type { OutputKind, PhotoInfo } from "./types";
+import type { OutputKind } from "./types";
+import type { LibheifFactory } from "../pipeline/heif";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -33,9 +35,7 @@ class Failed extends Error {
 }
 
 const open = new Map<string, PhotoSession>();
-const delegated = new Set<string>();                    // photos the Pyodide worker holds
-// Every open photo, either engine's, least recently used first: at most
-// MAX_OPEN_PHOTOS in all, as the protocol says.
+// Every open photo, least recently used first: at most MAX_OPEN_PHOTOS, as the protocol says.
 const recent: string[] = [];
 
 function touch(photo: string): void {
@@ -48,7 +48,6 @@ function forget(photo: string): void {
   const i = recent.indexOf(photo);
   if (i >= 0) recent.splice(i, 1);
   open.delete(photo);
-  if (delegated.delete(photo)) void callPython("close", { photo }).catch(() => {});
 }
 
 function session(photo: string): PhotoSession {
@@ -58,81 +57,30 @@ function session(photo: string): PhotoSession {
   return s;
 }
 
-/** The format Pillow would name, from the file's first bytes. */
-function formatOf(u: Uint8Array): string | null {
-  const text = (a: number, b: number) => String.fromCharCode(...u.subarray(a, b));
-  if (u[0] === 0xff && u[1] === 0xd8) return isMpo(u) ? "MPO" : "JPEG";
-  if (text(1, 4) === "PNG") return "PNG";
-  if (text(0, 4) === "RIFF" && text(8, 12) === "WEBP") return "WEBP";
-  if (isHeif(u)) return "HEIF";
-  if (text(0, 3) === "GIF") return "GIF";
-  if (text(0, 2) === "BM") return "BMP";
-  if (text(0, 4) === "II*\0" || text(0, 4) === "MM\0*") return "TIFF";
-  return null;
-}
-
-/** A JPEG with a Multi-Picture (MPF) APP2 segment, which Pillow opens as "MPO" (many iPhone photos). */
-function isMpo(u: Uint8Array): boolean {
-  let off = 2;
-  while (off + 8 <= u.length && u[off] === 0xff) {
-    const m = u[off + 1]!;
-    if (m === 0xda || m === 0xd9) return false;
-    const len = (u[off + 2]! << 8) | u[off + 3]!;
-    if (m === 0xe2 && String.fromCharCode(...u.subarray(off + 4, off + 7)) === "MPF") return true;
-    off += 2 + len;
-  }
-  return false;
-}
-
-/** As worker.ts: an ISO base media file of a HEIF brand. */
-function isHeif(u: Uint8Array): boolean {
-  if (u.length < 12) return false;
-  const text = (a: number, b: number) => String.fromCharCode(...u.subarray(a, b));
-  return text(4, 8) === "ftyp" && ["heic", "heix", "heim", "heis", "hevc", "hevx", "hevm", "hevs", "mif1", "msf1", "avif"].includes(text(8, 12));
-}
-
 function stem(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "";
   const dot = base.lastIndexOf(".");
   return (dot > 0 ? base.slice(0, dot) : base) || "photo";
 }
 
-// ---- the Pyodide worker, for HEIC photos the browser cannot decode ----
+// ---- HEIC photos the browser cannot decode ----
 
-let python: Worker | null = null;
-let pythonNext = 1;
-const pythonWaiting = new Map<number, { resolve(v: unknown): void; reject(e: Failed): void }>();
+let heifWasm: Promise<ArrayBuffer> | null = null;
 
-function callPython<C extends Command>(cmd: C, args: Commands[C]["args"], transfer: Transferable[] = []): Promise<Commands[C]["result"]> {
-  if (!python) {
-    python = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-    python.onmessage = (ev: MessageEvent<Response>) => {
-      const msg = ev.data;
-      if ("event" in msg) {
-        self.postMessage(msg);          // its loading progress, for the page's bar
-        return;
-      }
-      const w = pythonWaiting.get(msg.id);
-      if (!w) return;
-      pythonWaiting.delete(msg.id);
-      if (msg.ok) w.resolve(msg.result);
-      else w.reject(new Failed(msg.error));
-    };
-    python.onerror = (ev) => {
-      for (const w of pythonWaiting.values()) {
-        w.reject(new Failed({ kind: "bug", type: "WorkerError", message: ev.message || "the HEIC decoder stopped" }));
-      }
-      pythonWaiting.clear();
-      python?.terminate();
-      python = null;
-      for (const photo of delegated) forget(photo);
-    };
-  }
-  const id = pythonNext++;
-  return new Promise((resolve, reject) => {
-    pythonWaiting.set(id, { resolve: resolve as (v: unknown) => void, reject });
-    python!.postMessage({ id, cmd, args } as Request, transfer);
+async function decodeHeif(bytes: Uint8Array, name: string) {
+  heifWasm ??= fetch(heifWasmUrl).then((r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.arrayBuffer();
   });
+  let parts;
+  try {
+    parts = await Promise.all([import("../pipeline/heif"), import("libheif-js/libheif-wasm/libheif.js"), heifWasm]);
+  } catch (err) {
+    heifWasm = null;                                    // try again with the next photo
+    throw new Failed({ kind: "person", message: `could not load the HEIC decoder (${(err as Error)?.message ?? err}); check the connection and try again` });
+  }
+  const [{ decodeHeifToGray }, lib, wasm] = parts;
+  return decodeHeifToGray(bytes, name, lib.default as unknown as LibheifFactory, wasm);
 }
 
 // ---- the commands ----
@@ -149,45 +97,25 @@ const handlers: Handlers = {
     const bytes = new Uint8Array(data);
     forget(photo);                                    // opened again: the new bytes win
     while (recent.length >= MAX_OPEN_PHOTOS) forget(recent[0]!);
+    const heif = isHeif(bytes);
     let gray;
     try {
       gray = await decodeToGray(new Blob([bytes]));
     } catch {
-      if (isHeif(bytes)) {
-        delegated.add(photo);
-        touch(photo);
-        return callPython("open", { photo, name, data: bytes.buffer as ArrayBuffer }, [bytes.buffer as ArrayBuffer]);
-      }
-      throw new Failed({ kind: "person", message: `${name} is not a photo this program can read (JPEG, HEIC, PNG, TIFF, BMP or WebP)` });
+      if (!heif) throw new Failed({ kind: "person", message: `${name} is not a photo this program can read (JPEG, HEIC, PNG, TIFF, BMP or WebP)` });
+      gray = await decodeHeif(bytes, name);
     }
-    const exif = readExif(bytes);
-    // The stored size, before turning upright (Pillow's im.size); the focal length
-    // depends only on the diagonal, which turning keeps.
-    const turned = (exif.orientation ?? 1) >= 5;
-    const stored: [number, number] = turned ? [gray.height, gray.width] : [gray.width, gray.height];
-    const info: PhotoInfo = {
-      format: formatOf(bytes), width: stored[0], height: stored[1], make: exif.make, model: exif.model,
-      focal_mm: exif.focalMm, focal_35mm: exif.focal35,
-    };
-    const focal = exif.focal35 ? focalPxFrom35mm(exif.focal35, stored) : null;
-    open.set(photo, new PhotoSession(name, gray, focal, info));
+    const { info, focalPx } = photoInfo(bytes, gray);
+    open.set(photo, new PhotoSession(name, gray, focalPx, info));
     touch(photo);
     return { info };
   },
 
   async measure({ photo, options }) {
-    if (delegated.has(photo)) {
-      touch(photo);
-      return callPython("measure", { photo, options });
-    }
     return session(photo).measure(options);
   },
 
   async outputs({ photo }) {
-    if (delegated.has(photo)) {
-      touch(photo);
-      return callPython("outputs", { photo });
-    }
     const s = session(photo);
     let files;
     try {
