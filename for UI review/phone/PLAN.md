@@ -48,7 +48,7 @@ branches without a merge base predate the history on main).
 
 ## Defaults taken where the brief is silent (to confirm with m)
 
-- **Camera lock-on rings:** kept, with the new orange bar added under the coach's words.
+- **Camera lock-on rings:** kept. The orange hold bar was built, then removed at m's request (2026-11-25): the rings show the hold.
 - **Trace colour while adjusting:** the pin rings keep today's phase colour (amber while adjusting,
   green once steady); the links are white.
 - **Downloads:** Fusion CSV stays beside CSV · DXF · SVG · JSON ("keep every existing control").
