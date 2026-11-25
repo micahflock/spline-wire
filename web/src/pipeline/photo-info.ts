@@ -49,7 +49,7 @@ function isMpo(u: Uint8Array): boolean {
   return false;
 }
 
-/** As worker.ts: an ISO base media file of a HEIF brand. */
+/** An ISO base media file of a HEIF brand (an iPhone photo is "heic"): box 1 is "ftyp", the major brand at bytes 8-11. */
 export function isHeif(u: Uint8Array): boolean {
   if (u.length < 12) return false;
   const text = (a: number, b: number) => String.fromCharCode(...u.subarray(a, b));

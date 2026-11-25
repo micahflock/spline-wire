@@ -97,7 +97,7 @@ def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
 
 
 def load_photo_bytes(data: bytes, name: str) -> tuple[np.ndarray, float | None]:
-    """load_photo for a photo held in memory (the browser build has no files).
+    """load_photo for a photo held in memory (PhotoSession.open).
     name is only used in messages."""
     return _load(io.BytesIO(data), name)
 

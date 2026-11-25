@@ -1,7 +1,7 @@
 // Which photo the core measures next, and each photo's status.
 //
-//   loading    waiting for the core to finish loading (a photo taken while
-//              Pyodide loads is measured as soon as it is ready)
+//   loading    waiting for the core to be ready (a photo taken before then
+//              is measured as soon as it is)
 //   queued     waiting for another photo's measurement
 //   measuring
 //   done       measured (document ok)

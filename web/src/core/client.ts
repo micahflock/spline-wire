@@ -1,12 +1,12 @@
 // The page's handle on the core worker: typed calls that return promises.
 //
-//   const core = new CoreClient(() => new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }));
+//   const core = new CoreClient(() => makeCoreWorker());
 //   core.onProgress = (p) => ...;
 //   const doc = await core.measure(photoId, options, () => blobFromIndexedDb(photoId));
 //
 // Calls run one at a time in the worker. A stale measure (the person changed
-// the options again before the last one finished) is not cancelled, since
-// Python cannot be interrupted cheaply; instead `latest` lets the page skip
+// the options again before the last one finished) is not cancelled, since a
+// worker's work cannot be interrupted; instead `latest` lets the page skip
 // work that is already out of date.
 
 import {

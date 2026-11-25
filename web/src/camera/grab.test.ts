@@ -27,7 +27,7 @@ describe("the frame grab in a worker", () => {
     const all = { VideoFrame: class {}, OffscreenCanvas: class {}, Worker: class {} };
     expect(whyNotWorker("", all)).toBeNull();
     expect(whyNotWorker("?grab=main", all)).toBe("?grab=main");
-    expect(whyNotWorker("?engine=python", all)).toBeNull();
+    expect(whyNotWorker("?debug", all)).toBeNull();
     expect(whyNotWorker("", { OffscreenCanvas: class {}, Worker: class {} })).toBe("no VideoFrame here");    // Firefox without WebCodecs
     expect(whyNotWorker("", { VideoFrame: class {}, Worker: class {} })).toBe("no OffscreenCanvas here");
     const page = new FrameGrab(() => fakeWorker(() => null).w, "no VideoFrame here");

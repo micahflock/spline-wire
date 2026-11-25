@@ -9,7 +9,7 @@ import "../photo/photo.css";
 import type { CameraInfo } from "../camera/choose";
 import { fovRatio, stillSearchBox } from "../camera/focal";
 import { CoreClient, type PhotoSource } from "../core/client";
-import { engineKind, makeCoreWorker } from "../core/make-worker";
+import { makeCoreWorker } from "../core/make-worker";
 import { CoreError, type Commands, type Progress } from "../core/protocol";
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind, Side } from "../core/types";
 import { LiveAnalyser } from "../pipeline/live-client";
@@ -62,8 +62,7 @@ const store = new LocalStore("splinewire-phone:");
 let settings: Settings = loadSettings(store);
 let chains: Record<string, ChainSpec> = {};
 
-const engine = engineKind();
-const core = new CoreClient(() => makeCoreWorker(engine));
+const core = new CoreClient(() => makeCoreWorker());
 const live = new LiveAnalyser(() => new Worker(new URL("../pipeline/live-worker.ts", import.meta.url), { type: "module" }));
 const timings: { id: string; status: string; ms: number }[] = [];
 // For the end-to-end test, and for looking at a phone's timings and memory
@@ -435,16 +434,12 @@ async function startEngine(): Promise<void> {
   const box = $("engine");
   box.hidden = false;
   $("engine-fail").hidden = true;
-  $("engine-note").textContent = engine === "typescript" ? ""
-    : navigator.serviceWorker?.controller ? "· from this phone, about 10 s" : "· first visit, 40 MB once";
+  $("engine-note").textContent = "";
   try {
     const [loaded] = await Promise.all([core.preload(), chainsLoaded]);
     debug.engine = { readyAt: performance.now(), ms: loaded.ms };
     box.hidden = true;
-    const v = loaded.versions;
-    footer(v.engine === "typescript"
-      ? `engine ${v.splinewire ?? "?"} (TypeScript)`
-      : `core ${v.splinewire ?? "?"} · Pyodide ${v.pyodide ?? "?"} · OpenCV ${v.opencv ?? "?"} · ready in ${(loaded.ms / 1000).toFixed(1)} s`);
+    footer(`engine ${loaded.versions.splinewire ?? "?"} (TypeScript)`);
     measurer.coreReady();
   } catch (e) {
     box.hidden = true;
@@ -463,25 +458,22 @@ function footer(extra = ""): void {
   $("build").textContent = [`Spline Wire ${import.meta.env.APP_VERSION}`, `build ${import.meta.env.BUILD_ID}`, extra].filter(Boolean).join(" · ");
 }
 
-/** Production builds only: the service worker keeps the engine's files on the phone. */
-async function startServiceWorker(): Promise<void> {
-  if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return;
-  // sw.js sits at the site's root, the folder above assets/ where this script
-  // is. (Written so that Vite does not take it for an asset of its own to bundle.)
-  const root = new URL(["..", ""].join("/"), import.meta.url);
+/** The site no longer has a service worker (it kept Pyodide's 40 MB on the phone; D29).
+ * Remove one an earlier visit installed, with its caches. sw.js does the same when the
+ * browser updates it. Only this site's: other sites can share the origin (GitHub Pages). */
+async function retireServiceWorker(): Promise<void> {
+  // The site's root, the folder above assets/ where this script is (written so
+  // that Vite does not take it for an asset of its own to bundle).
+  const root = new URL(["..", ""].join("/"), import.meta.url).href;
   try {
-    const reg = await navigator.serviceWorker.register(new URL("sw.js", root), { scope: root.href });
-    if (navigator.serviceWorker.controller) return;
-    // First visit: wait a moment for it to take control, so the engine's
-    // download goes through it and is kept for the next visit. Only when one
-    // is on its way: a browser that blocks it must not delay the engine.
-    if (!reg.installing && !reg.waiting && !reg.active) return;
-    await Promise.race([
-      new Promise((r) => navigator.serviceWorker.addEventListener("controllerchange", r, { once: true })),
-      new Promise((r) => setTimeout(r, 3000)),
-    ]);
+    for (const reg of (await navigator.serviceWorker?.getRegistrations()) ?? []) {
+      if (reg.scope.startsWith(root)) await reg.unregister();
+    }
+    if (typeof caches !== "undefined") {
+      for (const name of await caches.keys()) if (name.startsWith("splinewire-")) await caches.delete(name);
+    }
   } catch {
-    /* not allowed here (private mode, http on a LAN address): the page works without it */
+    /* not allowed here (private mode, http on a LAN address): nothing was installed */
   }
 }
 
@@ -1560,7 +1552,7 @@ async function main(): Promise<void> {
     renderSettings();
   });
   void startPairing().catch((e: Error) => toast(`Pairing: ${e.message}`));
-  await startServiceWorker();
+  void retireServiceWorker();
   void startEngine();
   try {
     photos = await PhotoStore.open(indexedDB);

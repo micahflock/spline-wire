@@ -33,6 +33,6 @@ export default defineConfig({
     "import.meta.env.APP_VERSION": JSON.stringify((pkg as { version?: string }).version ?? "dev"),
     "import.meta.env.BUILD_ID": JSON.stringify(env.BUILD_ID || "dev"),
   },
-  worker: { format: "es" },      // Pyodide refuses classic workers (S1)
+  worker: { format: "es" },      // module workers: the engine loads libheif with import()
   test: { include: ["src/**/*.test.ts", "relay/**/*.test.ts"], environment: "node" },
 });

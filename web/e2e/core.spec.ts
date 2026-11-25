@@ -1,6 +1,5 @@
-// The core worker end to end, both engines: the TypeScript port (engine.ts,
-// the default) and the Python core under Pyodide (worker.ts, ?engine=python),
-// each in Chromium measuring synthetic photos, compared with native Python.
+// The core worker (engine.ts, the TypeScript pipeline) end to end, in
+// Chromium measuring synthetic photos, compared with native Python.
 // The worker is reached through the desktop page (the site's root), whose
 // desktop.engine() loads the measuring code on demand; the page itself, with
 // a photo dropped on it, is tested in desktop.spec.ts.
@@ -47,8 +46,8 @@ declare global {
 }
 
 /** The desktop page's engine, as window.core, window.chains and window.progressLog. */
-async function openCore(p: Page, engine: "typescript" | "python"): Promise<void> {
-  await p.goto(engine === "python" ? "./?engine=python" : "./");
+async function openCore(p: Page): Promise<void> {
+  await p.goto("./");
   await p.evaluate(async () => {
     const e = await window.desktop.engine();
     Object.assign(window, { core: e.core, chains: e.chains, progressLog: e.progress });
@@ -57,20 +56,13 @@ async function openCore(p: Page, engine: "typescript" | "python"): Promise<void>
 
 let native: Native;
 let page: Page;
-let engine: "typescript" | "python" = "typescript";
-const log = (...a: unknown[]) => console.log(`[core ${engine}]`, ...a);
+const log = (...a: unknown[]) => console.log("[core]", ...a);
 /** Every URL the page and its workers requested. */
 const requests: string[] = [];
-const mib = (b: number | null) => (b == null ? "?" : `${(b / 2 ** 20).toFixed(0)} MiB`);
 
 test.describe.configure({ mode: "serial" });
 
-for (const kind of ["typescript", "python"] as const) {
-test.describe(kind, () => {
-  test.beforeAll(() => {
-    engine = kind;
-  });
-
+test.describe("the engine", () => {
   test.beforeAll(async ({ browser }) => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), "spline-wire-e2e-"));
     execFileSync("uv", ["run", "python", "web/e2e/native.py", out], { cwd: ROOT, stdio: "inherit" });
@@ -84,7 +76,7 @@ test.describe(kind, () => {
     context.on("request", (r) => requests.push(r.url()));      // workers' too
     page = await context.newPage();
     page.on("console", (m) => { if (m.type() === "error") console.log("[page]", m.text()); });
-    await openCore(page, engine);
+    await openCore(page);
   });
 
   /** core.measure in the page, with the photo fetched from /__e2e/. Returns the document and the time. */
@@ -101,7 +93,7 @@ test.describe(kind, () => {
   const stats = () => page.evaluate(() => window.core.call("stats", {}));
   const maxDistance = (a: Point[], b: Point[]) => Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i]![0], p[1] - b[i]![1])));
 
-  test("loads, reporting progress", async () => {
+  test("is ready at once, with nothing to download", async () => {
     // Nothing has started the load yet: the desktop page loads the engine only for a photo.
     const { progress, result } = await page.evaluate(async () => {
       const result = await window.core.preload();
@@ -109,23 +101,10 @@ test.describe(kind, () => {
     });
     const again = await page.evaluate(() => window.core.preload());
     expect(again.ms).toBe(result.ms);            // idempotent: the same load
-    if (engine === "typescript") {
-      // Nothing to download or start: ready at once.
-      expect(progress.map((p) => p.stage)).toEqual(["ready"]);
-      expect(result.versions).toMatchObject({ engine: "typescript", splinewire: expect.any(String) });
-      log(`load ${result.ms} ms, versions ${JSON.stringify(result.versions)}`);
-      return;
-    }
-    const at = (stage: string) => (progress.find((p) => p.stage === stage) as unknown as { t: number }).t;
-    const stages = `runtime ${at("packages") - at("runtime")} ms, packages ${at("starting") - at("packages")} ms, ` +
-      `imports ${at("ready") - at("starting")} ms`;
-    expect(progress.map((p) => p.stage)).toEqual(["runtime", "packages", "starting", "ready"]);
-    const fractions = progress.map((p) => p.fraction);
-    expect(fractions).toEqual([...fractions].sort((a, b) => a - b));
-    expect(fractions.at(-1)).toBe(1);
-    expect(result.versions).toMatchObject({ pyodide: expect.any(String), opencv: expect.any(String) });
-    log(`cold load ${(result.ms / 1000).toFixed(1)} s (${stages}), versions ${JSON.stringify(result.versions)},`,
-        `heap ${mib((await stats()).heap_bytes)}`);
+    expect(progress.map((p) => p.stage)).toEqual(["ready"]);
+    expect(result.versions).toMatchObject({ engine: "typescript", splinewire: expect.any(String) });
+    expect(requests.filter((u) => /\.wasm|pyodide|wheels|core-manifest/.test(u))).toEqual([]);
+    log(`load ${result.ms} ms, versions ${JSON.stringify(result.versions)}`);
   });
 
   for (const name of ["pipe", "tilted"] as const) {
@@ -142,7 +121,7 @@ test.describe(kind, () => {
       expect(truth.max_error_mm!).toBeLessThan(n.cli_truth.max_error_mm + MM_TOLERANCE);
       log(`${name} ${doc.info.width}x${doc.info.height}: measured in ${(ms / 1000).toFixed(2)} s (open + detect + solve);`,
           `pins ${px.toFixed(4)} px from native; truth max ${truth.max_error_mm!.toFixed(4)} mm`,
-          `(CLI ${n.cli_truth.max_error_mm.toFixed(4)} mm); heap ${mib((await stats()).heap_bytes)}`);
+          `(CLI ${n.cli_truth.max_error_mm.toFixed(4)} mm)`);
     });
   }
 
@@ -217,15 +196,12 @@ test.describe(kind, () => {
   });
 
   test("an iPhone HEIC photo: the HEIF decoder loads on demand and keeps the EXIF focal length", async () => {
-    // The TypeScript engine decodes HEIC with libheif in wasm (pipeline/heif.ts); Python with pillow-heif.
-    const decoder = engine === "typescript" ? /libheif/ : /pillow_heif/;
+    // Chromium cannot decode HEIC itself: the engine does, with libheif in wasm (pipeline/heif.ts).
     const loaded = (re: RegExp) => requests.filter((u) => re.test(u));
-    expect(loaded(decoder)).toEqual([]);             // JPEG photos never load it
+    expect(loaded(/libheif/)).toEqual([]);           // JPEG photos never load it
     const { doc, ms } = await measure("heic", "heic", { chain: native.chain });
     log(`HEIC: measured in ${(ms / 1000).toFixed(2)} s, decoder included`);
-    expect(loaded(decoder).length).toBeGreaterThan(0);
-    // Chromium cannot decode HEIC itself, and the TypeScript engine no longer hands it to Pyodide.
-    if (engine === "typescript") expect(loaded(/pyodide|pillow_heif/)).toEqual([]);
+    expect(loaded(/libheif/).length).toBeGreaterThan(0);
     expect(doc.ok).toBe(true);
     expect(doc.info.format).toBe("HEIF");
     expect(doc.result!.focal_source).toBe("exif");
@@ -236,7 +212,6 @@ test.describe(kind, () => {
     const opts = { chain: native.chain };
     await measure("one", "pipe", opts);
     await measure("two", "tilted", opts);
-    const before = await stats();
     await measure("three", "pipe", opts);
     const after = await stats();
     expect(after.open).toEqual(["two", "three"]);
@@ -252,8 +227,7 @@ test.describe(kind, () => {
     expect(doc.ok).toBe(true);
     expect(maxDistance(doc.view!.pins.map((p) => [p.x, p.y]), native.photos.pipe.pins_px)).toBeLessThan(PX_TOLERANCE);
     expect((await stats()).open).toEqual(["three", "one"]);
-    log(`heap with two photos open ${mib(before.heap_bytes)}, after the third ${mib(after.heap_bytes)},`,
-        `after reopening the first ${mib((await stats()).heap_bytes)}; reopen + measure ${(ms / 1000).toFixed(2)} s`);
+    log(`reopen + measure ${(ms / 1000).toFixed(2)} s`);
   });
 
   test("analyse puts a measurement's pins back in chain order", async () => {
@@ -265,7 +239,7 @@ test.describe(kind, () => {
       width: doc.view!.width, height: doc.view!.height, chain: native.chain, focal_px: null,
     };
     const { a, ms, known } = await page.evaluate(async ([frame, focal]) => {
-      await window.core.call("analyse", frame);            // the first call may pay for imports
+      await window.core.call("analyse", frame);            // the first call warms up
       const t0 = performance.now();
       const a = await window.core.call("analyse", frame);
       const t1 = performance.now();
@@ -279,13 +253,4 @@ test.describe(kind, () => {
     log(`analyse round trip for ${pins.length} points: ${ms.toFixed(0)} ms with the focal length estimated,`,
         `${known.toFixed(0)} ms with it known; tilt ${a.tilt_deg}°`);
   });
-
-  test("loads warm in a new tab", async () => {
-    const tab = await page.context().newPage();
-    await openCore(tab, engine);
-    const result = await tab.evaluate(() => window.core.preload());
-    log(`warm load ${(result.ms / 1000).toFixed(1)} s (HTTP cache warm)`);
-    await tab.close();
-  });
 });
-}

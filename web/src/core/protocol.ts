@@ -1,12 +1,13 @@
-// The messages between a page and the core worker (src/core/worker.ts), which
-// runs the Python package under Pyodide (decision D2).
+// The messages between a page and the core worker (src/core/engine.ts), which
+// runs the TypeScript pipeline (decision D18; it began as the Python package
+// under Pyodide, D2, removed on 2026-11-25, D29).
 //
 // One request, one response, matched by id; `progress` events may come in
 // between. Photos are named by an id the page chooses (its IndexedDB key), so
 // the worker can drop a photo to save memory and the page can open it again.
 //
 // Memory is the constraint this protocol is shaped by (S1: a 12-megapixel
-// photo takes the wasm heap to ~580 MB, and the heap never shrinks). So:
+// photo decoded is 48 MB, and detection needs some 235 MB more). So:
 //   - the worker keeps at most MAX_OPEN_PHOTOS sessions and closes the least
 //     recently used; a request for a closed photo fails with kind "closed",
 //     and CoreClient opens it again from the page's copy and retries;
@@ -17,7 +18,7 @@ import type { MeasureOptions, MeasurementDocument, OutputKind, PhotoInfo, Point 
 export const MAX_OPEN_PHOTOS = 2;
 
 export interface Commands {
-  /** Load Pyodide and the package. Idempotent; the other commands do it if needed. */
+  /** Get the engine ready (the TypeScript engine has nothing to load). Idempotent. */
   load: { args: Record<string, never>; result: { versions: Record<string, string>; ms: number } };
   /** Decode a photo. Fails (kind "person") if it is not one. */
   open: { args: { photo: string; name: string; data: ArrayBuffer }; result: { info: PhotoInfo } };
@@ -26,10 +27,10 @@ export interface Commands {
   /** The latest measurement's files, as text, with their download names. */
   outputs: { args: { photo: string }; result: { files: Record<OutputKind, string>; names: Record<string, string> } };
   close: { args: { photo: string }; result: null };
-  /** For the live overlay: order and rectify points a frame detector found (splinewire/live.py). */
+  /** For the live overlay: order and rectify points a frame detector found (pipeline/live.ts, as splinewire/live.py). */
   analyse: { args: FramePoints; result: FrameAnalysis };
-  /** What the worker holds: the wasm heap's size (it only grows) and the open
-   * photos, least recently used first. For deciding when to restart(). */
+  /** What the worker holds: a wasm heap's size (null: the TypeScript engine has none) and
+   * the open photos, least recently used first. For deciding when to restart(). */
   stats: { args: Record<string, never>; result: { heap_bytes: number | null; open: string[] } };
 }
 
@@ -52,9 +53,9 @@ export type Response =
   | { id: number; ok: false; error: Failure }
   | { event: "progress"; progress: Progress };
 
-/** Loading takes ~10 s warm on a desktop and longer on a phone (S1): say what is happening. */
+/** How far the engine has got loading (the TypeScript engine: ready at once). */
 export interface Progress {
-  stage: "runtime" | "packages" | "starting" | "ready";
+  stage: "ready";
   /** 0 to 1 over the whole load. */
   fraction: number;
 }

@@ -1,13 +1,12 @@
 /// <reference types="vite/client" />
-// The core worker in TypeScript (D18): answers protocol.ts's requests with
-// the port in src/pipeline/ instead of Python under Pyodide, so there is
-// nothing to download and nothing to load. Pages make it exactly as they made
-// worker.ts, and the protocol is unchanged.
+// The core worker (D18): answers protocol.ts's requests with the TypeScript
+// port of the pipeline in src/pipeline/, so there is nothing to download and
+// nothing to load. (It replaced the Python package under Pyodide, removed on
+// 2026-11-25, D29.)
 //
 // A HEIC photo the browser cannot decode (every browser but Safari) is
-// decoded with libheif in WebAssembly (src/pipeline/heif.ts), loaded only
-// then. It used to go to the Pyodide worker, whose loading made the first
-// HEIC photo take about 10 s.
+// decoded with libheif in WebAssembly (src/pipeline/heif.ts, D28), loaded
+// only then.
 
 import { PhotoSession } from "../pipeline/session";
 import { isHeif, photoInfo } from "../pipeline/photo-info";

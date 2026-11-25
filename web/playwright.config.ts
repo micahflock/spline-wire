@@ -7,7 +7,7 @@ const PORT = 4173;
 
 export default defineConfig({
   testDir: "e2e",
-  timeout: 10 * 60_000,           // Pyodide loads twice and measures 12-megapixel photos
+  timeout: 10 * 60_000,           // native Python renders and measures the 12-megapixel photos first
   workers: 1,
   reporter: "list",
   use: { baseURL: `http://127.0.0.1:${PORT}/`, browserName: "chromium", trace: "off" },
