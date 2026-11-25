@@ -2,7 +2,7 @@
 // take a synthetic photo while the engine loads, check its pins against native
 // Python, edit by touch in the expanded view, swap the side, copy the points, reload, an error;
 // then pair with a minimal desktop through the dev relay and send the curve.
-// Last, the second visit's load time with and without the service worker.
+// Last, the engine downloads nothing, and the retired service worker removes itself.
 //
 //   npm run e2e         (after npm run assets; needs web/relay's npm install)
 //
@@ -622,9 +622,6 @@ test.describe("paired with a computer", () => {
   });
 });
 
-/** Visits the phone page until its engine is ready: the core's files (Pyodide,
- * wheels) fetched by the page or its workers, from the network and from the
- * service worker, and their bytes. */
 test("past Photos kept and with Delete photos, keep curves, photos go and their curves stay; Clear history empties the list", async ({ browser }) => {
   const ctx = await browser.newContext({ ...PHONE, permissions: ["clipboard-read", "clipboard-write"] });
   const p = await ctx.newPage();
@@ -722,61 +719,42 @@ test("photos shown grey while the live camera is (the default), in colour when i
   await ctx.close();
 });
 
-const visitPhone = async (ctx: BrowserContext, address = "phone/") => {
-    const p = await ctx.newPage();
-    let network = 0, fromSw = 0, bytes = 0;
-    const sizes: Promise<void>[] = [];
-    p.on("requestfinished", (r) => {
-      if (!/\/(pyodide|wheels)\//.test(r.url())) return;
-      sizes.push(r.response().then(async (res) => {
-        if (res?.fromServiceWorker()) {
-          fromSw++;
-          return;
-        }
-        network++;
-        bytes += (await r.sizes()).responseBodySize;
-      }).catch(() => {}));
-    });
-    const t0 = Date.now();
-    await p.goto(address);
-    await p.waitForFunction(() => (window as unknown as PhoneWindow).phone.engine !== null, null, { timeout: 120_000 });
-    const engine = await p.evaluate(() => (window as unknown as PhoneWindow).phone.engine!);
-    await Promise.all(sizes);
-    await p.close();
-    return { readyAt: engine.readyAt, load: engine.ms, wall: Date.now() - t0, network, fromSw, mb: (bytes / 1e6).toFixed(1) };
-};
-
-test("the TypeScript engine downloads nothing of Pyodide, and is ready at once", async ({ browser }) => {
+test("the engine downloads nothing and is ready at once", async ({ browser }) => {
   const ctx = await browser.newContext({ ...PHONE });
-  const v = await visitPhone(ctx);
+  const p = await ctx.newPage();
+  const fetched: string[] = [];
+  p.on("request", (r) => { if (/\.wasm|\/pyodide\/|\/wheels\/|core-manifest/.test(r.url())) fetched.push(r.url()); });
+  await p.goto("phone/");
+  await p.waitForFunction(() => (window as unknown as PhoneWindow).phone.engine !== null, null, { timeout: 60_000 });
+  const engine = await p.evaluate(() => (window as unknown as PhoneWindow).phone.engine!);
   await ctx.close();
-  log(`TypeScript engine: ready ${(v.readyAt / 1000).toFixed(2)} s after the page opened; core files fetched: ${v.network}`);
-  expect(v.network + v.fromSw).toBe(0);
+  log(`engine ready ${(engine.readyAt / 1000).toFixed(2)} s after the page opened; engine files fetched: ${fetched.length}`);
+  expect(fetched).toEqual([]);
 });
 
-test("the second visit with the Python engine (?engine=python): with the service worker and without", async ({ browser }) => {
-  // Each case in a fresh context: a first visit fills the caches, the second is timed.
-  const visit = (ctx: BrowserContext) => visitPhone(ctx, "phone/?engine=python");
-  const out: string[] = [];
-  for (const sw of ["allow", "block"] as const) {
-    const ctx = await browser.newContext({ ...PHONE, serviceWorkers: sw });
-    const first = await visit(ctx);
-    const second = await visit(ctx);
-    const caches = sw === "allow" ? await (async () => {
-      const p = await ctx.newPage();
-      await p.goto("phone/");
-      const names = await p.evaluate(() => caches.keys());
-      await p.close();
-      return names.join(", ");
-    })() : "";
-    await ctx.close();
-    out.push(`${sw === "allow" ? "with" : "without"} service worker: first visit ready ${(first.readyAt / 1000).toFixed(1)} s ` +
-      `(load ${(first.load / 1000).toFixed(1)} s), second ${(second.readyAt / 1000).toFixed(1)} s ` +
-      `(load ${(second.load / 1000).toFixed(1)} s; core files: ${second.network} past the service worker, ${second.mb} MB, ` +
-      `${second.fromSw} from it)` +
-      (caches ? `; caches: ${caches}` : ""));
-    if (sw === "allow") expect(second.fromSw).toBeGreaterThan(5);
-    else expect(second.fromSw).toBe(0);
-  }
-  for (const line of out) log(line);
+test("the retired service worker removes itself and the caches it made (D29), and nothing registers it", async ({ browser }) => {
+  const ctx = await browser.newContext({ ...PHONE });
+  const p = await ctx.newPage();
+  await p.goto("phone/");
+  const state = () => p.evaluate(async () => ({
+    caches: (await caches.keys()).sort(), workers: (await navigator.serviceWorker.getRegistrations()).length,
+  }));
+  expect((await state()).workers).toBe(0);              // the page registers none
+  // What an earlier visit left: the Python engine's cache, under the old service worker's name.
+  // Another site on the same origin (GitHub Pages) keeps its cache.
+  await p.evaluate(async () => {
+    await (await caches.open("splinewire-core-1-pyodide-314.0.8")).put("pyodide/pyodide.mjs", new Response("x"));
+    await (await caches.open("splinewire-meta-1")).put("core-manifest.json", new Response("{}"));
+    await (await caches.open("another-site")).put("x", new Response("x"));
+  });
+  // The page removes the caches on its next load...
+  await p.reload();
+  await expect.poll(async () => (await state()).caches).toEqual(["another-site"]);
+  // ...and sw.js, as a browser with it installed gets it on its update check, removes itself and them.
+  await p.evaluate(async () => {
+    await (await caches.open("splinewire-core-1-pyodide-314.0.8")).put("pyodide/pyodide.mjs", new Response("x"));
+    await navigator.serviceWorker.register("../sw.js", { scope: "../" });
+  });
+  await expect.poll(state, { timeout: 15_000 }).toEqual({ caches: ["another-site"], workers: 0 });
+  await ctx.close();
 });

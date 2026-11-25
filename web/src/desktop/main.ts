@@ -102,7 +102,7 @@ const marks = new InsertLog(store);
 /** here.ts and what it imports (the core client, the editor): loaded on the first photo. */
 const here = () => import("./here");
 // For the end-to-end tests and a look from the console: desktop.engine() loads
-// the measuring code (here.ts, and Pyodide only when asked to load or measure)
+// the measuring code (here.ts, and the engine worker when asked to load or measure)
 // and returns its engine; desktop.timings() each measurement's time.
 Object.assign(window, {
   desktop: {

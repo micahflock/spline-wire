@@ -1,9 +1,10 @@
 """One photo, measured in memory: bytes in, JSON-ready documents out, no files.
 
-This is the entry point of the browser build (docs/web-build.md, step 1): the
-web worker holds one PhotoSession per photo and calls it over postMessage.
-`process.process_photo` is a wrapper that adds the files, so the CLI, the
-local app and the browser cannot drift apart.
+It was the browser build's entry point under Pyodide (removed on 2026-11-25,
+D29 in docs/web-build.md); the website now runs its TypeScript port,
+web/src/pipeline/session.ts, which is tested against this one's documents.
+`process.process_photo` is a wrapper that adds the files, so the CLI and the
+documents the port is checked against cannot drift apart.
 
 A session keeps what is slow to get (the decoded photo, its detections), so
 measuring again after an edit, a new pin count or a new object side only

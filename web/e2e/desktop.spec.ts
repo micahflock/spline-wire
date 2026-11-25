@@ -117,10 +117,10 @@ const pins = () => page.locator(".here .ov-layer [data-k]");
 const viewBox = async () => (await page.locator(".here .photo-svg").getAttribute("viewBox"))!.split(" ").map(Number);
 const timings = () => page.evaluate(() => (window as unknown as DesktopWindow).desktop.timings());
 
-/** The scripts the page has loaded so far, Pyodide's own left out. */
+/** The scripts the page has loaded so far. */
 async function scripts(): Promise<{ name: string; bytes: number }[]> {
   return page.evaluate(() => performance.getEntriesByType("resource")
-    .filter((e) => /\.js(\?|$)/.test(e.name) && !/\/pyodide\//.test(e.name))
+    .filter((e) => /\.js(\?|$)/.test(e.name))
     .map((e) => ({ name: new URL(e.name).pathname, bytes: (e as PerformanceResourceTiming).decodedBodySize })));
 }
 
@@ -153,13 +153,13 @@ test("opens without loading any of the measuring engine", async () => {
   await page.waitForLoadState("networkidle");
   const js = await scripts();
   const all = await page.evaluate(() => performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname));
-  expect(all.filter((n) => /pyodide|wheels|core-manifest|chains\.json|worker/.test(n))).toEqual([]);
+  expect(all.filter((n) => /\.wasm|chains\.json|worker|engine|libheif/.test(n))).toEqual([]);
   jsAtOpen = new Set(js.map((s) => s.name));
   // Nor does any of it carry the engine's code: the core client (which makes
   // the worker), the photo editor and the phone's measuring logic come in here.ts's chunks.
   for (const { name } of js) {
     const text = await (await page.request.get(name)).text();
-    expect(text, name).not.toMatch(/new Worker|the measuring engine was restarted|Starting Python|pointercancel/);
+    expect(text, name).not.toMatch(/new Worker|the measuring engine was restarted|pointercancel/);
   }
   // GitHub Pages cannot send the headers for cross-origin isolation (COOP and
   // COEP), and neither does `vite preview`: everything here runs without it.
@@ -171,7 +171,7 @@ test("opens without loading any of the measuring engine", async () => {
 test("a picked photo: the pins as native Python finds them", async () => {
   const t0 = Date.now();
   await page.setInputFiles("#pick", pipe.photo);
-  // The TypeScript engine has nothing to load: no progress to show, no Pyodide.
+  // The engine has nothing to load: no progress to show.
   await expect(page.locator('.item.draft')).toContainText("pipe.jpg");
   await expect(pins()).toHaveCount(13, { timeout: 180_000 });
   await expect(page.locator(".here .engine")).toBeHidden();
@@ -188,8 +188,8 @@ test("a picked photo: the pins as native Python finds them", async () => {
   log(`photo to pins: ${(t.sinceDrop / 1000).toFixed(1)} s from the pick (engine load included; ${(wall / 1000).toFixed(1)} s in the test),`,
       `of which measuring ${(t.ms / 1000).toFixed(2)} s; pins ${worst.toFixed(3)} px from native`);
   log(`once the engine is needed: ${later.length} more scripts, ${kib(later.reduce((n, s) => n + s.bytes, 0))}`,
-      `(${later.map((s) => path.basename(s.name)).join(", ")}), and nothing of Pyodide`);
-  expect(later.some((s) => /pyodide/.test(s.name))).toBe(false);
+      `(${later.map((s) => path.basename(s.name)).join(", ")})`);
+  expect(later.some((s) => /libheif/.test(s.name))).toBe(false);    // a JPEG needs no HEIC decoder
 });
 
 test("the mouse: a click removes a pin and Undo brings it back; the wheel zooms and a drag pans, adding nothing", async () => {

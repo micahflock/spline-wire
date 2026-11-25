@@ -1,4 +1,4 @@
-"""The in-memory session the browser build runs: bytes in, JSON out."""
+"""The in-memory session (bytes in, JSON out) that the website's TypeScript session is checked against."""
 import json
 from dataclasses import asdict
 

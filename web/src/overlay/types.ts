@@ -4,7 +4,7 @@
 //                      │
 //                      ▼
 //                core "analyse"      which blobs are the chain, in order, and the tilt
-//                (splinewire/live.py, in the Pyodide worker, a few times a second)
+//                (pipeline/live.ts, as splinewire/live.py, in its own worker)
 //                      │
 //                      ▼
 //                  reading.ts        one FrameReading: what the coach needs to know about a frame

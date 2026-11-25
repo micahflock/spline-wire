@@ -152,7 +152,7 @@ export function measurementRows(r: MeasurementResult, expectedPins: number, foca
 
 /** What the engine is doing while it loads (8-11 s on a desktop, S1). */
 export const ENGINE_STAGE: Record<Progress["stage"], string> = {
-  runtime: "Starting Python…", packages: "Loading NumPy, SciPy and OpenCV…", starting: "Starting Spline Wire…", ready: "Ready",
+  ready: "Ready",
 };
 
 /** What the phone keeps (the list of photos): photos with their size, curves whose photo is gone, and the limit. */

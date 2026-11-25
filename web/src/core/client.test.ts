@@ -59,10 +59,10 @@ describe("CoreClient", () => {
     core.onProgress = (p) => seen.push(p);
     const load = core.preload();
     const w = workers[0]!;
-    w.reply({ event: "progress", progress: { stage: "runtime", fraction: 0 } });
+    w.reply({ event: "progress", progress: { stage: "ready", fraction: 0.5 } });
     w.reply({ event: "progress", progress: { stage: "ready", fraction: 1 } });
     w.fail(0, "person", "not a photo");
-    expect(seen).toEqual([{ stage: "runtime", fraction: 0 }, { stage: "ready", fraction: 1 }]);
+    expect(seen).toEqual([{ stage: "ready", fraction: 0.5 }, { stage: "ready", fraction: 1 }]);
     const err = await load.catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CoreError);
     expect((err as CoreError).failure.kind).toBe("person");

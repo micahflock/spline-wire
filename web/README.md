@@ -7,7 +7,7 @@ The website that replaced `SplineWire.exe` (retired 2026-11-18). The plan, decis
 npm install
 npm test            # vitest: relay, overlay and core client logic, no browser needed
 npm run typecheck
-npm run assets      # Pyodide, its packages, the splinewire wheel and chains.json -> public/ (needs uv)
+npm run assets      # chains.json and the Fusion add-in's zip -> public/ (needs uv)
 npm run dev         # the desktop page at /, the phone page at /phone/ (relay: cd relay && npm run relay)
 npm run build       # dist/
 npm run golden      # Python's detections and measurements on 191 scenes (the 167 benchmark renders
@@ -20,12 +20,10 @@ npm run e2e         # Playwright: builds, serves dist/, measures synthetic photo
 ```
 
 `npm run assets` (`scripts/assets.py`) must run before `dev`, `build` or `e2e`, and again after a
-change to `splinewire/` or `data/` (the wheel is rebuilt each time; downloads are kept while their
-sha256 matches). It also checks that `package.json`'s version, which the pages show, is
-`splinewire.__version__`: bump both together. Pyodide's core comes from the npm `pyodide` package, pinned in package-lock.json;
-its packages from jsdelivr at build time only, checked against Pyodide's lock; ezdxf as uv.lock pins
-it. The site serves all of it from its own origin. `public/core-manifest.json` says where each part
-is, so the worker hard-codes no file names. CI: `.github/workflows/web.yml` runs every check
+change to `data/` or `fusion/SplineWire/`. It also checks that `package.json`'s version, which the
+pages show, is `splinewire.__version__`: bump both together. (Until 2026-11-25 it also put Pyodide,
+its packages and the splinewire wheel under `public/` for a Python engine; D29 removed it, and the
+script deletes what an earlier run left.) CI: `.github/workflows/web.yml` runs every check
 above and the relay's (`relay/README.md`); `deploy.yml` deploys, by hand only (see Deploying).
 
 ## How the parts fit
@@ -42,9 +40,9 @@ camera ─▶ overlay ─▶ still      relay/outbox ══ relay ══▶ rela
 
 | Folder | What it is | State |
 |---|---|---|
-| `src/core/` | The page's side of the measuring engine. `types.ts` mirrors `splinewire/session.py`'s documents; `protocol.ts` is the worker's message contract; `client.ts` makes typed calls; `make-worker.ts` picks the engine. `engine.ts` (the default) answers with the TypeScript port in `src/pipeline/`; a HEIC photo the browser cannot decode (every browser but Safari) is handed to `worker.ts`, started inside it only then. `worker.ts` is the Python core under Pyodide, answering through `splinewire/bridge.py`; `?engine=python` in a page's address uses it for everything, to compare. Both keep at most two photos open, the least recently used closed first. | Tested with a fake worker (`client.test.ts`) and end to end in Chromium, both engines (`e2e/core.spec.ts`). |
+| `src/core/` | The page's side of the measuring engine. `types.ts` mirrors `splinewire/session.py`'s documents; `protocol.ts` is the worker's message contract; `client.ts` makes typed calls; `make-worker.ts` starts the worker. `engine.ts` answers with the TypeScript port in `src/pipeline/`; a HEIC photo the browser cannot decode (every browser but Safari) is decoded there with libheif in WebAssembly (`src/pipeline/heif.ts`, D28), loaded only then; `src/pipeline/photo-info.ts` is what it reports of a photo. It keeps at most two photos open, the least recently used closed first. (The Python core under Pyodide, `worker.ts` and `?engine=python`, was removed on 2026-11-25, D29.) | Tested with a fake worker (`client.test.ts`) and end to end in Chromium (`e2e/core.spec.ts`). |
 | `index.html`, `src/desktop/` | The desktop page, at the site's root (step 3): the pairing QR code, the list of curves (`selection.ts` which is shown, `title.ts` the tab title), the curve drawn in mm (`plot.ts`, `spline.ts`) with sharp corners a person marks by clicking its points (`corners.ts`, D27: rebuilt from the walls either side; `wrap-sim.ts` presses the snap-fit chain onto stepped profiles for its tests), Copy points, the downloads (`names.ts`), the link status (`status.ts`). `here.ts` measures a photo dropped on the page or picked with its button (D9) with the phone page's logic and the core worker; main.ts loads it with `import()` only then, so a visit that only receives curves loads none of the engine. Its curves join the list marked "measured here" (`Inbox.addLocal`). With `?fusion` it is the page in the Fusion add-in's palette (`fusion.ts`, the bridge and its contract with `fusion/SplineWire/palette.py`): its own pairing, curves into the sketch being edited, Insert, no clipboard or downloads. | Tested in Node, end to end with a test phone (`relay/`'s `check:desktop`) and measuring a dropped photo in Chromium (`e2e/desktop.spec.ts`); the `?fusion` mode with a stubbed add-in and a phone in Node (`e2e/fusion.spec.ts`). |
-| `phone/index.html`, `src/phone/` | The phone page (step 2). `photos.ts` keeps photos in IndexedDB under the core's photo ids, with each measurement's output files, so that a photo can be deleted to save space and its curve kept (`cleanupPlan`: past Settings, Photos kept, and with Delete photos, keep curves; Clear history deletes everything); `measurer.ts` is each photo's status (loading, queued, measuring, done, error) and the one-at-a-time queue; `settings.ts` the settings; `exif.ts` and `lenses.ts` the focal length per lens (D17); `camera-view.ts` the live camera with the overlay (D16), its hold bar and the diagnostics behind Debug; `drawings.ts` the page's drawings (the chain strip under the header, the history's tiles, the working curve card's crop of the photo); `taps.ts` the expanded view's double tap (fit) in front of the shared editor's taps; `send.ts` when a photo's curve goes to the computer and how it stays in step there (D26: sent once measured, each change a new revision of the same curve, stars, names and deletions both ways); `wording.ts` what is shown (in touch or mouse words: the desktop page uses it too); `main.ts` wires them to the page, laid out as `for UI review/phone/BRIEF.md` says (header with the chain's pins, Scan and Upload, the computer pill, the working curve card and its expanded view, the history grid, Settings). `sw.ts` (built to `sw.js` at the site's root) keeps the core's files cache-first, by the rules in `sw-rules.ts`. | Tested in Node and in Chromium at phone size (`e2e/phone.spec.ts`, which also needs `npm install` in `relay/`; `e2e/camera.spec.ts`, with Chromium's fake camera). Not tried on a phone. |
+| `phone/index.html`, `src/phone/` | The phone page (step 2). `photos.ts` keeps photos in IndexedDB under the core's photo ids, with each measurement's output files, so that a photo can be deleted to save space and its curve kept (`cleanupPlan`: past Settings, Photos kept, and with Delete photos, keep curves; Clear history deletes everything); `measurer.ts` is each photo's status (loading, queued, measuring, done, error) and the one-at-a-time queue; `settings.ts` the settings; `exif.ts` and `lenses.ts` the focal length per lens (D17); `camera-view.ts` the live camera with the overlay (D16), its hold bar and the diagnostics behind Debug; `drawings.ts` the page's drawings (the chain strip under the header, the history's tiles, the working curve card's crop of the photo); `taps.ts` the expanded view's double tap (fit) in front of the shared editor's taps; `send.ts` when a photo's curve goes to the computer and how it stays in step there (D26: sent once measured, each change a new revision of the same curve, stars, names and deletions both ways); `wording.ts` what is shown (in touch or mouse words: the desktop page uses it too); `main.ts` wires them to the page, laid out as `for UI review/phone/BRIEF.md` says (header with the chain's pins, Scan and Upload, the computer pill, the working curve card and its expanded view, the history grid, Settings). `sw.ts` (built to `sw.js` at the site's root) is the retired service worker, which removed Pyodide's cache and itself (D29); `main.ts` does the same on load. | Tested in Node and in Chromium at phone size (`e2e/phone.spec.ts`, which also needs `npm install` in `relay/`; `e2e/camera.spec.ts`, with Chromium's fake camera). Not tried on a phone. |
 | `src/photo/` | The photo editor both pages show: `view.ts` wires an SVG (the photo as its `<image>`, the markers of `draw.ts` over it) to `src/editor/`, for touch and mouse alike; `preview.ts` makes the downscaled copy it draws; `photo.css` the markers' look. | Through both pages' end-to-end tests; `draw.ts` also in Node. |
 | `e2e/`, `scripts/` | The Playwright tests (`core.spec.ts` the worker through the desktop page's `desktop.engine()`, `desktop.spec.ts`, `phone.spec.ts`; `native.py` makes the photos and the native reference) and the assets script. | |
 | `src/relay/` | Pairing and delivery between the phone and desktop pages: `crypto.ts` (one secret → room id + AES-GCM key), `messages.ts` (the versioned curve message, checked on arrival, and the clipboard table), `link.ts` (the reconnecting socket), `outbox.ts` / `inbox.ts` (at-least-once sending of each curve's latest revision, the desktop keeping the highest), `sync.ts` (stars, names and deletions kept in step: the later star or name wins, a deletion stays), `pairing.ts` (the QR link), `store.ts`. | Written; tested against `relay/memory-relay.ts` (`delivery.test.ts`; `sync.test.ts` with a model phone, the pages open together and apart), and over real sockets against both relays and in two Chromium pages (`relay/README.md`). |
@@ -67,7 +65,7 @@ camera ─▶ overlay ─▶ still      relay/outbox ══ relay ══▶ rela
   passed in, so every module here has tests that run in Node. Pages are thin.
 - **Errors for people** follow the repo's rule: a Python `ValueError`'s message is shown as is
   (`Failure.kind === "person"`); anything else is a bug and is shown with its type.
-- **Memory decides the shape of the core** (S1: 580 MB of wasm heap for one 12-megapixel photo):
+- **Memory decides the shape of the core** (a 12-megapixel photo is 48 MB decoded, and detection takes some 235 MB more):
   few photos open in the worker at once, bytes transferred not copied, `CoreClient.restart()` to
   give the memory back.
 
@@ -102,12 +100,13 @@ The site needs no server configuration:
 
 - **Paths.** `vite.config.ts` has `base: "./"`, so every address in the built pages is relative and
   the site works under the project site's path `/spline-wire/` (or any other) without a rebuild.
-  The phone page is `phone/` under it; the service worker, `sw.js`, sits at the site's root and
-  covers both pages.
+  The phone page is `phone/` under it. `sw.js` at the site's root is the retired service worker
+  (it cached Pyodide): it removes itself and its caches from browsers that installed it, and no page
+  registers it (`src/phone/sw.ts`, D29).
 - **Headers.** GitHub Pages cannot send custom headers, so the site cannot be cross-origin isolated
   (COOP/COEP). It does not need to be: nothing in it uses `SharedArrayBuffer` (checked in `src/`, the
-  built pages and Pyodide's own `pyodide.mjs` and `pyodide.asm.mjs`), Pyodide runs without it, and
+  built pages and libheif's `libheif.js`, a build without threads), and
   the end-to-end tests run against `vite preview`, which sends no such headers either
   (`e2e/desktop.spec.ts` asserts `crossOriginIsolated` is false).
-- **Size.** `dist/` is about 45 MB, almost all Pyodide and its packages (the largest file is SciPy's
-  wheel, 14 MB), well within the 1 GB GitHub Pages documents for a published site.
+- **Size.** `dist/` is about 4.4 MB, the largest files libheif's wasm (1.5 MB, fetched only for a HEIC
+  photo) and the decode-check spike's test image (1.5 MB), well within the 1 GB GitHub Pages documents for a published site.

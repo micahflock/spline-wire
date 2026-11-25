@@ -2,8 +2,8 @@ name: Web
 
 # The hosted build (web/) and its relay (web/relay/): typechecks, unit tests,
 # the relay's tests over real sockets (the Node dev relay and the Worker under
-# `wrangler dev`), the site's assets (Pyodide, its packages and the splinewire
-# wheel), the build, and every end-to-end check in Chromium: the core worker,
+# `wrangler dev`), the site's assets (the chain presets and the Fusion
+# add-in's zip), the build, and every end-to-end check in Chromium: the core worker,
 # the desktop page measuring a dropped photo and the phone page, all against
 # native Python on synthetic photos (npm run e2e); the two-tab relay check; the
 # desktop page paired with a test phone; the phone-capabilities spike page.
@@ -77,12 +77,6 @@ jobs:
 
       - name: Relay tests (the Worker under wrangler dev)
         run: npm run test:worker --prefix relay
-
-      # Pyodide's packages (~30 MB from jsdelivr) change only with the lock files.
-      - uses: actions/cache@v4
-        with:
-          path: web/public/pyodide
-          key: pyodide-${{ hashFiles('web/package-lock.json', 'web/scripts/assets.py') }}
 
       # Also checks that web/package.json's version is splinewire's.
       - name: Site assets
