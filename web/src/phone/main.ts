@@ -33,7 +33,7 @@ import { curveFrom } from "./curve";
 import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg } from "./drawings";
 import { TapFilter } from "./taps";
 import { NO_EXIF, exifOfFile, type Exif } from "./exif";
-import { focalOffer, isFront, learn, lensFocal, lensName, offerKey } from "./lenses";
+import { isFront, learn, lensFocal, lensName, mainLens, savedFocal } from "./lenses";
 import { Measurer, type Update } from "./measurer";
 import {
   KEEP_CURVES, PHOTO_FILES, PhotoStore, cleanupPlan, hasCurve, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord,
@@ -41,11 +41,12 @@ import {
 import { applyState, curveKey, delivery, deliveryText, displayName, nameOf, nextRevision, phoneState, sendOffer, setName, setStar, starOf, syncOf } from "./send";
 import { renamedFile } from "../desktop/names";
 import {
-  KEEP_PHOTO_CHOICES, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
+  KEEP_PHOTO_CHOICES, chainLabel, chainSpec, debugFromQuery, debugLeftovers, defaultPins, loadSettings, parseFocal, parsePins, presetKey,
+  saveSettings,
   type Settings, type Shade,
 } from "./settings";
 import {
-  ENGINE_STAGE, errorAdvice, errorTitle, failureText, measurementRows, photoFocalText, readNote, readWarning, spaceText,
+  ENGINE_STAGE, errorAdvice, errorTitle, failureText, focalStatus, measurementRows, photoFocalText, readNote, readWarning, spaceText,
 } from "./wording";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -60,6 +61,12 @@ const history_ = window.history;
 
 const store = new LocalStore("splinewire-phone:");
 let settings: Settings = loadSettings(store);
+// `?debug` turns debug mode on (and `?debug=0` off) and the phone remembers it (settings.ts).
+const debugAsked = debugFromQuery(location.search);
+if (debugAsked !== null && debugAsked !== settings.debug) {
+  settings = { ...settings, debug: debugAsked };
+  saveSettings(store, settings);
+}
 let chains: Record<string, ChainSpec> = {};
 
 const core = new CoreClient(() => makeCoreWorker());
@@ -83,7 +90,7 @@ const histories = new Map<string, EditHistory>();
 const editing = new Set<string>();
 
 function focalKey(): string {
-  return JSON.stringify([settings.savedFocal35, settings.focalOverride35]);
+  return JSON.stringify([savedFocal(settings)?.focal35 ?? null, settings.focalOverride35]);
 }
 
 function options(id: string): MeasureOptions | null {
@@ -93,7 +100,7 @@ function options(id: string): MeasureOptions | null {
   const search = r.camera && r.pixels ? stillSearchBox(r.camera.frameChain, r.camera.frameSize, r.pixels) : null;
   return {
     chain: chainSpec(chains, r.chain, r.pins, r.shade), side: r.side, edits: r.edits,
-    saved_focal_35mm: settings.savedFocal35, focal_override_35mm: settings.focalOverride35 ?? r.focal?.focal35 ?? null,
+    saved_focal_35mm: savedFocal(settings)?.focal35 ?? null, focal_override_35mm: settings.focalOverride35 ?? r.focal?.focal35 ?? null,
     ...(search ? { search_px: search } : {}),
   };
 }
@@ -780,7 +787,7 @@ function renderList(): void {
   $("photos-box").hidden = order.length === 0;
   const all = order.map((id) => records.get(id)!);
   const withPhoto = all.filter((r) => !r.photoDeleted);
-  $("space").textContent = spaceText(withPhoto.length, withPhoto.reduce((n, r) => n + r.size, 0), all.length - withPhoto.length, settings.keepPhotos);
+  $("space").textContent = spaceText(withPhoto.length, withPhoto.reduce((n, r) => n + r.size, 0), all.length - withPhoto.length);
   $("free-space").hidden = withPhoto.length === 0;
   const shown = fullHistory ? order : order.slice(0, TILES);
   $("photos").replaceChildren(...shown.map((id) => tile(records.get(id)!)));
@@ -1379,7 +1386,13 @@ function renderSettings(): void {
   select.value = presetKey(chains, settings.chain);
   $<HTMLSelectElement>("s-shade").value = settings.shade;
   $<HTMLSelectElement>("s-live").value = settings.liveSize;
+  // The chain-only view is for debugging; one chosen there stays shown, so the menu tells the truth.
+  $("s-view-chain").hidden = !settings.debug && settings.liveView !== "chain";
   $<HTMLSelectElement>("s-view").value = settings.liveView;
+  $("debug-box").hidden = !settings.debug;
+  const leftovers = settings.debug ? [] : debugLeftovers(settings, chains);
+  $("debug-note").hidden = !leftovers.length;
+  $("debug-note").textContent = leftovers.length ? `Debug settings still on: ${leftovers.join(", ")}. Open the page with ?debug to change them.` : "";
   document.documentElement.classList.toggle("photos-grey", photosGrey());
   $<HTMLSelectElement>("s-keep").value = String(settings.keepPhotos);
   settingsPins.value = String(defaultPins(settings, chains));
@@ -1388,11 +1401,9 @@ function renderSettings(): void {
   if (document.activeElement !== focal) focal.value = settings.savedFocal35?.toString() ?? "";
   const override = $<HTMLInputElement>("s-override");
   if (document.activeElement !== override) override.value = settings.focalOverride35?.toString() ?? "";
-  const offer = focalOffer(settings);
-  $("s-offer").hidden = !offer;
-  if (offer) {
-    $("s-offer-text").textContent = `Use ${offer.focal35} mm from your last photo (${offer.name}) for photos without camera data?`;
-  }
+  const saved = savedFocal(settings), learned = mainLens(settings);
+  focal.placeholder = learned ? `${learned.focal35}` : "none";
+  $("s-focal-status").textContent = focalStatus(saved, learned);
   $("s-lenses").replaceChildren(...settings.lenses.map((l) => el("li", {},
     el("span", { textContent: `${l.name}${l.ultraWide ? " (ultra-wide)" : ""}` }), el("span", { textContent: `${l.focal35} mm` }))));
   $("s-teach-note").hidden = settings.lenses.length > 0;
@@ -1468,13 +1479,13 @@ function focalInput(id: string, field: "savedFocal35" | "focalOverride35"): void
 }
 focalInput("s-focal", "savedFocal35");
 focalInput("s-override", "focalOverride35");
-$("s-offer-yes").onclick = () => {
-  const offer = focalOffer(settings);
-  if (offer) setSettings({ ...settings, savedFocal35: offer.focal35 }, true);
-};
-$("s-offer-no").onclick = () => {
-  const offer = focalOffer(settings);
-  if (offer) setSettings({ ...settings, declinedOffer: offerKey(offer) });
+$("debug-off").onclick = () => {
+  setSettings({ ...settings, debug: false });
+  // Off the address too, so a reload does not turn it on again.
+  const url = new URL(location.href);
+  url.searchParams.delete("debug");
+  window.history.replaceState(window.history.state, "", url);
+  toast("Debug mode is off. Open the page with ?debug to turn it on again.");
 };
 
 // Teaching the focal length from any photo of this phone's camera (D17): what
@@ -1510,7 +1521,9 @@ $<HTMLInputElement>("s-teach").onchange = async (e) => {
     toast("This browser can't read that photo's size, so its focal length can't be learned from it.", 7000);
     return;
   }
-  setSettings(learn(settings, exif, pixels));
+  const before = focalKey();
+  // A new main camera changes the focal length for photos without camera data: the open one is measured again.
+  setSettings(learn(settings, exif, pixels), focalKey() !== before);
   toast(`Learned ${exif.focal35} mm for ${lensName(exif)}.`, 5000);
   // Photos already taken with that lens, which lacked it, are measured with it now.
   for (const r of records.values()) {

@@ -103,45 +103,31 @@
 
     <div class="grp">
       <h3>Chain</h3>
-      <div class="row"><label for="s-chain">Chain</label><select id="s-chain"></select></div>
       <div class="row"><label for="s-shade">Colours</label><select id="s-shade">
         <option value="light">Light dots or rims on dark links</option>
         <option value="dark">Dark dots or rims on light links</option></select></div>
     </div>
 
     <div class="grp">
-      <h3>Live camera</h3>
-      <div class="row"><label for="s-live">Speed</label><select id="s-live">
-        <option value="fast">Fast once the focal length is known</option>
-        <option value="full">Always full resolution</option></select></div>
-      <div class="row"><label for="s-view">Shows</label><select id="s-view">
-        <option value="grey">The video in grey, dimmed, with the chain over it</option>
-        <option value="color">The video in colour, with the chain over it</option>
-        <option value="chain">Only the chain it finds, no video</option></select></div>
+      <h3>Camera</h3>
+      <div class="row"><label for="s-view">Live view</label><select id="s-view">
+        <option value="grey">Grey, dimmed</option>
+        <option value="color">In colour</option>
+        <option value="chain" id="s-view-chain">Only the chain, no video</option></select></div>
       <div class="row"><span>Use the system camera instead</span>
         <label class="btn" id="take-label">Take photo<input type="file" accept="image/*" capture="environment" id="take" class="file"></label></div>
-      <p class="small">The system camera's photos lose the focal length on iPhone and Pixel phones, so it then comes from your
-        saved or learned focal length below, or is estimated from the chain, which is less accurate.</p>
+      <p class="small">Its photos lose the focal length on iPhone and Pixel phones: the one under Focal length is used instead.</p>
     </div>
 
     <div class="grp">
       <h3>Focal length</h3>
-      <div class="row"><label for="s-focal">Phone's focal length, mm <small class="mono muted">(35 mm eq.)</small></label>
+      <div class="row"><label for="s-focal">Main camera, mm <small class="mono muted">(35 mm eq.)</small></label>
         <input id="s-focal" class="num" inputmode="decimal" placeholder="none"></div>
-      <div class="offer" id="s-offer" hidden>
-        <span id="s-offer-text"></span>
-        <button type="button" class="btn" id="s-offer-yes">Use it</button>
-        <button type="button" class="btn plain" id="s-offer-no">No</button>
-      </div>
-      <p class="small">Used only for photos that arrive without camera data, which iPhones often strip. Main (1×) camera:
-        24&nbsp;mm on iPhone 14&nbsp;Pro, iPhone 15 and later; 26&nbsp;mm on earlier models. Shoot at 1×.</p>
+      <p class="small" id="s-focal-status" role="status"></p>
       <ul class="lenses" id="s-lenses" aria-label="Focal length by lens"></ul>
-      <p class="small" id="s-teach-note">Learned from photos that carry it, never from the front camera. Android's in-page camera
-        often leaves it out: teach it once from any photo this phone's main camera took.</p>
       <div class="row"><span>Teach from a photo</span><label class="btn">Choose photo<input type="file" accept="image/*" id="s-teach" class="file"></label></div>
-      <div class="row"><label for="s-override">Use for every photo, mm</label>
-        <input id="s-override" class="num" inputmode="decimal" placeholder="off"></div>
-      <p class="small">Leave it off unless a lens reports a wrong focal length.</p>
+      <p class="small" id="s-teach-note">Learned from any photo this phone's back camera took, never the front camera.
+        Android's in-page camera often leaves it out.</p>
       <p class="small bad-text" id="s-error" role="alert"></p>
     </div>
 
@@ -157,8 +143,21 @@
         <button type="button" class="btn" id="free-space">Delete photos, keep curves</button>
         <button type="button" class="btn" id="clear-all">Clear history</button>
       </div>
-      <p class="small">Older photos are deleted to save space and their curves kept: they can still be copied, downloaded
-        and sent, but their pins can no longer be fixed. Photos stay on this phone. Only the measured curve is sent.</p>
+      <p class="small">An older photo is deleted and its curve kept: it can still be copied, downloaded and sent, but its pins
+        can no longer be fixed. Photos never leave this phone; only the curve is sent.</p>
+    </div>
+
+    <div class="grp debug" id="debug-box" hidden>
+      <h3>Debug</h3>
+      <div class="row"><label for="s-chain">Chain</label><select id="s-chain"></select></div>
+      <div class="row"><label for="s-live">Live stream</label><select id="s-live">
+        <option value="fast">Fast (1440×1920)</option>
+        <option value="full">Full sensor</option></select></div>
+      <div class="row"><label for="s-override">Focal override, mm</label>
+        <input id="s-override" class="num" inputmode="decimal" placeholder="off"></div>
+      <p class="small">The override is used for every photo, over its camera data: for a lens whose EXIF is off. Live view
+        above also offers the chain only, and the camera shows a DEBUG key.</p>
+      <div class="acts"><button type="button" class="btn" id="debug-off">Leave debug mode</button></div>
     </div>
 
     <div class="grp tips">
@@ -170,6 +169,7 @@
         <li>Avoid glare and hard shadows on the chain.</li>
       </ul>
     </div>
+    <p class="small" id="debug-note" hidden></p>
     <footer class="foot mono" id="build"></footer>
   </section>
 </main>
@@ -225,7 +225,7 @@
     <div class="cam-say" role="status" aria-live="polite"><span class="cam-count mono" id="cam-count" aria-live="off"></span><b id="cam-say-title"></b><span id="cam-say-detail"></span></div>
     <div class="cam-info mono" id="cam-info" hidden></div>
     <div class="cam-bottom">
-      <button type="button" class="cam-debug" id="cam-debug" aria-expanded="false" aria-controls="cam-info">DEBUG</button>
+      <button type="button" class="cam-debug" id="cam-debug" aria-expanded="false" aria-controls="cam-info" hidden>DEBUG</button>
       <button type="button" class="cam-teach" id="cam-teach" hidden>Focal length unknown: teach it from a photo</button>
     </div>
   </div>

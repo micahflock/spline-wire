@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MeasurementResult } from "../core/types";
-import { errorAdvice, errorTitle, failureText, measurementRows, numbers, photoFocalText, readNote, readWarning, spaceText } from "./wording";
+import { errorAdvice, errorTitle, failureText, focalStatus, measurementRows, numbers, photoFocalText, readNote, readWarning, spaceText } from "./wording";
 
 describe("wording", () => {
   it("puts the core's warnings in plain words", () => {
@@ -58,17 +58,25 @@ describe("wording", () => {
 describe("a focal length the page supplied", () => {
   it("says where it came from", () => {
     expect(photoFocalText({ why: "lens", lens: "Pixel 7 Pro back camera 6.81mm f/1.85" })).toMatch(/^remembered for Pixel 7 Pro/);
-    expect(photoFocalText({ why: "frame", lens: null })).toMatch(/saved focal length.*video frame/);
+    expect(photoFocalText({ why: "frame", lens: null })).toMatch(/focal length in Settings.*video frame/);
     expect(photoFocalText({ why: "frame", lens: "Back Camera" })).toMatch(/camera's last photo/);
   });
 });
 
 describe("what the phone keeps", () => {
   it("counts photos with their size and curves without their photo", () => {
-    expect(spaceText(3, 12_400_000, 2, 10)).toBe(
-      "On this phone: 3 photos (12 MB) and 2 curves without their photos. The newest 10 photos are kept; older ones keep only their curve (Settings, Photos kept).");
-    expect(spaceText(1, 3_210_000, 0, 1)).toBe(
-      "On this phone: 1 photo (3.2 MB). Only the newest photo is kept; older ones keep only their curve (Settings, Photos kept).");
-    expect(spaceText(0, 0, 1, 3)).toMatch(/^On this phone: 1 curve without its photo\. /);
+    expect(spaceText(3, 12_400_000, 2)).toBe("3 photos (12 MB) and 2 curves without their photos");
+    expect(spaceText(1, 3_210_000, 0)).toBe("1 photo (3.2 MB)");
+    expect(spaceText(0, 0, 1)).toBe("1 curve without its photo");
+    expect(spaceText(0, 0, 0)).toBe("Nothing yet");
+  });
+
+  it("says where the focal length for photos without camera data comes from", () => {
+    const lens = { name: "Pixel 7 Pro back camera 6.81mm f/1.85", focal35: 24 };
+    expect(focalStatus({ focal35: 24, lens }, lens)).toBe(
+      "24 mm, learned from Pixel 7 Pro back camera 6.81mm f/1.85. Used for photos without camera data, which iPhones often strip.");
+    expect(focalStatus({ focal35: 26, lens: null }, lens)).toMatch(/Clear it to use the 24 mm learned from Pixel 7 Pro/);
+    expect(focalStatus({ focal35: 26, lens: null }, null)).toMatch(/Clear it to use one learned from a photo\.$/);
+    expect(focalStatus(null, null)).toMatch(/^Not known yet: .* estimated from the chain/);
   });
 });

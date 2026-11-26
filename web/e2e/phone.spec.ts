@@ -313,22 +313,60 @@ test("a reload keeps the photo and its measurement", async () => {
   await expect(page.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
 });
 
-test("settings learn a focal length per lens, not from a selfie, and offer it as the saved one", async () => {
+test("settings learn a focal length per lens, not from a selfie, and take the main camera's as the saved one", async () => {
   // The synthetic photo has the 35 mm tag but names no camera or lens: nothing to remember it under (D17).
-  await expect(page.locator("#s-offer")).toBeHidden();
+  await expect(page.locator("#s-focal-status")).toContainText("Not known yet");
   await page.setInputFiles("#s-teach", selfie);
   await expect(page.locator("#toast")).toContainText("front camera");
   await expect(page.locator("#s-lenses li")).toHaveCount(0);
   await page.setInputFiles("#s-teach", lensPhoto);
   await expect(page.locator("#toast")).toContainText("Learned 26 mm for Phone back camera 4.25mm f/1.8");
   await expect(page.locator("#s-lenses li")).toHaveCount(1);
-  await expect(page.locator("#s-offer-text")).toHaveText("Use 26 mm from your last photo (Phone back camera 4.25mm f/1.8) for photos without camera data?");
+  // Taken without asking: nothing typed, the learned value shown and used.
+  await expect(page.locator("#s-focal")).toHaveValue("");
+  await expect(page.locator("#s-focal")).toHaveAttribute("placeholder", "26");
+  await expect(page.locator("#s-focal-status")).toHaveText(
+    "26 mm, learned from Phone back camera 4.25mm f/1.8. Used for photos without camera data, which iPhones often strip.");
+  // The settings for testing wait for debug mode.
   await expect(page.locator("#s-chain")).toHaveValue("snap");
+  for (const id of ["#debug-box", "#s-chain", "#s-live", "#s-override", "#debug-note"]) await expect(page.locator(id)).toBeHidden();
+  expect(await page.locator("#s-view option").evaluateAll((o) => o.filter((x) => !(x as HTMLOptionElement).hidden).map((x) => (x as HTMLOptionElement).value)))
+    .toEqual(["grey", "color"]);
   await page.locator("#settings").scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(SHOTS, "settings-light.png"), fullPage: true });
-  await tapButton("Use it");
-  await expect(page.locator("#s-focal")).toHaveValue("26");
-  await expect(page.locator("#s-offer")).toBeHidden();
+  await page.locator("#s-focal").fill("24");
+  await page.locator("#s-focal").blur();
+  await expect(page.locator("#s-focal-status")).toContainText("Clear it to use the 26 mm learned from Phone back camera 4.25mm f/1.8.");
+  await page.locator("#s-focal").fill("");
+  await page.locator("#s-focal").blur();
+  await expect(page.locator("#s-focal-status")).toContainText("26 mm, learned from");
+});
+
+test("debug mode, from ?debug, shows the settings for testing until left, and their leftovers are named outside it", async () => {
+  await page.goto("phone/?debug");
+  await expect(page.locator("#debug-box")).toBeVisible();
+  await expect(page.locator("#s-chain")).toHaveValue("snap");
+  await page.locator("#s-override").fill("25");
+  await page.locator("#s-override").blur();
+  await page.selectOption("#s-view", "chain");
+  await page.locator("#debug-box").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS, "settings-debug.png"), fullPage: true });
+  await page.goto("phone/");                                           // remembered without the address
+  await expect(page.locator("#debug-box")).toBeVisible();
+  await tapButton("Leave debug mode");
+  await expect(page.locator("#debug-box")).toBeHidden();
+  expect(new URL(page.url()).searchParams.has("debug")).toBe(false);
+  await expect(page.locator("#debug-note")).toHaveText(
+    "Debug settings still on: focal override 25 mm, chain-only live view. Open the page with ?debug to change them.");
+  await expect(page.locator("#s-view")).toHaveValue("chain");          // still shown while chosen
+  await page.goto("phone/?debug");
+  await page.locator("#s-override").fill("");
+  await page.locator("#s-override").blur();
+  await page.selectOption("#s-view", "grey");
+  await page.goto("phone/?debug=0");
+  await expect(page.locator("#debug-box")).toBeHidden();
+  await expect(page.locator("#debug-note")).toBeHidden();
+  await expect(page.locator("#s-view-chain")).toBeHidden();
 });
 
 test("an error is shown as is, and the photo can still be fixed by hand", async () => {

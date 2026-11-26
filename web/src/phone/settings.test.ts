@@ -3,7 +3,8 @@ import type { ChainSpec } from "../core/types";
 import { MemoryStore } from "../relay/store";
 import { learn } from "./lenses";
 import {
-  DEFAULT_SETTINGS, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings,
+  DEFAULT_SETTINGS, chainLabel, chainSpec, debugFromQuery, debugLeftovers, defaultPins, loadSettings, parseFocal, parsePins, presetKey,
+  saveSettings,
 } from "./settings";
 
 const chains: Record<string, ChainSpec> = {
@@ -15,8 +16,8 @@ describe("settings", () => {
   it("start from the defaults and survive a round trip", () => {
     const store = new MemoryStore();
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
-    const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const, photoMode: "upload" as const,
-      shade: "dark" as const, keepPhotos: 3, liveView: "color" as const };
+    const s = { ...DEFAULT_SETTINGS, chain: "snap", pins: 9, savedFocal35: 26, side: "outside" as const,
+      shade: "dark" as const, keepPhotos: 3, liveView: "color" as const, debug: true };
     saveSettings(store, s);
     expect(loadSettings(store)).toEqual(s);
   });
@@ -24,12 +25,32 @@ describe("settings", () => {
   it("drop fields that are out of range or of the wrong type", () => {
     const store = new MemoryStore();
     store.set("phone-settings", JSON.stringify({
-      chain: 3, pins: 2, savedFocal35: 4, focalOverride35: "26", side: "left", lenses: [{ key: "x" }], cameras: { a: 1 }, camera: "Back Camera", photoMode: "file",
-      keepPhotos: 7, liveView: "none",
+      chain: 3, pins: 2, savedFocal35: 4, focalOverride35: "26", side: "left", lenses: [{ key: "x" }], cameras: { a: 1 }, camera: "Back Camera",
+      keepPhotos: 7, liveView: "none", debug: "yes",
     }));
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     store.set("phone-settings", "{not json");
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it("drop the fields of earlier builds: the Live/Upload switch and the declined focal offer", () => {
+    const store = new MemoryStore();
+    store.set("phone-settings", JSON.stringify({ photoMode: "upload", declinedOffer: "Google Pixel 7 Pro @ 6.81 mm=24", savedFocal35: 26 }));
+    expect(loadSettings(store)).toEqual({ ...DEFAULT_SETTINGS, savedFocal35: 26 });
+  });
+
+  it("take debug mode from the address, and name the debug settings left on outside it", () => {
+    expect(debugFromQuery("")).toBeNull();
+    expect(debugFromQuery("?relay=x")).toBeNull();
+    expect(debugFromQuery("?debug")).toBe(true);
+    expect(debugFromQuery("?relay=x&debug=1")).toBe(true);
+    expect(debugFromQuery("?debug=0")).toBe(false);
+    expect(debugFromQuery("?debug=off")).toBe(false);
+    expect(debugLeftovers(DEFAULT_SETTINGS, chains)).toEqual([]);
+    expect(debugLeftovers({ ...DEFAULT_SETTINGS, chain: "default" }, chains)).toEqual([]);   // an old name follows the default
+    expect(debugLeftovers({ ...DEFAULT_SETTINGS, chain: "oring", focalOverride35: 25, liveSize: "full", liveView: "chain" }, chains))
+      .toEqual(["O-ring chain", "focal override 25 mm", "full-resolution live stream", "chain-only live view"]);
+    expect(debugLeftovers({ ...DEFAULT_SETTINGS, liveView: "color" }, chains)).toEqual([]);  // colour is a setting for everyone
   });
 
   it("show the live camera grey by default, keeping a chain-only view chosen before (liveShows)", () => {

@@ -102,8 +102,8 @@ export function failureText(f: Failure): { title: string; text: string; bug: boo
 
 export const FOCAL_SOURCE: Record<FocalSource, string> = {
   exif: "from the photo",
-  override: "your override (Settings)",
-  default: "your saved focal length (Settings)",
+  override: "the focal override (Settings, debug)",
+  default: "the focal length in Settings",
   estimated: "estimated from the chain",
 };
 
@@ -116,7 +116,7 @@ export const SIDE_TEXT = {
  * PhotoRecord.focal): the core only sees an override. */
 export function photoFocalText(f: { why: "lens" | "frame"; lens: string | null }): string {
   if (f.why === "lens") return `remembered for ${f.lens ?? "this lens"} (the photo had no 35 mm focal length)`;
-  return f.lens ? `this camera's last photo (a video frame has no camera data)` : "your saved focal length (a video frame has no camera data)";
+  return f.lens ? `this camera's last photo (a video frame has no camera data)` : "the focal length in Settings (a video frame has no camera data)";
 }
 
 /** The numbers under the photo, as [label, value, detail, warn]. `focalDetail`
@@ -156,12 +156,20 @@ export const ENGINE_STAGE: Record<Progress["stage"], string> = {
 };
 
 /** What the phone keeps (the list of photos): photos with their size, curves whose photo is gone, and the limit. */
-export function spaceText(photos: number, bytes: number, curvesOnly: number, keepPhotos: number): string {
+export function spaceText(photos: number, bytes: number, curvesOnly: number): string {
   const mb = bytes / 1e6;
   const size = mb >= 10 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
   const kept = [photos ? `${photos === 1 ? "1 photo" : `${photos} photos`} (${size})` : "",
     curvesOnly ? `${curvesOnly === 1 ? "1 curve" : `${curvesOnly} curves`} without ${curvesOnly === 1 ? "its photo" : "their photos"}` : ""]
     .filter(Boolean).join(" and ");
-  const limit = keepPhotos === 1 ? "Only the newest photo is kept" : `The newest ${keepPhotos} photos are kept`;
-  return `On this phone: ${kept || "nothing"}. ${limit}; older ones keep only their curve (Settings, Photos kept).`;
+  return kept || "Nothing yet";
+}
+
+/** Settings, Focal length: where the value for photos without camera data comes from. */
+export function focalStatus(saved: { focal35: number; lens: { name: string } | null } | null, learned: { name: string; focal35: number } | null): string {
+  const use = "Used for photos without camera data, which iPhones often strip.";
+  if (saved?.lens) return `${saved.focal35} mm, learned from ${saved.lens.name}. ${use}`;
+  if (saved) return `${use} Clear it to use ${learned ? `the ${learned.focal35} mm learned from ${learned.name}` : "one learned from a photo"}.`;
+  return "Not known yet: photos without camera data, which iPhones often strip, are estimated from the chain, which is less "
+    + "accurate. Teach it from a photo, or type it: 24 mm on iPhone 14 Pro, 15 and later; 26 mm on earlier models.";
 }

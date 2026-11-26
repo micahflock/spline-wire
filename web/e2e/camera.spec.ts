@@ -273,12 +273,12 @@ test("without ImageCapture (Firefox) the still is the video frame, measured with
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
   await expect(page.locator("#overlay [data-k]")).toHaveCount(13, { timeout: 30_000 });
   await expect(page.locator("#r-meta")).toContainText("page camera, video frame");
-  await expect(page.locator("#numbers")).toContainText("your saved focal length (a video frame has no camera data)");
+  await expect(page.locator("#numbers")).toContainText("the focal length in Settings (a video frame has no camera data)");
   await expect(page.locator("#numbers")).toContainText("24.0 mm");
   log(`frame still: ${(await stats()).still}; ${await page.locator("#r-meta").textContent()}`);
 });
 
-test("Scan opens the camera and closing it gives it back; Upload never opens it; the diagnostics wait behind Debug", async () => {
+test("Scan opens the camera and closing it gives it back; Upload never opens it; the diagnostics wait behind Debug, in debug mode", async () => {
   // No mode switch and no Upload key in the camera view (for UI review/phone/BRIEF.md): Scan and Upload are two keys.
   await expect(page.locator("#mode-live, #mode-upload, #cam-upload")).toHaveCount(0);
   await expect(page.locator("#cam")).toBeHidden();
@@ -292,6 +292,13 @@ test("Scan opens the camera and closing it gives it back; Upload never opens it;
   await expect.poll(liveTracks).toBe(1);
   expect(await page.evaluate(() => (window as unknown as PhoneWindow).__streams.length)).toBe(opened + 1);
   await expect(page.locator("#cam-info")).toBeHidden();
+  await expect(page.locator("#cam-debug")).toBeHidden();               // only in debug mode
+  await page.locator("#cam-close").click();
+  await expect(page.locator("#cam")).toBeHidden();
+  await page.goto("phone/?debug");
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await expect.poll(liveTracks).toBe(1);
   await page.locator("#cam-debug").click();
   await expect(page.locator("#cam-info")).toBeVisible();
   await expect(page.locator("#cam-debug")).toHaveAttribute("aria-expanded", "true");
@@ -309,6 +316,8 @@ test("Scan opens the camera and closing it gives it back; Upload never opens it;
   await page.locator("#upload").click();
   expect((await chooser).isMultiple()).toBe(true);
   expect(await liveTracks()).toBe(0);
+  await page.goto("phone/?debug=0");                                   // out of debug mode for the tests after
+  await expect(page.locator("#debug-box")).toBeHidden();
 });
 
 test("a permission prompt that hides the page does not close the camera view (iOS, the first tap of a visit)", async () => {
