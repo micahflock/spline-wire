@@ -20,6 +20,7 @@
 
 import type { Gray } from "./cv";
 import { PipelineError } from "./errors";
+import { boxDownscale, type Rgba } from "../photo/downscale";
 
 // The parts of libheif-js used here (its own types leave out the JS wrapper).
 interface HeifChannel { id: number; width: number; height: number; stride: number; data: Uint8Array }
@@ -52,8 +53,11 @@ export function grayFromRgbRows(rgb: Uint8Array, width: number, height: number, 
   return { width, height, data };
 }
 
-/** Decode a HEIF photo's primary image to gray, upright. `name` is for messages. */
-export async function decodeHeifToGray(bytes: Uint8Array, name: string, factory: LibheifFactory, wasm: ArrayBuffer | Uint8Array): Promise<Gray> {
+/** Decode a HEIF photo's primary image to gray, upright. `name` is for messages.
+ * With `previewSize` (from photo/preview.ts's previewSizeOf, given the upright
+ * size), also the colour copy the pages draw, which their browser cannot make. */
+export async function decodeHeif(bytes: Uint8Array, name: string, factory: LibheifFactory, wasm: ArrayBuffer | Uint8Array,
+  previewSize?: (pixels: { width: number; height: number }) => { width: number; height: number }): Promise<{ gray: Gray; preview: Rgba | null }> {
   let ready!: () => void;
   const initialized = new Promise<void>((resolve) => (ready = resolve));
   const lib = factory({ wasmBinary: wasm, onRuntimeInitialized: () => ready() });
@@ -68,7 +72,13 @@ export async function decodeHeifToGray(bytes: Uint8Array, name: string, factory:
     try {
       const ch = out.channels.find((c) => c.id === lib.heif_channel.heif_channel_interleaved);
       if (!ch) throw new PipelineError(`could not read the photo ${name}: the HEIF image has no RGB pixels`);
-      return grayFromRgbRows(ch.data, ch.width, ch.height, ch.stride);
+      const gray = grayFromRgbRows(ch.data, ch.width, ch.height, ch.stride);
+      let preview: Rgba | null = null;
+      if (previewSize) {
+        const size = previewSize({ width: ch.width, height: ch.height });
+        preview = boxDownscale(ch.data, ch.width, ch.height, ch.stride, 3, size.width, size.height);
+      }
+      return { gray, preview };
     } finally {
       lib.heif_image_release(out.image);
     }

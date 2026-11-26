@@ -17,7 +17,7 @@ import "../photo/photo.css";
 import "./here.css";
 import { CoreClient } from "../core/client";
 import { makeCoreWorker } from "../core/make-worker";
-import { CoreError, type Commands, type Failure, type Progress } from "../core/protocol";
+import { CoreError, type Commands, type EnginePreviews, type Failure, type Progress } from "../core/protocol";
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, Side } from "../core/types";
 import { EditHistory, editsAfterTap } from "../editor/edits";
 import type { Pt } from "../editor/viewport";
@@ -27,7 +27,7 @@ import type { Status } from "../phone/photos";
 import { SHADE_TEXT, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings, type Settings,
   type Shade } from "../phone/settings";
 import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "../phone/wording";
-import { greyCopy, previews } from "../photo/preview";
+import { greyCopy, previews, type Previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
 import { pack } from "../relay/files";
 import type { Curve } from "../relay/messages";
@@ -46,6 +46,8 @@ export interface Engine {
   /** The worker died: the next load() starts a new one. */
   lost(): void;
   listen(fn: (p: Progress) => void): () => void;
+  /** The previews the engine makes of a photo this browser cannot draw (HEIC outside Safari), once it opens it. */
+  onPreviews(photo: string, fn: (p: EnginePreviews) => void): () => void;
 }
 
 let shared: Engine | null = null;
@@ -55,6 +57,8 @@ export function engine(siteRoot: string): Engine {
   const core = new CoreClient(() => makeCoreWorker());
   const progress: Engine["progress"] = [];
   const listeners = new Set<(p: Progress) => void>();
+  const previewTakers = new Map<string, (p: EnginePreviews) => void>();
+  core.onPreviews = (photo, p) => previewTakers.get(photo)?.(p);
   core.onProgress = (p) => {
     progress.push({ ...p, t: Math.round(performance.now()) });
     for (const fn of listeners) fn(p);
@@ -87,6 +91,10 @@ export function engine(siteRoot: string): Engine {
     listen(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    onPreviews(photo, fn) {
+      previewTakers.set(photo, fn);
+      return () => previewTakers.delete(photo);
     },
   };
   return shared;
@@ -144,6 +152,7 @@ export class Draft {
   private closed = false;
   private previewUrl: string | null = null;
   private readonly unlisten: () => void;
+  private readonly unlistenPreviews: () => void;
 
   constructor(private readonly file: File, private readonly host: DraftHost) {
     this.name = file.name || "photo.jpg";
@@ -163,6 +172,8 @@ export class Draft {
       update: (_id, u) => this.onUpdate(u),
     });
     this.unlisten = this.engine.listen((p) => this.progress(p));
+    // Before the first measurement opens the photo, so a HEIC this browser cannot draw is drawn from the engine's copy.
+    this.unlistenPreviews = this.engine.onPreviews(this.id, (p) => void this.showEnginePhoto(p));
     this.wire();
     this.render();
     void this.showPhoto();
@@ -183,6 +194,7 @@ export class Draft {
     if (this.closed) return;
     this.closed = true;
     this.unlisten();
+    this.unlistenPreviews();
     this.measurer.forget(this.id);
     if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
     void this.engine.core.call("close", { photo: this.id }).catch(() => {});
@@ -275,10 +287,24 @@ export class Draft {
 
   private async showPhoto(): Promise<void> {
     const made = await previews(this.file);
+    if (!made && this.previewUrl) return;               // the engine's copy came first (HEIC outside Safari)
+    await this.drawPhoto(made);
+  }
+
+  /** The engine's copy of a photo this browser cannot decode, made when it opened it for measuring. */
+  private async showEnginePhoto(p: EnginePreviews): Promise<void> {
+    if (this.previewUrl) return;                         // the browser drew it after all
+    await this.drawPhoto({ pixels: p.pixels, previewSize: p.previewSize, preview: p.preview });
+  }
+
+  private async drawPhoto(made: Previews | null): Promise<void> {
     // The desktop page shows photos grey: the pins and the curve stand out (the core measures the original).
     const grey = made && (await greyCopy(made.preview));
     if (this.closed) return;
-    if (made) this.previewUrl = URL.createObjectURL(grey ?? made.preview);
+    if (made) {
+      if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
+      this.previewUrl = URL.createObjectURL(grey ?? made.preview);
+    }
     this.editor.setImage(this.previewUrl, made?.pixels ?? null);
     this.editor.frame();
     this.render();
@@ -423,7 +449,7 @@ export class Draft {
       this.q("[data-out=engine-note]").textContent = `${this.engineError}. Check the connection and try again.`;
     } else {
       this.q("[data-out=engine-note]").textContent =
-        "About 10 s, once per visit. The photo is measured in this browser: it is not uploaded anywhere.";
+        "The photo is measured in this browser: it is not uploaded anywhere.";
     }
 
     this.q("[data-out=status]").textContent = {

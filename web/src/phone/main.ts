@@ -10,7 +10,7 @@ import type { CameraInfo } from "../camera/choose";
 import { fovRatio, stillSearchBox } from "../camera/focal";
 import { CoreClient, type PhotoSource } from "../core/client";
 import { makeCoreWorker } from "../core/make-worker";
-import { CoreError, type Commands, type Progress } from "../core/protocol";
+import { CoreError, type Commands, type EnginePreviews, type Progress } from "../core/protocol";
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind, Side } from "../core/types";
 import { LiveAnalyser } from "../pipeline/live-client";
 import { EditHistory, editsAfterTap } from "../editor/edits";
@@ -63,6 +63,7 @@ let settings: Settings = loadSettings(store);
 let chains: Record<string, ChainSpec> = {};
 
 const core = new CoreClient(() => makeCoreWorker());
+core.onPreviews = (id, p) => void takePreviews(id, p);
 const live = new LiveAnalyser(() => new Worker(new URL("../pipeline/live-worker.ts", import.meta.url), { type: "module" }));
 const timings: { id: string; status: string; ms: number }[] = [];
 // For the end-to-end test, and for looking at a phone's timings and memory
@@ -200,6 +201,24 @@ async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | n
   }
   renderList();
   tidySoon();
+}
+
+/** The engine's copies of a photo this browser cannot draw (HEIC outside Safari),
+ * made when it opened the photo to measure it: kept as the browser's would be. */
+async function takePreviews(id: string, p: EnginePreviews): Promise<void> {
+  const r = records.get(id);
+  if (!r || r.pixels || r.photoDeleted) return;       // the browser drew it, or the photo is gone
+  r.pixels = p.pixels;
+  r.preview = p.previewSize;
+  for (const [kind, blob] of [["preview", p.preview], ["thumb", p.thumb]] as const) {
+    if (photos && !memBlobs.has(`${id}:original`)) await photos.putBlob(id, kind, blob).catch(() => memBlobs.set(`${id}:${kind}`, blob));
+    else memBlobs.set(`${id}:${kind}`, blob);
+  }
+  // The lens's focal length is remembered with the photo's size (D17), known only now.
+  if (r.exif) learnFrom(r.exif, p.pixels, null);
+  persist(r);
+  if (selected === id) await select(id);              // the photo under the pins, and on the card
+  else renderList();
 }
 
 /** D17: remember the lens's focal length from a photo that has it, and find
@@ -1474,8 +1493,24 @@ $<HTMLInputElement>("s-teach").onchange = async (e) => {
     toast("That photo has no focal length in it. Pick one the phone's own camera app took, not a screenshot or a shared copy.", 7000);
     return;
   }
-  const made = await previews(file);
-  setSettings(learn(settings, exif, made?.pixels ?? { width: 0, height: 0 }));
+  // The photo's size, upright: from the browser, or for a HEIC it cannot decode, from the engine.
+  let pixels = (await previews(file))?.pixels ?? null;
+  if (!pixels) {
+    const id = `learn-${Date.now()}`;
+    try {
+      const data = await file.arrayBuffer();
+      pixels = (await core.call("open", { photo: id, name: file.name || "photo", data, previews: true }, [data])).previews?.pixels ?? null;
+    } catch {
+      pixels = null;
+    } finally {
+      void core.call("close", { photo: id }).catch(() => {});
+    }
+  }
+  if (!pixels) {
+    toast("This browser can't read that photo's size, so its focal length can't be learned from it.", 7000);
+    return;
+  }
+  setSettings(learn(settings, exif, pixels));
   toast(`Learned ${exif.focal35} mm for ${lensName(exif)}.`, 5000);
   // Photos already taken with that lens, which lacked it, are measured with it now.
   for (const r of records.values()) {

@@ -208,6 +208,30 @@ test.describe("the engine", () => {
     expect(maxDistance(doc.view!.pins.map((p) => [p.x, p.y] as Point), native.photos.heic.pins_px)).toBeLessThan(PX_TOLERANCE);
   });
 
+  test("the engine makes the pages' preview and thumbnail of a HEIC (only when asked), and none of a JPEG", async () => {
+    const r = await page.evaluate(async () => {
+      const open = async (photo: string, file: string, previews: boolean) => {
+        const data = await (await fetch(`__e2e/${file}.jpg`)).arrayBuffer();
+        const t0 = performance.now();
+        const res = await window.core.call("open", { photo, name: `${file}.x`, data, previews }, [data]);
+        const ms = performance.now() - t0;
+        await window.core.call("close", { photo });
+        const size = async (b: Blob) => { const i = await createImageBitmap(b); return [i.width, i.height, b.type]; };
+        const p = res.previews;
+        return { ms, previews: p === undefined ? "none" : p === null ? null
+          : { pixels: p.pixels, previewSize: p.previewSize, preview: await size(p.preview), thumb: await size(p.thumb) } };
+      };
+      return { heic: await open("hp", "heic", true), plain: await open("hp2", "heic", false), jpeg: await open("jp", "pipe", true) };
+    });
+    expect(r.heic.previews).toEqual({
+      pixels: { width: 4000, height: 3000 }, previewSize: { width: 2560, height: 1920 },
+      preview: [2560, 1920, "image/jpeg"], thumb: [171, 128, "image/jpeg"],
+    });
+    expect(r.plain.previews).toBe("none");               // not asked for: nothing made
+    expect(r.jpeg.previews).toBeNull();                  // the page draws a JPEG itself
+    log(`HEIC open: ${r.plain.ms.toFixed(0)} ms, with its previews ${r.heic.ms.toFixed(0)} ms`);
+  });
+
   test("a third photo closes the first, and measuring it again reopens it", async () => {
     const opts = { chain: native.chain };
     await measure("one", "pipe", opts);
