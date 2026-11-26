@@ -3,7 +3,7 @@
 // fix, and the still taken when the chain has been steady for a moment. There
 // is no shutter: the coach takes the still, the lock-on rings on the pins showing
 // the hold (the library picker on the page is the way round it).
-// The diagnostics sit behind the Debug key. The card carries the coach's phase (data-phase) and whether the view is
+// The diagnostics sit behind the Debug key (debug mode only). The card carries the coach's phase (data-phase) and whether the view is
 // ready to take a still (data-ready), for the tests.
 //
 // The decisions are in src/camera/ (which camera, focal lengths for frames),
@@ -282,6 +282,13 @@ export class CameraView {
     this.el["cam"]!.classList.toggle("grey", this.stats.shows === "grey");
     this.el["cam-fail"]!.hidden = true;
     this.el["cam-live"]!.hidden = false;
+    // The Debug key and its diagnostics only in debug mode (settings.ts).
+    const debugKey = document.getElementById("cam-debug")!;
+    debugKey.hidden = !this.deps.settings().debug;
+    if (debugKey.hidden) {
+      this.el["cam-info"]!.hidden = true;
+      debugKey.setAttribute("aria-expanded", "false");
+    }
     document.documentElement.classList.add("cam-on");
     history.pushState({ camera: true }, "");
     this.say("Starting the camera…", "");

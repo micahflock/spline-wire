@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Exif } from "./exif";
-import { cameraFocal, focalOffer, frameFocal, isUltraWide, learn, lensFocal, lensKey, offerKey, ultraWides, type LensState } from "./lenses";
+import { cameraFocal, frameFocal, isUltraWide, learn, lensFocal, lensKey, mainLens, savedFocal, ultraWides, type LensState } from "./lenses";
 
 const ex = (e: Partial<Exif>): Exif => ({ make: null, model: null, lens: null, focalMm: null, focal35: null, ...e });
-const empty = (): LensState & { savedFocal35: number | null; declinedOffer: string | null } =>
-  ({ lenses: [], cameras: {}, savedFocal35: null, declinedOffer: null });
+const empty = (): LensState & { savedFocal35: number | null } =>
+  ({ lenses: [], cameras: {}, savedFocal35: null });
 
 // What the phones handed over (web-build.md, S2/S3).
 const pixelLibrary = ex({ make: "Google", model: "Pixel 7 Pro", focalMm: 6.81, focal35: 24, lens: "Pixel 7 Pro back camera 6.81mm f/1.85" });
@@ -55,15 +55,18 @@ describe("focal length per lens", () => {
     expect([...ultraWides(s)]).toEqual(["camera 2, facing back"]);
   });
 
-  it("offers the newest main lens as the saved value, naming it, until saved or declined", () => {
+  it("takes the newest main lens as the saved value, never an ultra-wide or a telephoto, unless one is typed", () => {
     let s = learn(empty(), samsungWide, { width: 4000, height: 3000 }, { now: 1 });
-    expect(focalOffer(s)).toBeNull();                                       // an ultra-wide is not offered
+    expect(mainLens(s)).toBeNull();                                         // an ultra-wide is not a main camera
+    expect(savedFocal(s)).toBeNull();
     s = learn(s, pixelLibrary, { width: 4080, height: 3072 }, { now: 2 });
-    expect(focalOffer(s)).toMatchObject({ focal35: 24, name: "Pixel 7 Pro back camera 6.81mm f/1.85" });
-    expect(focalOffer({ ...s, savedFocal35: 24 })).toBeNull();
-    const declined = { ...s, declinedOffer: offerKey(focalOffer(s)!) };
-    expect(focalOffer(declined)).toBeNull();
-    expect(focalOffer(learn(declined, samsungMain, { width: 4000, height: 3000 }, { now: 3 }))?.focal35).toBe(23);
+    expect(savedFocal(s)).toMatchObject({ focal35: 24, lens: { name: "Pixel 7 Pro back camera 6.81mm f/1.85" } });
+    const tele = ex({ make: "Apple", model: "iPhone 16 Pro", focalMm: 15.66, focal35: 120, lens: "iPhone 16 Pro back triple camera 15.66mm f/2.8" });
+    const twoX = ex({ make: "Apple", model: "iPhone 16 Pro", focalMm: 6.765, focal35: 48, lens: "iPhone 16 Pro back triple camera 6.765mm f/1.78" });
+    s = learn(learn(s, tele, { width: 4032, height: 3024 }, { now: 3 }), twoX, { width: 4032, height: 3024 }, { now: 4 });
+    expect(savedFocal(s)?.focal35).toBe(24);                                // newer, but telephotos (5× and the 2× crop)
+    expect(savedFocal({ ...s, savedFocal35: 26 })).toEqual({ focal35: 26, lens: null });   // typed wins
+    expect(savedFocal(learn(s, samsungMain, { width: 4000, height: 3000 }, { now: 5 }))?.focal35).toBe(23);
   });
 
   it("is not changed by the same photo twice", () => {
@@ -79,6 +82,8 @@ describe("the focal length of the live view's frames", () => {
 
   it("comes from the camera's last still, else the saved setting, else none (estimate)", () => {
     expect(frameFocal(settings(), "Back Camera", frame)).toBeNull();
+    const learned = { ...settings(), ...learn(empty(), pixelLibrary, { width: 4080, height: 3072 }) };
+    expect(frameFocal(learned, "Back Camera", frame)).toMatchObject({ from: "saved", focal35: 24, lens: null });   // the main camera, untyped
     expect(frameFocal(settings({ savedFocal35: 26 }), "Back Camera", frame)).toMatchObject({ from: "saved", focal35: 26, lens: null });
     const s = { ...settings({ savedFocal35: 26 }), ...learn(empty(), iphoneTakePhoto, { width: 4032, height: 3024 }, { cameraLabel: "Back Camera" }) };
     const f = frameFocal(s, "Back Camera", frame)!;

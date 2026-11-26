@@ -59,6 +59,9 @@ export const KEEP_LENSES = 12;
  * (experiments/lens_distortion.py), so the page moves off them. */
 export const ULTRA_WIDE = { focal35: 18, focalMm: 3 };
 
+/** Over this, a lens is a telephoto (2× and up: 48, 77, 120 mm; main cameras are 23-28 mm). */
+export const TELEPHOTO_35 = 35;
+
 export function isUltraWide(focal35: number | null, focalMm: number | null): boolean {
   return (focal35 !== null && focal35 < ULTRA_WIDE.focal35) || (focalMm !== null && focalMm < ULTRA_WIDE.focalMm);
 }
@@ -140,17 +143,28 @@ export function ultraWides(s: LensState): Set<string> {
   return new Set(Object.entries(s.cameras).filter(([, c]) => c.ultraWide).map(([label]) => label));
 }
 
-/** The lens to offer as the saved focal length for photos without EXIF ("use
- * 24 mm from your last photo?"): the newest that is not an ultra-wide, unless
- * it is already saved or was declined (`declined` is offerKey of the offer). */
-export function focalOffer(s: LensState & { savedFocal35: number | null; declinedOffer: string | null }): LensMemory | null {
-  const lens = s.lenses.filter((l) => !l.ultraWide).sort((a, b) => b.at - a.at)[0];
-  if (!lens || lens.focal35 === s.savedFocal35 || offerKey(lens) === s.declinedOffer) return null;
-  return lens;
+/** The newest lens learned that is a main camera: not an ultra-wide, not a
+ * telephoto. A photo without EXIF is taken to come from it (the tips say
+ * shoot at 1×): within the EXIF's ~5% (real-world-tests.md, phase 1) it costs
+ * ≤0.12 mm at 25° tilt, where the estimate from the chain gives 0.17-0.55 mm
+ * and is weak for a nearly straight chain (architecture.md, self_rectification). */
+export function mainLens(s: LensState): LensMemory | null {
+  return s.lenses.filter((l) => !l.ultraWide && l.focal35 <= TELEPHOTO_35).sort((a, b) => b.at - a.at)[0] ?? null;
 }
 
-export function offerKey(l: LensMemory): string {
-  return `${l.key}=${l.focal35}`;
+export interface SavedFocal {
+  focal35: number;
+  /** The lens it was learned from; null when the person typed it. */
+  lens: LensMemory | null;
+}
+
+/** The focal length for photos without EXIF (session's saved_focal_35mm): the
+ * one typed in Settings, else the main camera's as learned (it used to be
+ * offered, "use 24 mm from your last photo?", and was always taken). */
+export function savedFocal(s: LensState & { savedFocal35: number | null }): SavedFocal | null {
+  if (s.savedFocal35 !== null) return { focal35: s.savedFocal35, lens: null };
+  const lens = mainLens(s);
+  return lens ? { focal35: lens.focal35, lens } : null;
 }
 
 export interface FrameFocal {
@@ -165,7 +179,7 @@ export interface FrameFocal {
 
 /** The focal length for a live-view camera's frames (web-build.md step 5):
  * the override, else the lens of the last still this camera took, else the
- * saved setting (taken to hold for the full 4:3 sensor), else null: estimate
+ * saved focal length, typed or learned (taken to hold for the full 4:3 sensor), else null: estimate
  * it from the chain. */
 export function frameFocal(s: LensState & { savedFocal35: number | null; focalOverride35: number | null }, cameraLabel: string | null,
   frame: Size): FrameFocal | null {
@@ -173,7 +187,7 @@ export function frameFocal(s: LensState & { savedFocal35: number | null; focalOv
   const [f35, still, from, lens]: [number | null, Size | null, FrameFocal["from"], string | null] =
     s.focalOverride35 !== null ? [s.focalOverride35, null, "override", null]
     : known ? [known.focal35, known.size, "lens", known.lens]
-    : [s.savedFocal35, null, "saved", null];
+    : [savedFocal(s)?.focal35 ?? null, null, "saved", null];
   if (f35 === null) return null;
   return { px: frameFocalPx(f35, still, frame), focal35: frame35(f35, still, frame), from, lens };
 }
