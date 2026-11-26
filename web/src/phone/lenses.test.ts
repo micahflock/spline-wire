@@ -26,6 +26,11 @@ describe("focal length per lens", () => {
     expect(lensFocal(empty(), pixelTakePhoto)).toBeNull();                 // nothing taught yet: settings, then the estimate
   });
 
+  it("learns nothing without the photo's size (a photo the browser could not read), which frames would divide by", () => {
+    const s = empty();
+    expect(learn(s, pixelLibrary, { width: 0, height: 0 }).lenses).toEqual([]);
+  });
+
   it("never learns from a front camera", () => {
     expect(learn(empty(), selfie, { width: 4032, height: 3024 })).toEqual(empty());
     const s = empty();

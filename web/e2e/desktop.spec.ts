@@ -84,6 +84,7 @@ const spreads = async (page: Page, image: string) => {
 
 
 let pipe: NativePhoto;
+let heic: NativePhoto;            // the pipe photo as an iPhone's HEIC, which Chromium cannot decode
 let broken: string;               // a crop with too few pins
 let context: BrowserContext;
 let page: Page;
@@ -95,7 +96,7 @@ test.use({ actionTimeout: 30_000 });
 test.beforeAll(async ({ browser }) => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "spline-wire-desktop-"));
   execFileSync("uv", ["run", "python", "web/e2e/native.py", out], { cwd: ROOT, stdio: "inherit" });
-  pipe = (JSON.parse(fs.readFileSync(path.join(out, "native.json"), "utf8")) as { photos: { pipe: NativePhoto } }).photos.pipe;
+  ({ pipe, heic } = (JSON.parse(fs.readFileSync(path.join(out, "native.json"), "utf8")) as { photos: { pipe: NativePhoto; heic: NativePhoto } }).photos);
   broken = path.join(out, "crop.jpg");
   execFileSync("uv", ["run", "python", "-c", [
     "import sys; from PIL import Image",
@@ -340,6 +341,28 @@ test("dropped files: one that is not a photo, and a photo with too few pins, sho
   await expect(page.locator("#curve-title")).toHaveText("pipe.jpg");
   log(`drop to answer: not a photo ${notPhoto.sinceDrop} ms (the engine loading again after the reload),`,
       `then a cropped photo ${crop.sinceDrop} ms (engine loaded)`);
+});
+
+test("a HEIC photo, which Chromium cannot decode, is drawn from the engine's copy under its pins", async () => {
+  const t0 = Date.now();
+  await page.setInputFiles("#pick", heic.photo);
+  await expect(pins()).toHaveCount(13, { timeout: 60_000 });
+  const image = page.locator(".here .photo-svg image");
+  await expect(image).toHaveAttribute("href", /^blob:/, { timeout: 30_000 });
+  const ms = Date.now() - t0;
+  // Drawn over the photo's own pixels, upright, as the pins are.
+  await expect(image).toHaveAttribute("width", "4000");
+  await expect(image).toHaveAttribute("height", "3000");
+  const shown = await image.evaluate(async (el) => {
+    const img = await createImageBitmap(await (await fetch(el.getAttribute("href")!)).blob());
+    return [img.width, img.height];
+  });
+  expect(shown).toEqual([2560, 1920]);                      // the pages' own preview size
+  await expect.poll(async () => (await spreads(page, ".here .photo-svg image"))?.most ?? Infinity).toBeLessThanOrEqual(4);  // grey, as here
+  await page.screenshot({ path: path.join(SHOTS, "heic.png") });
+  log(`HEIC: pins and the photo under them ${(ms / 1000).toFixed(1)} s after the pick`);
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.locator(".item.draft")).toHaveCount(0);
 });
 
 test("a photo measured here is shown grey (the curve and pins stand out); the core reads the original", async () => {

@@ -84,6 +84,7 @@ const spreads = async (page: Page, image: string) => {
 
 
 let pipe: NativePhoto;
+let heic: NativePhoto;            // the pipe photo as an iPhone's HEIC, which Chromium cannot decode
 let broken: string;               // a crop with too few pins and no EXIF
 let lensPhoto: string;            // a back-camera photo with full EXIF, no chain
 let selfie: string;
@@ -101,7 +102,7 @@ test.use({ actionTimeout: 30_000 });
 test.beforeAll(async ({ browser }) => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "spline-wire-phone-"));
   execFileSync("uv", ["run", "python", "web/e2e/native.py", out], { cwd: ROOT, stdio: "inherit" });
-  pipe = (JSON.parse(fs.readFileSync(path.join(out, "native.json"), "utf8")) as { photos: { pipe: NativePhoto } }).photos.pipe;
+  ({ pipe, heic } = (JSON.parse(fs.readFileSync(path.join(out, "native.json"), "utf8")) as { photos: { pipe: NativePhoto; heic: NativePhoto } }).photos);
   // The left part of the pipe photo: three dots, two of them in a row; saved
   // without EXIF, so the focal length is unknown too.
   broken = path.join(out, "crop.jpg");
@@ -738,6 +739,37 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   await expect(p.locator("#engine-stage")).toBeAttached();
   await expect(items).toHaveCount(0);
   expect(await blobKinds(first)).toEqual([]);
+  await ctx.close();
+});
+
+test("a HEIC photo, which Chromium cannot decode, gets its picture from the engine, kept like any other", async ({ browser }) => {
+  const ctx = await browser.newContext({ ...PHONE });
+  const p = await ctx.newPage();
+  await p.goto("phone/");
+  await p.setInputFiles("#take", heic.photo);
+  const item = p.locator("#photos .tile").first();
+  await expect(item).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+  const card = p.locator("#card-pic image");
+  await expect(card).toHaveAttribute("href", /^blob:/, { timeout: 30_000 });
+  await expect(p.locator("#card-nophoto")).toBeHidden();
+  const id = (await item.getAttribute("data-id"))!;
+  const kept = () => p.evaluate((id) => new Promise<string[]>((resolve, reject) => {
+    const req = indexedDB.open("splinewire-phone");
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const keys = req.result.transaction("blobs").objectStore("blobs").getAllKeys();
+      keys.onsuccess = () => resolve((keys.result as string[]).filter((k) => k.startsWith(`${id}:`)).map((k) => k.slice(id.length + 1)).sort());
+    };
+  }), id);
+  await expect.poll(kept).toEqual(["original", "outputs", "preview", "thumb"]);
+  await expand(p);
+  await expect(p.locator("#photo-img")).toHaveAttribute("href", /^blob:/);
+  await expect(p.locator("#photo-img")).toHaveAttribute("width", "4000");
+  await expect(p.locator("#hint")).not.toContainText("can't show");
+  // After a reload the kept copies are drawn, before the engine opens the photo again.
+  await p.reload();
+  await p.locator(`#photos .tile[data-id="${id}"]`).tap();
+  await expect(p.locator("#card-pic image")).toHaveAttribute("href", /^blob:/);
   await ctx.close();
 });
 

@@ -15,9 +15,11 @@ import { PipelineError } from "../pipeline/errors";
 import { analyse } from "../pipeline/live";
 import { specFromDict } from "../pipeline/chain";
 import heifWasmUrl from "libheif-js/libheif-wasm/libheif.wasm?url";
-import { MAX_OPEN_PHOTOS, type Command, type Commands, type Failure, type Request, type Response } from "./protocol";
+import { MAX_OPEN_PHOTOS, type Command, type Commands, type EnginePreviews, type Failure, type Request, type Response } from "./protocol";
 import type { OutputKind } from "./types";
 import type { LibheifFactory } from "../pipeline/heif";
+import { boxDownscale, type Rgba } from "../photo/downscale";
+import { PREVIEW_QUALITY, THUMB_QUALITY, previewSizeOf, thumbSizeOf } from "../photo/preview";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -66,7 +68,7 @@ function stem(name: string): string {
 
 let heifWasm: Promise<ArrayBuffer> | null = null;
 
-async function decodeHeif(bytes: Uint8Array, name: string) {
+async function decodeHeif(bytes: Uint8Array, name: string, withPreview: boolean) {
   heifWasm ??= fetch(heifWasmUrl).then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.arrayBuffer();
@@ -78,8 +80,24 @@ async function decodeHeif(bytes: Uint8Array, name: string) {
     heifWasm = null;                                    // try again with the next photo
     throw new Failed({ kind: "person", message: `could not load the HEIC decoder (${(err as Error)?.message ?? err}); check the connection and try again` });
   }
-  const [{ decodeHeifToGray }, lib, wasm] = parts;
-  return decodeHeifToGray(bytes, name, lib.default as unknown as LibheifFactory, wasm);
+  const [{ decodeHeif: decode }, lib, wasm] = parts;
+  return decode(bytes, name, lib.default as unknown as LibheifFactory, wasm, withPreview ? previewSizeOf : undefined);
+}
+
+/** The pages' preview and thumbnail (photo/preview.ts), from the preview's pixels. */
+async function encodePreviews(pixels: { width: number; height: number }, preview: Rgba): Promise<EnginePreviews> {
+  const thumb = thumbSizeOf(pixels);
+  const small = boxDownscale(preview.data, preview.width, preview.height, preview.width * 4, 4, thumb.width, thumb.height);
+  const [previewBlob, thumbBlob] = await Promise.all([jpeg(preview, PREVIEW_QUALITY), jpeg(small, THUMB_QUALITY)]);
+  return { pixels, previewSize: { width: preview.width, height: preview.height }, preview: previewBlob, thumb: thumbBlob };
+}
+
+function jpeg(img: Rgba, quality: number): Promise<Blob> {
+  const canvas = new OffscreenCanvas(img.width, img.height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no 2D canvas to make the photo's preview");
+  ctx.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, img.width, img.height), 0, 0);
+  return canvas.convertToBlob({ type: "image/jpeg", quality });
 }
 
 // ---- the commands ----
@@ -92,22 +110,32 @@ const handlers: Handlers = {
     return { versions: { splinewire: import.meta.env.APP_VERSION ?? "dev", engine: "typescript" }, ms: 0 };
   },
 
-  async open({ photo, name, data }) {
+  async open({ photo, name, data, previews: wanted }) {
     const bytes = new Uint8Array(data);
     forget(photo);                                    // opened again: the new bytes win
     while (recent.length >= MAX_OPEN_PHOTOS) forget(recent[0]!);
     const heif = isHeif(bytes);
     let gray;
+    let previews: EnginePreviews | null = null;
     try {
       gray = await decodeToGray(new Blob([bytes]));
     } catch {
       if (!heif) throw new Failed({ kind: "person", message: `${name} is not a photo this program can read (JPEG, HEIC, PNG, TIFF, BMP or WebP)` });
-      gray = await decodeHeif(bytes, name);
+      // The browser cannot decode it, so the page cannot draw it either: make its previews here.
+      const decoded = await decodeHeif(bytes, name, !!wanted);
+      gray = decoded.gray;
+      if (decoded.preview) {
+        try {
+          previews = await encodePreviews({ width: gray.width, height: gray.height }, decoded.preview);
+        } catch {
+          previews = null;                              // no OffscreenCanvas here: measured, not drawn
+        }
+      }
     }
     const { info, focalPx } = photoInfo(bytes, gray);
     open.set(photo, new PhotoSession(name, gray, focalPx, info));
     touch(photo);
-    return { info };
+    return wanted ? { info, previews } : { info };
   },
 
   async measure({ photo, options }) {

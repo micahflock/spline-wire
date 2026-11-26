@@ -282,6 +282,10 @@ test("Scan opens the camera and closing it gives it back; Upload never opens it;
   // No mode switch and no Upload key in the camera view (for UI review/phone/BRIEF.md): Scan and Upload are two keys.
   await expect(page.locator("#mode-live, #mode-upload, #cam-upload")).toHaveCount(0);
   await expect(page.locator("#cam")).toBeHidden();
+  // 15 pins for the 13-pin chain in view: the coach never takes the still, so the view stays
+  // open until closed. With 13, as the tests before leave it, it took the still and closed
+  // whenever the steps below outlasted its 700 ms hold (CI runs 45530875471, 45866565957).
+  await setChain("oring", 15);
   const opened = await page.evaluate(() => (window as unknown as PhoneWindow).__streams.length);
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();

@@ -91,6 +91,41 @@ describe("CoreClient", () => {
     await expect(result).resolves.toBe(doc);
   });
 
+  it("asks for previews when the page takes them, and hands over the ones the engine made", async () => {
+    const { core, workers } = setup();
+    const got: [string, unknown][] = [];
+    const source = { name: "IMG_2.heic", bytes: async () => new ArrayBuffer(8) };
+    // Without onPreviews the engine is not asked.
+    const plain = core.measure("p1", options, source);
+    workers[0]!.fail(0, "closed");
+    await flush();
+    expect(workers[0]!.sent[1]!.msg).toMatchObject({ cmd: "open", args: { previews: false } });
+    workers[0]!.ok(1, { info: {} });
+    await flush();
+    workers[0]!.ok(2, doc);
+    await plain;
+    core.onPreviews = (photo, p) => got.push([photo, p]);
+    const previews = { pixels: { width: 4, height: 3 }, previewSize: { width: 4, height: 3 }, preview: "P", thumb: "T" };
+    const result = core.measure("p2", options, source);
+    workers[0]!.fail(3, "closed");
+    await flush();
+    expect(workers[0]!.sent[4]!.msg).toMatchObject({ cmd: "open", args: { photo: "p2", previews: true } });
+    workers[0]!.ok(4, { info: {}, previews });
+    await flush();
+    expect(got).toEqual([["p2", previews]]);
+    workers[0]!.ok(5, doc);
+    await expect(result).resolves.toBe(doc);
+    // A photo the browser can draw itself: the engine answers null, and nothing is handed over.
+    const jpeg = core.measure("p3", options, source);
+    workers[0]!.fail(6, "closed");
+    await flush();
+    workers[0]!.ok(7, { info: {}, previews: null });
+    await flush();
+    workers[0]!.ok(8, doc);
+    await jpeg;
+    expect(got).toHaveLength(1);
+  });
+
   it("does not reopen for other failures, nor when the photo is open", async () => {
     const { core, workers } = setup();
     const source = { name: "a.jpg", bytes: async () => { throw new Error("should not be read"); } };
