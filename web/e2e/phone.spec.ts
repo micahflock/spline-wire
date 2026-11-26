@@ -398,8 +398,13 @@ test("an error is shown as is, and the photo can still be fixed by hand", async 
 });
 
 test("dark rims on light links are found once Colours says so", async () => {
+  // The test before leaves its failed photo first in the list, already "error": wait for
+  // this photo's tile to take its place before reading the status, or the check passes on
+  // the old one and the message below gets only toContainText's 5 s (failed in CI run 45883557855).
+  const before = await page.locator("#photos .tile").first().getAttribute("data-id");
   await page.setInputFiles("#choose", darkRims);
   const item = page.locator("#photos .tile").first();
+  await expect(item).not.toHaveAttribute("data-id", before!, { timeout: 30_000 });
   await expect(item).toHaveAttribute("data-status", "error", { timeout: 120_000 });
   await expect(page.locator("#r-problem")).toContainText("No chain found");
   await expect(page.locator("#r-problem")).toContainText("choose that under Colours in Settings");
