@@ -89,7 +89,8 @@ export function learn<S extends LensState>(s: S, e: Exif, size: Size, from: { fa
   const key = lensKey(e);
   const at = from.now ?? Date.now();
   let next = s;
-  if (key && e.focal35 !== null) {
+  // A lens is remembered with the size its 35 mm figure holds for: none without one (an undecodable photo).
+  if (key && e.focal35 !== null && size.width > 0 && size.height > 0) {
     const old = s.lenses.find((l) => l.key === key);
     const name = e.lens ?? old?.name ?? lensName(e);
     const same = old && old.focal35 === e.focal35 && old.name === name && old.width === size.width && old.height === size.height;

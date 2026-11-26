@@ -10,7 +10,7 @@
 // work that is already out of date.
 
 import {
-  CoreError, type Command, type Commands, type Progress, type Request, type Response,
+  CoreError, type Command, type Commands, type EnginePreviews, type Progress, type Request, type Response,
 } from "./protocol";
 import type { MeasureOptions, MeasurementDocument } from "./types";
 
@@ -32,6 +32,9 @@ export interface PhotoSource {
 
 export class CoreClient {
   onProgress: (progress: Progress) => void = () => {};
+  /** Set it to have the engine make the previews of photos the browser cannot draw
+   * (HEIC outside Safari) when it opens them for measuring: called with each. */
+  onPreviews: ((photo: string, previews: EnginePreviews) => void) | null = null;
   private worker: WorkerLike | null = null;
   private nextId = 1;
   private readonly waiting = new Map<number, { resolve(v: unknown): void; reject(e: Error): void }>();
@@ -61,7 +64,8 @@ export class CoreClient {
       if (!(err instanceof CoreError) || err.failure.kind !== "closed") throw err;
     }
     const data = await source.bytes();
-    await this.call("open", { photo, name: source.name, data }, [data]);
+    const opened = await this.call("open", { photo, name: source.name, data, previews: !!this.onPreviews }, [data]);
+    if (opened.previews) this.onPreviews?.(photo, opened.previews);
     return this.call("measure", { photo, options });
   }
 

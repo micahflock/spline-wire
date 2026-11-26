@@ -10,7 +10,9 @@ import createLibheif from "libheif-js/libheif-wasm/libheif.js";
 import type { MeasureOptions, MeasurementDocument, PhotoInfo } from "../core/types";
 import type { Gray } from "./cv";
 import { readGrayPng } from "./golden/png";
-import { decodeHeifToGray, grayFromRgbRows, type LibheifFactory } from "./heif";
+import { decodeHeif, grayFromRgbRows, type LibheifFactory } from "./heif";
+import type { Rgba } from "../photo/downscale";
+import { greyPixels, previewSizeOf } from "../photo/preview";
 import { isHeif, photoInfo } from "./photo-info";
 import { PhotoSession } from "./session";
 
@@ -23,8 +25,9 @@ const factory = createLibheif as unknown as LibheifFactory;
 
 describe("HEIC decoded with libheif, as pillow-heif decodes it", () => {
   let gray: Gray;
+  let preview: Rgba | null;
   beforeAll(async () => {
-    gray = await decodeHeifToGray(heic, "photo-snap.heic", factory, wasm);
+    ({ gray, preview } = await decodeHeif(heic, "photo-snap.heic", factory, wasm, previewSizeOf));
   }, 60000);
 
   it("is a HEIF file, turned upright by its container and not again by its EXIF", () => {
@@ -74,9 +77,39 @@ describe("HEIC decoded with libheif, as pillow-heif decodes it", () => {
   });
 });
 
+describe("the pages' copy of a HEIC photo, which their browser cannot decode", () => {
+  it("is upright, the size the pages' own preview would be, and the pixels measured", async () => {
+    // 1200×900 is under the preview's 2560 px: the copy is the decoded photo itself.
+    const { gray, preview } = await decodeHeif(heic, "photo-snap.heic", factory, wasm, previewSizeOf);
+    expect(preview).not.toBeNull();
+    expect([preview!.width, preview!.height]).toEqual([1200, 900]);
+    const grey = new Uint8ClampedArray(preview!.data);
+    greyPixels(grey);
+    let differ = 0;
+    for (let i = 0; i < gray.data.length; i++) if (grey[4 * i] !== gray.data[i]) differ++;
+    expect(differ).toBe(0);                          // the same pixels, the same way up
+  }, 60000);
+
+  it("is made only when asked for, and shrunk when the photo is larger", async () => {
+    expect((await decodeHeif(heic, "photo-snap.heic", factory, wasm)).preview).toBeNull();
+    const { gray, preview } = await decodeHeif(heic, "photo-snap.heic", factory, wasm, () => ({ width: 300, height: 225 }));
+    expect([preview!.width, preview!.height]).toEqual([300, 225]);
+    // Each pixel the mean of a 4×4 block: its grey within a level or two of the block's mean grey.
+    const grey = new Uint8ClampedArray(preview!.data);
+    greyPixels(grey);
+    let worst = 0;
+    for (let y = 0; y < 225; y++) for (let x = 0; x < 300; x++) {
+      let s = 0;
+      for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 4; dx++) s += gray.data[(4 * y + dy) * gray.width + 4 * x + dx]!;
+      worst = Math.max(worst, Math.abs(grey[4 * (y * 300 + x)]! - s / 16));
+    }
+    expect(worst).toBeLessThanOrEqual(2);
+  }, 60000);
+});
+
 describe("HEIF decoding failures are for the person", () => {
   it("a HEIC file cut short", async () => {
-    await expect(decodeHeifToGray(heic.subarray(0, 2000), "cut.heic", factory, wasm)).rejects.toThrow(/could not read the photo cut\.heic/);
+    await expect(decodeHeif(heic.subarray(0, 2000), "cut.heic", factory, wasm)).rejects.toThrow(/could not read the photo cut\.heic/);
   }, 60000);
 });
 

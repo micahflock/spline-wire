@@ -21,7 +21,12 @@ export interface Commands {
   /** Get the engine ready (the TypeScript engine has nothing to load). Idempotent. */
   load: { args: Record<string, never>; result: { versions: Record<string, string>; ms: number } };
   /** Decode a photo. Fails (kind "person") if it is not one. */
-  open: { args: { photo: string; name: string; data: ArrayBuffer }; result: { info: PhotoInfo } };
+  /** With `previews`, also the copies the pages draw, for a photo the browser could
+   * not decode (HEIC outside Safari); null for any other photo, which the page draws itself. */
+  open: {
+    args: { photo: string; name: string; data: ArrayBuffer; previews?: boolean };
+    result: { info: PhotoInfo; previews?: EnginePreviews | null };
+  };
   /** Measure an open photo. A photo with no chain in it is a document with ok false, not a failure. */
   measure: { args: { photo: string; options: MeasureOptions }; result: MeasurementDocument };
   /** The latest measurement's files, as text, with their download names. */
@@ -32,6 +37,15 @@ export interface Commands {
   /** What the worker holds: a wasm heap's size (null: the TypeScript engine has none) and
    * the open photos, least recently used first. For deciding when to restart(). */
   stats: { args: Record<string, never>; result: { heap_bytes: number | null; open: string[] } };
+}
+
+/** What photo/preview.ts's previews() makes, made by the engine instead (JPEG blobs). */
+export interface EnginePreviews {
+  /** The photo's size, upright, as the core reads it. */
+  pixels: { width: number; height: number };
+  previewSize: { width: number; height: number };
+  preview: Blob;
+  thumb: Blob;
 }
 
 export type Command = keyof Commands;

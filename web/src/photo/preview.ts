@@ -7,6 +7,9 @@ import type { Size } from "../editor/viewport";
 /** The editor's copy: long side in px. */
 export const PREVIEW_PX = 2560;
 export const THUMB_PX = 128;
+/** JPEG qualities of the two copies. */
+export const PREVIEW_QUALITY = 0.85;
+export const THUMB_QUALITY = 0.8;
 
 export interface Previews {
   /** The original's size, upright, as the core reads it. */
@@ -17,7 +20,20 @@ export interface Previews {
   thumb?: Blob;
 }
 
-/** null if this browser cannot decode the file (HEIC outside Safari): the core may still read it. */
+/** The editor's copy of a photo `pixels` in size: the long side PREVIEW_PX at most. */
+export function previewSizeOf(pixels: Size): Size {
+  const k = Math.min(1, PREVIEW_PX / Math.max(pixels.width, pixels.height));
+  return { width: Math.round(pixels.width * k), height: Math.round(pixels.height * k) };
+}
+
+/** The thumbnail's size: the short side THUMB_PX. */
+export function thumbSizeOf(pixels: Size): Size {
+  const t = THUMB_PX / Math.min(pixels.width, pixels.height);
+  return { width: Math.round(pixels.width * t), height: Math.round(pixels.height * t) };
+}
+
+/** null if this browser cannot decode the file (HEIC outside Safari): the core
+ * still reads it, and makes the same previews for it (CoreClient.onPreviews). */
 export async function previews(file: Blob, opts: { thumb?: boolean } = {}): Promise<Previews | null> {
   let bmp: ImageBitmap;
   try {
@@ -27,14 +43,10 @@ export async function previews(file: Blob, opts: { thumb?: boolean } = {}): Prom
   }
   try {
     const pixels = { width: bmp.width, height: bmp.height };
-    const k = Math.min(1, PREVIEW_PX / Math.max(bmp.width, bmp.height));
-    const previewSize = { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) };
-    const preview = await jpeg(bmp, previewSize, 0.85);
+    const previewSize = previewSizeOf(pixels);
+    const preview = await jpeg(bmp, previewSize, PREVIEW_QUALITY);
     const out: Previews = { pixels, previewSize, preview };
-    if (opts.thumb) {
-      const t = THUMB_PX / Math.min(bmp.width, bmp.height);
-      out.thumb = await jpeg(bmp, { width: Math.round(bmp.width * t), height: Math.round(bmp.height * t) }, 0.8);
-    }
+    if (opts.thumb) out.thumb = await jpeg(bmp, thumbSizeOf(pixels), THUMB_QUALITY);
     return out;
   } catch {
     return null;
