@@ -46,11 +46,10 @@ describe("wording", () => {
     expect(numbers({ ...r, pins: 13, missing_pins: 0, focal_source: "exif" }, 13).filter(([, , , w]) => w)).toEqual([]);
     // The phone's Measurement table: the same figures and flags, in the brief's rows.
     const spec = Object.fromEntries(measurementRows(r, 13).map(([k, v, s, w]) => [k, { v, s, w }]));
-    expect(Object.keys(spec)).toEqual(["Pins found", "Curve points", "Camera tilt", "Link length error", "Focal length", "Object side"]);
+    expect(Object.keys(spec)).toEqual(["Pins found", "Curve points", "Camera tilt", "Link length error", "Focal length"]);
     expect(spec["Pins found"]).toEqual({ v: "12 / 13", s: "1 missing, bridged", w: true });
     expect(spec["Focal length"]).toEqual({ v: "27.1 mm", s: "estimated from the chain", w: true });
     expect(spec["Link length error"]!.s).toBe("rms · max 0.050");
-    expect(spec["Object side"]!.v).toBe("Inside");
     expect(measurementRows({ ...r, pins: 13, missing_pins: 0, focal_source: "exif" }, 13).filter(([, , , w]) => w)).toEqual([]);
   });
 });

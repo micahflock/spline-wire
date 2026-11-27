@@ -292,14 +292,18 @@ test("a drag pans and a pinch zooms, and neither adds a pin; a double tap fits t
 });
 
 test("Swap side puts the curve on the other side of the chain, and back; no tapping its side", async () => {
-  await expect(page.locator("#numbers")).toContainText("Inside");
+  // The side, from the measurement's own file (the Measurement table no longer lists it).
+  const side = () => page.evaluate(async (id) =>
+    JSON.parse((await (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id })).files.json).object_side as string, photoId);
+  await expect.poll(side).toBe("inside");
+  await expect(page.locator("#numbers")).not.toContainText("Object side");
   await expect(page.getByRole("button", { name: "Tap its side" })).toHaveCount(0);
   await page.locator("#x-swap").tap();                 // in the expanded view
-  await expect(page.locator("#numbers")).toContainText("Outside");
+  await expect.poll(side).toBe("outside");
   await expect(pins()).toHaveCount(13);                 // not an edit
   await collapse();
   await page.locator("#swap").tap();                   // on the card
-  await expect(page.locator("#numbers")).toContainText("Inside");
+  await expect.poll(side).toBe("inside");
   await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
 });
 
