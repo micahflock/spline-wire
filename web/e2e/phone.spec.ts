@@ -145,7 +145,6 @@ const selectedId = () => page.locator("#photos .tile.on").getAttribute("data-id"
 async function expand(p: Page = page): Promise<void> {
   if (await p.locator("#xv").isHidden()) await p.locator("#expand").tap();
   await expect(p.locator("#xv")).toBeVisible();
-  await expect(p.locator("#xv")).not.toHaveClass(/opening/);
 }
 
 async function collapse(p: Page = page): Promise<void> {
@@ -223,16 +222,32 @@ test("a photo taken while the engine loads is measured when it is ready", async 
 });
 
 test("the expanded view has the card's star, time and tag in the same corners", async () => {
+  // The card's corners, then the view's: the view is shown in place of the page, so never both at once.
+  const corners = async (pic: string, ids: string[]) => {
+    const p = (await page.locator(pic).boundingBox())!;
+    return Promise.all(ids.map(async (id) => {
+      const b = (await page.locator(id).boundingBox())!;
+      return { top: b.y - p.y, left: b.x - p.x, right: p.x + p.width - b.x };
+    }));
+  };
+  const card = await corners("#card-pic", ["#star", "#r-time", "#r-tag"]);
   await expand();
-  for (const [card, view] of [["#star", "#x-star"], ["#r-time", "#x-time"], ["#r-tag", "#x-tag"]] as const) {
-    const c = (await page.locator(card).boundingBox())!, v = (await page.locator(view).boundingBox())!;
-    const pc = (await page.locator("#card-pic").boundingBox())!, pv = (await page.locator("#photo").boundingBox())!;
-    expect(Math.abs(v.y - pv.y - (c.y - pc.y))).toBeLessThan(1);      // as far from the photo's top
-    const left = card === "#star";                                        // and from its left or right edge
-    expect(Math.abs(left ? v.x - pv.x - (c.x - pc.x) : pv.x + pv.width - v.x - (pc.x + pc.width - c.x))).toBeLessThan(1);
-  }
+  await expect(page.locator("#page")).toBeHidden();                       // in place of the page, not over it
+  const view = await corners("#photo", ["#x-star", "#x-time", "#x-tag"]);
+  card.forEach((c, i) => {
+    expect(Math.abs(view[i]!.top - c.top)).toBeLessThan(1);               // as far from the photo's top
+    expect(Math.abs(i === 0 ? view[i]!.left - c.left : view[i]!.right - c.right)).toBeLessThan(1);   // and its left or right edge
+  });
   await expect(page.locator("#x-time")).toHaveText((await page.locator("#r-time").textContent())!);
   await expect(page.locator("#x-tag")).toHaveText(/OK|CHECK/);
+  // The photo's box keeps its size while the page scrolls under a finger (no toolbar-driven resizing, no own scroll).
+  const box = (await page.locator("#photo").boundingBox())!;
+  await page.mouse.wheel(0, 400);
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  const moved = (await page.locator("#photo").boundingBox())!;
+  expect([moved.width, moved.height]).toEqual([box.width, box.height]);
+  expect(await page.locator("#sheet").evaluate((e) => e.scrollHeight <= e.clientHeight)).toBe(true);
+  await page.evaluate(() => scrollTo(0, 0));
   await page.locator("#x-star").tap();
   await expect(page.locator("#x-nm input.rename")).toBeFocused();         // starring offers a name, beside the star
   await expect(page.getByRole("button", { name: "Rename" })).toHaveCount(0);   // no Rename key: a name is tapped
@@ -671,9 +686,9 @@ test.describe("paired with a computer", () => {
     await expect(page.locator("#x-nm")).toBeVisible();                 // beside the view's star, as on the card
     await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
     await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
-    await expect(page.getByRole("dialog", { name: "Pipe 1.5in, left" })).toBeVisible();   // no title bar: the view is named after it
+    await expect(page.getByRole("region", { name: "Pipe 1.5in, left" })).toBeVisible();   // no title bar: the view is named after it
     // A name given is renamed by tapping it (a button to a screen reader) …
-    await page.getByRole("dialog").getByRole("button", { name: "Rename Pipe 1.5in, left" }).tap();
+    await page.locator("#xv").getByRole("button", { name: "Rename Pipe 1.5in, left" }).tap();
     await expect(page.locator("#x-nm input.rename")).toBeFocused();
     await page.locator("#x-nm input.rename").press("Escape");
     await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
@@ -710,7 +725,7 @@ test.describe("paired with a computer", () => {
     await expect(page.locator("#x-nm input.rename")).toBeFocused();
     await field.fill("");
     await field.press("Enter");
-    await expect(page.getByRole("dialog")).toHaveAttribute("aria-label", /^Curve \d\d:\d\d$/);
+    await expect(page.locator("#xv")).toHaveAttribute("aria-label", /^Curve \d\d:\d\d$/);
     await expect(page.locator("#x-nm")).toBeHidden();                    // no name: no chip
     await expect(page.locator("#r-name")).toHaveText("");
     await collapse();
@@ -784,8 +799,6 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   await expect(p.locator("#hint")).toHaveText("");
   await expect(p.locator("#photo")).toBeHidden();
   await expect(p.locator("#x-drawing svg")).toBeVisible();
-  // The drawing flew from the card's framing to its own, and keeps its own once landed.
-  expect(await p.locator("#x-drawing svg").getAttribute("viewBox")).toBe(await p.locator("#x-drawing").getAttribute("data-box"));
   await expect(p.locator("#undo")).toBeDisabled();
   await tap("Copy points");                            // This curve, in the expanded view
   await expect(p.locator("#toast")).toContainText("Copied");

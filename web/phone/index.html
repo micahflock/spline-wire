@@ -12,7 +12,7 @@
 <script type="module" src="../src/phone/main.ts"></script>
 </head>
 <body>
-<main class="wrap">
+<main class="wrap" id="page">
   <header class="top">
     <h1 class="word">spline<span>·</span>wire</h1>
     <span class="spacer"></span>
@@ -159,8 +159,9 @@
   </section>
 </main>
 
-<div class="xv" id="xv" hidden role="dialog" aria-modal="true" aria-label="Curve">
-  <!-- The photo's details: debug mode only (the camera's diagnostics); main.ts names the dialog after the curve. -->
+<!-- The expanded view: in the page's flow, shown in place of #page while open (main.ts). -->
+<section class="xv" id="xv" hidden aria-label="Curve">
+  <!-- The photo's details: debug mode only (the camera's diagnostics); main.ts names the view after the curve. -->
   <div class="xbar" id="x-details" hidden><small class="mono" id="r-meta"></small></div>
   <div class="vp" id="editor">
     <svg id="photo" class="photo-svg" role="img" aria-label="The photo with the measured chain"><image id="photo-img" x="-0.5" y="-0.5" preserveAspectRatio="none"/><g id="overlay"></g></svg>
@@ -211,7 +212,7 @@
     <ul class="msgs warn" id="warnings" aria-label="Warnings"></ul>
     <ul class="msgs note" id="notes" aria-label="Notes"></ul>
   </div>
-</div>
+</section>
 
 <div class="cam" id="cam" hidden role="dialog" aria-modal="true" aria-label="Camera">
   <div class="cam-live" id="cam-live">

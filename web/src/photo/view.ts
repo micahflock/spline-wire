@@ -104,12 +104,6 @@ export class PhotoEditor {
     this.apply();
   }
 
-  /** Show this part of the photo (at the element's aspect): an animation's frame. */
-  showBox(box: ViewBox): void {
-    this.box = fit(box, this.el());
-    this.apply();
-  }
-
   get viewBox(): ViewBox | null {
     return this.box;
   }
