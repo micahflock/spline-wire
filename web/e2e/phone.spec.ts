@@ -234,8 +234,9 @@ test("the expanded view has the card's star, time and tag in the same corners", 
   await expect(page.locator("#x-time")).toHaveText((await page.locator("#r-time").textContent())!);
   await expect(page.locator("#x-tag")).toHaveText(/OK|CHECK/);
   await page.locator("#x-star").tap();
-  await expect(page.locator("#x-name input.rename")).toBeFocused();       // starring offers a name, in the title
-  await page.locator("#x-name input.rename").press("Escape");
+  await expect(page.locator("#x-nm input.rename")).toBeFocused();         // starring offers a name, beside the star
+  await expect(page.getByRole("button", { name: "Rename" })).toHaveCount(0);   // no Rename key: a name is tapped
+  await page.locator("#x-nm input.rename").press("Escape");
   await expect(page.locator("#star")).toHaveAttribute("aria-pressed", "true");
   await page.locator("#x-star").tap();
   await expect(page.locator("#x-star")).toHaveAttribute("aria-pressed", "false");
@@ -305,6 +306,23 @@ test("Swap side puts the curve on the other side of the chain, and back; no tapp
   await page.locator("#swap").tap();                   // on the card
   await expect.poll(side).toBe("inside");
   await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
+});
+
+test("the chain style is chosen per photo in the expanded view; the table has no curve points", async () => {
+  await expand();
+  const select = page.locator("#r-chain");
+  await expect(select).toHaveValue("snap");
+  await expect(select.locator("option")).toHaveText(["Snap-fit chain", "O-ring chain"]);
+  await expect(page.locator("#numbers")).not.toContainText("Curve points");
+  await select.selectOption("oring");                  // this photo only: measured again with the O-ring chain
+  await expect(page.locator("#r-meta")).toContainText("O-ring chain");
+  await expect(page.locator("#r-pins input")).toHaveValue("13");          // the O-ring preset's own count
+  await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", /done|error/);
+  await select.selectOption("snap");
+  await expect(page.locator("#r-meta")).toContainText("Snap-fit chain");
+  await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
+  await expect(pins()).toHaveCount(13);
+  await collapse();
 });
 
 test("Copy points puts the Fusion add-in's table on the clipboard", async () => {
@@ -624,7 +642,9 @@ test.describe("paired with a computer", () => {
     // Renamed on the phone, in the expanded view's title.
     await phoneItem(photoId).tap();
     await expand();
-    await tapButton("Rename");
+    await expect(page.locator("#x-star")).toHaveAttribute("aria-pressed", "true");   // starred on the computer, unnamed:
+    await page.locator("#x-star").tap();                                              // off, and on again offers the name
+    await page.locator("#x-star").tap();
     const field = page.getByRole("textbox", { name: "Name of the curve" });
     await field.fill("Pipe 1.5in, left");
     await field.press("Enter");
@@ -632,6 +652,14 @@ test.describe("paired with a computer", () => {
     await expect(page.locator("#x-nm")).toBeVisible();                 // beside the view's star too, as on the card
     await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
     await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
+    // A name given is renamed by tapping it: the view's title (a button to a screen reader; the dialog keeps its name) …
+    await expect(page.getByRole("dialog", { name: "Pipe 1.5in, left" })).toBeVisible();
+    await expect(page.locator("#x-name")).toHaveAttribute("role", "button");
+    await expect(page.getByRole("button", { name: "Rename Pipe 1.5in, left" })).toHaveCount(1);   // the card's chip
+    await page.locator("#x-name").tap();
+    await expect(page.locator("#x-name input.rename")).toBeFocused();
+    await page.locator("#x-name input.rename").press("Escape");
+    await expect(page.locator("#x-name")).toHaveText("Pipe 1.5in, left");
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe 1\.5in, left,/);
     await expect(row.locator(".name")).toHaveText("Pipe 1.5in, left");
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe 1.5in, left");
@@ -662,7 +690,8 @@ test.describe("paired with a computer", () => {
     expect((await download).suggestedFilename()).toBe("Pipe bend-curve.csv");
     // An empty name: the phone calls it after its time, the computer after its photo.
     await expand();
-    await tapButton("Rename");
+    await page.locator("#x-nm").tap();                 // … or the chip beside the star
+    await expect(page.locator("#x-nm input.rename")).toBeFocused();
     await field.fill("");
     await field.press("Enter");
     await expect(page.locator("#x-name")).toHaveText(/^Curve \d\d:\d\d$/);

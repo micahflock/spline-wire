@@ -135,13 +135,13 @@ export function numbers(r: MeasurementResult, expectedPins: number, focalDetail?
 }
 
 /** The phone's Measurement table (for UI review/phone/BRIEF.md), as [label, value, detail, warn]: the same figures as
- * `numbers` in the brief's rows and words; no object side (Swap side shows it on the photo). */
+ * `numbers` in the brief's rows and words; no object side (Swap side shows it on the photo)
+ * and no curve points (the chain style and its pins are set above the table). */
 export function measurementRows(r: MeasurementResult, expectedPins: number, focalDetail?: string): [string, string, string, boolean][] {
   const found = r.pins;
   return [
     ["Pins found", `${found} / ${expectedPins}`, r.missing_pins ? `${r.missing_pins} missing, bridged` : "",
       found + r.missing_pins !== expectedPins || r.missing_pins > 0],
-    ["Curve points", String(r.curve_points), "", false],
     ["Camera tilt", `${r.tilt_deg.toFixed(1)}°`, "camera to table", false],
     ["Link length error", `${r.link_residual_rms_mm.toFixed(3)} mm`, `rms · max ${r.link_residual_max_mm.toFixed(3)}`,
       r.warnings.some((w) => w.startsWith("link lengths deviate"))],

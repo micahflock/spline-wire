@@ -295,6 +295,9 @@ function startRename(r: PhotoRecord, host: HTMLElement): void {
     }
   };
   input.onblur = () => endRename(true);
+  // The host holds the field now: no longer the name's button, and seen by a screen reader (the view's chip is hidden from one).
+  for (const a of ["role", "tabindex", "aria-label", "aria-hidden"]) host.removeAttribute(a);
+  host.classList.remove("named");
   host.replaceChildren(input);
   input.focus();
   input.select();
@@ -316,13 +319,24 @@ function endRename(keep: boolean): void {
   renderResult();
 }
 
-$("rename").onclick = () => {
-  const r = selected ? records.get(selected) : undefined;
-  if (r) startRename(r, $("x-name"));
-};
+/** A name given is renamed by tapping it: the chip beside the star (card or expanded view) or the view's title.
+ * Unnamed, they offer nothing (the star names a curve). */
+for (const [id, host] of [["r-name", "r-name"], ["x-nm", "x-nm"], ["x-name", "x-name"]] as const) {
+  const rename = () => {
+    const r = selected ? records.get(selected) : undefined;
+    if (r && nameOf(r).text && renaming?.host.id !== host) startRename(r, $(host));
+  };
+  $(id).onclick = rename;
+  $(id).onkeydown = (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+      e.preventDefault();
+      rename();
+    }
+  };
+}
 
 /** The star (the card's or the expanded view's): starring opens the name field
- * (on the card, or the view's title); un-starring clears the name. */
+ * beside it; un-starring clears the name. */
 function toggleStar(nameHost: HTMLElement): void {
   const r = selected ? records.get(selected) : undefined;
   if (!r) return;
@@ -337,7 +351,7 @@ function toggleStar(nameHost: HTMLElement): void {
   if (on) startRename(r, nameHost);
 }
 $("star").onclick = () => toggleStar($("r-name"));
-$("x-star").onclick = () => toggleStar($("x-name"));
+$("x-star").onclick = () => toggleStar($("x-nm"));
 
 $("delete").onclick = () => {
   if (selected) void deletePhoto(selected);
@@ -616,6 +630,19 @@ const photoPins = stepper($("r-pins"), () => (selected ? records.get(selected)?.
   pinsTimer = setTimeout(() => remeasure(r.id, true), 500);
 });
 
+/** The chain style of this photo only (the default for new photos stays in Settings): a new chain brings its own pin count. */
+$<HTMLSelectElement>("r-chain").onchange = (e) => {
+  const r = selected ? records.get(selected) : undefined;
+  const chain = (e.target as HTMLSelectElement).value;
+  if (!r || r.photoDeleted || !(chain in chains) || chain === presetKey(chains, r.chain)) return;
+  r.chain = chain;
+  r.pins = chains[chain]!.n_pins;
+  clearTimeout(pinsTimer);
+  remeasure(r.id, true);
+  renderList();
+  renderResult();
+};
+
 function stepper(box: HTMLElement, get: () => number, set: (n: number) => void): HTMLInputElement {
   const input = box.querySelector("input")!;
   const commit = (n: number) => {
@@ -676,7 +703,20 @@ function renderResult(): void {
     star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);
   }
   if (renaming?.host.id !== "r-name") $("r-name").textContent = nameOf(r).text;
-  $("x-nm").textContent = nameOf(r).text;
+  if (renaming?.host.id !== "x-nm") $("x-nm").textContent = nameOf(r).text;
+  // The name, tapped, renames: a button to a screen reader while it is a name and not the field. The view's chip
+  // repeats its title, so it stays hidden from one (except while it holds the field).
+  for (const id of ["r-name", "x-name", "x-nm"]) {
+    const host = $(id), editing = renaming?.host.id === id, named = !!nameOf(r).text && !editing;
+    host.classList.toggle("named", named);
+    if (id === "x-nm") host.toggleAttribute("aria-hidden", !editing);
+    else if (named) {
+      host.setAttribute("role", "button");
+      host.tabIndex = 0;
+      // The title also names the dialog (aria-labelledby): it keeps its own text as its name.
+      if (id === "r-name") host.setAttribute("aria-label", `Rename ${nameOf(r).text}`);
+    } else for (const a of ["role", "tabindex", "aria-label"]) host.removeAttribute(a);
+  }
   for (const t of [$("r-time"), $("x-time")]) t.textContent = timeOf(r);
   for (const t of [$("r-tag"), $("x-tag")]) {
     t.className = `tag ${tag}`;
@@ -733,6 +773,12 @@ function renderResult(): void {
     : v ? "Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom, double-tap to fit."
     : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
   photoPins.value = String(r.pins);
+  const chainSelect = $<HTMLSelectElement>("r-chain");
+  if (chainSelect.options.length !== Object.keys(chains).length) {
+    chainSelect.replaceChildren(...Object.keys(chains).map((k) => new Option(chainLabel(k), k)));
+  }
+  chainSelect.value = presetKey(chains, r.chain);
+  chainSelect.disabled = gone;
   for (const c of $("r-pins").querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) c.disabled = gone;
 
   const res = doc?.result;
@@ -989,7 +1035,7 @@ function closeExpanded(fromHistory = false): void {
   if (!expanded) return;
   expanded = false;
   taps.cancel();
-  if (renaming?.host.id === "x-name") endRename(true);
+  if (renaming?.host.id === "x-name" || renaming?.host.id === "x-nm") endRename(true);
   const xv = $("xv");
   const done = () => {
     xv.hidden = true;
