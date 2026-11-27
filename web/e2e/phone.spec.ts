@@ -244,6 +244,15 @@ test("the expanded view has the card's star, time and tag in the same corners", 
   await expand();
   // … which end with the transition: left holding their last frame, they would apply to the next one's snapshots.
   expect(await page.evaluate(() => document.getAnimations().filter((a) => (a.effect as KeyframeEffect | null)?.pseudoElement?.startsWith("::view-transition")).length)).toBe(0);
+  // The settings slide out from under the photo every time, not only the first (Safari ran CSS keyframes once).
+  const sheetSlides = () => page.evaluate(() => document.getAnimations()
+    .filter((a) => (a.effect as KeyframeEffect | null)?.pseudoElement === "::view-transition-new(x-sheet)").length);
+  for (let i = 0; i < 2; i++) {
+    await collapse();
+    await page.locator("#expand").tap();
+    await expect.poll(sheetSlides).toBe(1);
+    await expand();
+  }
   await expect(page.locator("#page")).toBeHidden();                       // in place of the page, not over it
   const view = await corners("#photo", ["#x-star", "#x-time", "#x-tag"]);
   card.forEach((c, i) => {
