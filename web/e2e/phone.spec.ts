@@ -238,7 +238,12 @@ test("the expanded view has the card's star, time and tag in the same corners", 
   await expect.poll(() => page.evaluate(() => document.getAnimations()
     .map((a) => (a.effect as KeyframeEffect | null)?.pseudoElement ?? "").filter((p) => p.startsWith("::view-transition-group"))))
     .toEqual(expect.arrayContaining(["::view-transition-group(x-photo)", "::view-transition-group(x-tl)", "::view-transition-group(x-br)"]));
+  // The pictures are moved and scaled by animations of their own (main.ts, animatePictures) …
+  await expect.poll(() => page.evaluate(() => document.getAnimations()
+    .filter((a) => !(a as CSSAnimation).animationName && (a.effect as KeyframeEffect | null)?.pseudoElement?.includes("(x-photo)")).length)).toBeGreaterThan(0);
   await expand();
+  // … which end with the transition: left holding their last frame, they would apply to the next one's snapshots.
+  expect(await page.evaluate(() => document.getAnimations().filter((a) => (a.effect as KeyframeEffect | null)?.pseudoElement?.startsWith("::view-transition")).length)).toBe(0);
   await expect(page.locator("#page")).toBeHidden();                       // in place of the page, not over it
   const view = await corners("#photo", ["#x-star", "#x-time", "#x-tag"]);
   card.forEach((c, i) => {

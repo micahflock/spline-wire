@@ -234,15 +234,21 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
 .sheet { padding: 8px var(--gutter-r) max(16px, env(safe-area-inset-bottom)) var(--gutter-l); }
 /* Opening and closing the view (main.ts, switchView): the browser's view transition morphs the card's photo box
    into the view's and back, with the keys in its corners, and crossfades the rest. Only one of each pair is ever
-   shown, so they can share a name. The photos inside the box fill it as it changes shape (cover, centred: both
-   are framed on the chain), so the picture zooms rather than stretches. */
-#result, .vp { view-transition-name: x-photo; }
+   shown, so they can share a name. The two pictures keep their own size inside the box (not stretched to it as it
+   changes shape, which made them grow past both ends), clipped to it; main.ts moves and scales them in step
+   (animatePictures) over the box's background. Length and easing: VT_MS and VT_EASE in main.ts. */
+#card-pic, .vp { view-transition-name: x-photo; }
 #result .fl.tl, .vp .fl.tl { view-transition-name: x-tl; }
 #result .fl.tr, .vp .fl.tr { view-transition-name: x-tr; }
 #result .fl.bl, .vp .fl.bl { view-transition-name: x-bl; }
 #result .fl.br, .vp .fl.br { view-transition-name: x-br; }
 ::view-transition-group(*) { animation-duration: 380ms; animation-timing-function: cubic-bezier(.3, 0, 0, 1); }
-::view-transition-old(x-photo), ::view-transition-new(x-photo) { height: 100%; object-fit: cover; overflow: clip; }
+::view-transition-image-pair(x-photo) { overflow: clip; }
+::view-transition-old(x-photo), ::view-transition-new(x-photo) { width: 100%; height: 100%; object-fit: none;
+  animation: none; mix-blend-mode: normal; }                 /* main.ts fades one over the other */
+.vt-old-over::view-transition-old(x-photo) { z-index: 1; }
+::view-transition-group(x-photo) { background: var(--photo-bg); }
+.vt-drawing::view-transition-group(x-photo) { background: var(--card); }
 .tools { display: flex; gap: 6px; flex-wrap: wrap; }
 .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 2px; }
 .hint:empty { display: none; }
