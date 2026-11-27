@@ -58,10 +58,16 @@ test("the camera opens again after a photo, and the shutter waits for it", async
       await expect(page.locator("#now")).toContainText("Frame the whole chain", { timeout: 15_000 });
       await expect(page.locator("#shoot")).toBeEnabled();
       await page.getByRole("button", { name: "Take the photo" }).click();
-      // The fake camera shows no chain: the photo is taken and measured, and says so.
-      await expect(page.locator("#now")).toContainText(`-00${round}:`, { timeout: 60_000 });
-      await expect(page.locator("#now")).not.toContainText("measuring", { timeout: 60_000 });
       await expect(page.locator("#video")).toBeHidden();
+      // The fake camera shows no chain: the photo is taken and measured, and
+      // says so. The page keeps Open the camera off until the test is
+      // measured and listed; opening it any sooner let the measurement's
+      // result overwrite the camera's message (CI run 45934412160).
+      const id = `phone-00${round}`;
+      await expect(page.locator("#tests")).toContainText(id, { timeout: 60_000 });
+      await expect(page.getByRole("button", { name: "Open the camera" })).toBeEnabled();
+      await expect(page.locator("#now")).toContainText(`${id}: `);
+      await expect(page.locator("#now")).not.toContainText(/reading the photo|measuring/);
     }
   } finally {
     await browser.close();

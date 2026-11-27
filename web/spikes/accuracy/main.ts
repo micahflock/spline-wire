@@ -104,23 +104,35 @@ function showCamera(open: boolean): void {
   $("open").hidden = open;
 }
 
+/** The camera is starting (the shutter waits for it), and a photo is being
+ * measured (nothing starts another until it is done: the status line is its,
+ * and a camera opened meanwhile had its message overwritten by the result). */
+let starting = false;
+let measuring = false;
+function controls(): void {
+  ($("open") as HTMLButtonElement).disabled = measuring;
+  ($("pick") as HTMLInputElement).disabled = measuring;
+  ($("shoot") as HTMLButtonElement).disabled = measuring || starting || !camera.open;
+}
+
 $("open").onclick = async () => {
   now("Starting the camera…");
   // The video is shown before the camera starts: iOS Safari does not play a
   // hidden video, and waited on it until the page was hidden and shown again.
   showCamera(true);
-  const shutter = $("shoot") as HTMLButtonElement;
-  shutter.disabled = true;
+  starting = true;
+  controls();
   try {
     const s = phoneSettings();
     const label = await camera.start(s.camera, ultraWides(s));
-    shutter.disabled = false;
     now(`Camera: ${label || "rear camera"}. Frame the whole chain, then take the photo.`);
   } catch (e) {
     camera.stop();
     showCamera(false);
-    shutter.disabled = false;
     now(`The camera did not open: ${(e as Error).message}. Tap Open the camera again, or choose a photo from the library.`);
+  } finally {
+    starting = false;
+    controls();
   }
 };
 // Let the camera go when the page is hidden (iOS keeps its light on otherwise).
@@ -138,15 +150,16 @@ $("close").onclick = () => {
 };
 $("shoot").onclick = async () => {
   ($("shoot") as HTMLButtonElement).disabled = true;
+  let shot;
   try {
-    const shot = await camera.shoot();
-    showCamera(false);
-    await run(shot.blob, shot.kind === "photo" ? "camera" : "frame");
+    shot = await camera.shoot();
   } catch (e) {
     now(`The photo was not taken: ${(e as Error).message}`);
-  } finally {
-    ($("shoot") as HTMLButtonElement).disabled = false;
+    controls();
+    return;
   }
+  showCamera(false);
+  await run(shot.blob, shot.kind === "photo" ? "camera" : "frame");
 };
 $<HTMLInputElement>("pick").onchange = async (e) => {
   const el = e.target as HTMLInputElement;
@@ -156,6 +169,19 @@ $<HTMLInputElement>("pick").onchange = async (e) => {
 };
 
 async function run(photo: Blob, route: TestRecord["route"]): Promise<void> {
+  measuring = true;
+  controls();
+  try {
+    await measure(photo, route);
+  } catch (e) {
+    now(`The test was not saved: ${(e as Error).message}`);    // IndexedDB; measuring reports its own errors
+  } finally {
+    measuring = false;
+    controls();
+  }
+}
+
+async function measure(photo: Blob, route: TestRecord["route"]): Promise<void> {
   const phone = input("phone").value.trim() || "phone";
   const target = input("target").value;
   const n = Number(store.get("count") ?? "0") + 1;
