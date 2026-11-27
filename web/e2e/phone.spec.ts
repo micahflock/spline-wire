@@ -222,6 +222,27 @@ test("a photo taken while the engine loads is measured when it is ready", async 
   await page.screenshot({ path: path.join(SHOTS, "measured-light.png"), fullPage: true });
 });
 
+test("the expanded view has the card's star, time and tag in the same corners", async () => {
+  await expand();
+  for (const [card, view] of [["#star", "#x-star"], ["#r-time", "#x-time"], ["#r-tag", "#x-tag"]] as const) {
+    const c = (await page.locator(card).boundingBox())!, v = (await page.locator(view).boundingBox())!;
+    const pc = (await page.locator("#card-pic").boundingBox())!, pv = (await page.locator("#photo").boundingBox())!;
+    expect(Math.abs(v.y - pv.y - (c.y - pc.y))).toBeLessThan(1);      // as far from the photo's top
+    const left = card === "#star";                                        // and from its left or right edge
+    expect(Math.abs(left ? v.x - pv.x - (c.x - pc.x) : pv.x + pv.width - v.x - (pc.x + pc.width - c.x))).toBeLessThan(1);
+  }
+  await expect(page.locator("#x-time")).toHaveText((await page.locator("#r-time").textContent())!);
+  await expect(page.locator("#x-tag")).toHaveText(/OK|CHECK/);
+  await page.locator("#x-star").tap();
+  await expect(page.locator("#x-name input.rename")).toBeFocused();       // starring offers a name, in the title
+  await page.locator("#x-name input.rename").press("Escape");
+  await expect(page.locator("#star")).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#x-star").tap();
+  await expect(page.locator("#x-star")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#star")).toHaveAttribute("aria-pressed", "false");
+  await collapse();                // the title's name field changed the photo's size: open it framed again
+});
+
 test("a tap on a pin removes it, Undo brings it back", async () => {
   await expand();
   const before = await viewBox();
@@ -236,9 +257,9 @@ test("a tap on a pin removes it, Undo brings it back", async () => {
   await expect(page.locator("#overlay .ov-removed")).toHaveCount(0);
   const undone = await lastMs();
   expect((await pinPositions()).length).toBe(13);
-  // A tap on empty photo adds a pin by hand; Reset removes it.
+  // A tap on empty photo adds a pin by hand; Reset removes it. (Left of the chain, clear of the star in the corner.)
   const b = (await page.locator("#photo").boundingBox())!;
-  await page.touchscreen.tap(b.x + 12, b.y + 12);
+  await page.touchscreen.tap(b.x + 12, b.y + b.height / 2);
   await expect(page.locator("#overlay .ov-hand, #overlay .ov-mine")).toHaveCount(1);
   await tapButton("Remove all pin changes");
   await expect(page.locator("#overlay .ov-hand, #overlay .ov-mine")).toHaveCount(0);
@@ -704,11 +725,11 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   // After a reload, with the core holding nothing, the old curve is copied and downloaded from its kept files.
   await p.reload();
   await old.tap();
-  await expect(p.locator("#card-nophoto")).toHaveText("Photo deleted · curve kept");
+  await expect(p.locator("#result")).toHaveClass(/\bgone\b/);
   await expect(p.locator("#card-pic svg path.cv")).toHaveCount(1);     // the curve, drawn without its photo
   await expect(p.locator("#swap")).toBeDisabled();
   await expand(p);
-  await expect(p.locator("#hint")).toContainText("deleted to save space");
+  await expect(p.locator("#hint")).toHaveText("");
   await expect(p.locator("#photo")).toBeHidden();
   await expect(p.locator("#x-drawing svg")).toBeVisible();
   await expect(p.locator("#undo")).toBeDisabled();
@@ -756,7 +777,7 @@ test("a HEIC photo, which Chromium cannot decode, gets its picture from the engi
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 60_000 });
   const card = p.locator("#card-pic image");
   await expect(card).toHaveAttribute("href", /^blob:/, { timeout: 30_000 });
-  await expect(p.locator("#card-nophoto")).toBeHidden();
+  await expect(p.locator("#result")).not.toHaveClass(/\bgone\b/);
   const id = (await item.getAttribute("data-id"))!;
   const kept = () => p.evaluate((id) => new Promise<string[]>((resolve, reject) => {
     const req = indexedDB.open("splinewire-phone");

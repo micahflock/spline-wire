@@ -27,7 +27,7 @@ The mockup is a **reference for look, layout and behaviour, not code to copy**. 
    - Bottom left, floating: **Swap side** flips the curve to the other side of the chain (today's Inside/Outside).
    - Bottom right: the **expand** key, which opens the expanded view (below). The collapse key sits in the same bottom-right corner of the expanded photo, so the key never jumps corners.
    - Check: 2 px amber border. Failed: 2 px red border, no curve, and a problem box over the photo (the ValueError text plus advice). There's no Swap side on a failed curve.
-   - If the photo was deleted ("photos kept" limit), the card shows the chain drawing on the card colour with "Photo deleted · curve kept".
+   - If the photo was deleted ("photos kept" limit), the card shows the chain drawing on the card colour, with no note.
 7. **History grid:** 4 columns, newest first, 12 tiles. Each tile shows **only the chain and the curve, no photo**. The star and name float on top when set. A small amber or red dot marks a Check or Failed curve. Tapping a tile makes it the working curve and scrolls to the top.
 8. **`•••` over a dashed rule:** expands to the full history (the same grid, all rows). It shows ▲ to collapse.
 9. **Settings** (below the fold, a big uppercase heading on a 2 px rule). Groups are mono legends on hairlines, and rows are label left, control right, McMaster style:
@@ -40,8 +40,9 @@ The mockup is a **reference for look, layout and behaviour, not code to copy**. 
    - The footer with version and build.
 
 ## Expanded view
-- Animated expand: the card grows to fill the screen (FLIP from the card's rect, about 320 ms), and collapses back the same way. Respect `prefers-reduced-motion`.
-- Top bar: the name (or "Curve 18:42") with the photo's meta line, and the tag. No key here.
+- Animated expand: the photo flies from the card to the viewport (about 320 ms), from the card's crop to the editor's framing, and back the same way, landing on the card's exact picture; the keys and chips in its four corners ride with it, and the rest of the view fades in around it. Respect `prefers-reduced-motion`.
+- Top bar: the name (or "Curve 18:42") with the photo's meta line. No key here.
+- The photo's corners as on the card: the **star** top left (starring offers the name in the top bar), **the time and the tag** top right.
 - The photo viewport with the full editor: pin outlines, pan, pinch, wheel zoom, tap a pin to remove it, tap a dot to add one. **Double-tap fits the chain to the view; there is no Fit key.** Single taps wait out the double-tap window (~300 ms) before editing. Swap side floats bottom left; **collapse floats bottom right**, where the card's expand key was.
 - Below it, a sheet: Undo, Reset, Rename, Delete; the hint line; **Pins in this photo** stepper (the per-photo override); the **Measurement** spec table (Pins found, Curve points, Camera tilt, Link length error rms+max, Focal length + source, Object side), with check rows in amber; then the warnings and notes.
 - **Check: a 4 px amber border around the whole expanded view. Failed: red.**

@@ -14,7 +14,7 @@ import { CoreError, type Commands, type EnginePreviews, type Progress } from "..
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind, Side } from "../core/types";
 import { LiveAnalyser } from "../pipeline/live-client";
 import { EditHistory, editsAfterTap } from "../editor/edits";
-import type { Pt } from "../editor/viewport";
+import type { Pt, ViewBox } from "../editor/viewport";
 import { greyCopy, previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
 import { pageRelaySetting, relayAddress } from "../relay/config";
@@ -30,7 +30,8 @@ import { forgetPairing, phoneSecret, secretFromHash } from "../relay/pairing";
 import { LocalStore } from "../relay/store";
 import { CameraView, type Still } from "./camera-view";
 import { curveFrom } from "./curve";
-import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg } from "./drawings";
+import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg, type Box } from "./drawings";
+import { EASE, FLIGHT_MS, lerpBox, lerpRect, type Rect } from "./flight";
 import { TapFilter } from "./taps";
 import { NO_EXIF, exifOfFile, type Exif } from "./exif";
 import { isFront, learn, lensFocal, lensName, mainLens, savedFocal } from "./lenses";
@@ -289,6 +290,7 @@ function startRename(r: PhotoRecord, host: HTMLElement): void {
   input.onkeydown = (e) => {
     if (e.key === "Enter" || e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();             // Escape ends the rename only, not the expanded view too
       endRename(e.key === "Enter");
     }
   };
@@ -319,8 +321,9 @@ $("rename").onclick = () => {
   if (r) startRename(r, $("x-name"));
 };
 
-/** The card's star: starring opens the name field in place; un-starring clears the name. */
-$("star").onclick = () => {
+/** The star (the card's or the expanded view's): starring opens the name field
+ * (on the card, or the view's title); un-starring clears the name. */
+function toggleStar(nameHost: HTMLElement): void {
   const r = selected ? records.get(selected) : undefined;
   if (!r) return;
   const on = !starOf(r).on;
@@ -331,8 +334,10 @@ $("star").onclick = () => {
   if (s) sendChange([s.id]);
   renderList();
   renderResult();
-  if (on) startRename(r, $("r-name"));
-};
+  if (on) startRename(r, nameHost);
+}
+$("star").onclick = () => toggleStar($("r-name"));
+$("x-star").onclick = () => toggleStar($("x-name"));
 
 $("delete").onclick = () => {
   if (selected) void deletePhoto(selected);
@@ -512,7 +517,7 @@ const svg = $("photo") as unknown as SVGSVGElement;
 // A double tap fits the chain to the view; a single tap edits once the double-tap window has passed (taps.ts).
 const taps = new TapFilter(tap, () => editor.frame());
 const editor = new PhotoEditor(svg, (p, slack, kind) => taps.tap(p, slack, kind));
-// The view grows and shrinks (the expanded view's animation, the phone turned): keep the same part in view.
+// The view changes size (the phone turned, the window resized): keep the same part in view.
 new ResizeObserver(() => editor.refit()).observe(svg);
 
 async function select(id: string | null): Promise<void> {
@@ -666,12 +671,13 @@ function renderResult(): void {
   for (const c of ["chk", "bad"]) card.classList.toggle(c, tag === c);
   card.classList.toggle("gone", gone);
   renderCardPicture(r);
-  $("card-nophoto").hidden = !gone;
-  const star = $("star");
-  star.setAttribute("aria-pressed", String(starOf(r).on));
-  star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);
+  for (const star of [$("star"), $("x-star")]) {
+    star.setAttribute("aria-pressed", String(starOf(r).on));
+    star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);
+  }
   if (renaming?.host.id !== "r-name") $("r-name").textContent = nameOf(r).text;
-  $("r-time").textContent = timeOf(r);
+  $("x-nm").textContent = nameOf(r).text;
+  for (const t of [$("r-time"), $("x-time")]) t.textContent = timeOf(r);
   for (const t of [$("r-tag"), $("x-tag")]) {
     t.className = `tag ${tag}`;
     t.textContent = label;
@@ -706,7 +712,7 @@ function renderResult(): void {
   const via = r.via === "camera" ? (r.camera?.still === "frame" ? `page camera, video frame${r.camera.why ? ` (takePhoto: ${r.camera.why})` : ""}` : "page camera")
     : r.via === "take" ? "system camera" : "library";
   const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
-  $("r-meta").textContent = [gone ? "photo deleted · curve kept" : r.name, size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
+  $("r-meta").textContent = [r.name, size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
 
   const v = doc?.view;
   svg.classList.toggle("wait", busy);
@@ -722,7 +728,7 @@ function renderResult(): void {
   const edited = !!v && hasEdits(v.edits);
   $<HTMLButtonElement>("undo").disabled = busy || gone || !history(r.id).canUndo;
   $<HTMLButtonElement>("reset").disabled = busy || gone || !edited;
-  $("hint").textContent = gone ? "The photo was deleted to save space; the curve is kept, but its pins can no longer be fixed."
+  $("hint").textContent = gone ? ""
     : v ? "Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom, double-tap to fit."
     : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
   photoPins.value = String(r.pins);
@@ -752,6 +758,16 @@ function renderResult(): void {
 }
 
 /** The card's picture, drawn again only when it changes (the photo's <image> is not reloaded on every update). */
+/** The part of the photo the card shows (photo px), or null when the card shows a drawing. */
+function cardCropOf(r: PhotoRecord): Box | null {
+  const v = r.doc?.view;
+  if (r.photoDeleted || (!r.pixels && !v)) return null;
+  const photo = v ? { width: v.width, height: v.height } : r.pixels!;
+  const marks = v ? (v.pins.length ? v.pins : v.unused).map((m): [number, number] => [m.x, m.y]) : [];
+  return marks.length >= 2 ? cardCrop(marks, v!.r, photo, CARD_ASPECT)
+    : clampBox(fitBox([0, 0, photo.width, photo.height], CARD_ASPECT, 0), photo.width, photo.height);
+}
+
 function renderCardPicture(r: PhotoRecord): void {
   const pic = $("card-pic");
   const doc = r.doc, v = doc?.view;
@@ -760,9 +776,7 @@ function renderCardPicture(r: PhotoRecord): void {
     html = doc?.curve ? curveDrawing(doc.curve, CARD_ASPECT, { pad: 10, big: true, look: lookOf(r) }) : "";
   } else {
     const photo = v ? { width: v.width, height: v.height } : r.pixels!;
-    const marks = v ? (v.pins.length ? v.pins : v.unused).map((m): [number, number] => [m.x, m.y]) : [];
-    const crop = marks.length >= 2 ? cardCrop(marks, v!.r, photo, CARD_ASPECT)
-      : clampBox(fitBox([0, 0, photo.width, photo.height], CARD_ASPECT, 0), photo.width, photo.height);
+    const crop = cardCropOf(r)!;
     const href = previewUrl && selected === r.id && r.pixels ? previewUrl : null;
     html = cardSvg({ href, photo, crop, curve: doc?.ok && v ? v.curve : null });
   }
@@ -838,12 +852,68 @@ const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").match
 
 let expanded = false;
 
-/** The card grown to fill the screen (FLIP from its rect, about 320 ms), with the editor and the sheet. */
+/** The photo (or, once it is deleted, the drawing) flying between the card and
+ * the expanded view, while the view fades in or out around it (--p, 1 when open). */
+let flight: { el: HTMLElement; p: number; stop(): void } | null = null;
+
+const flyer = (): HTMLElement => ($("x-drawing").hidden ? svg as unknown as HTMLElement : $("x-drawing"));
+const rectOf = (e: Element): Rect => {
+  const b = e.getBoundingClientRect();
+  return { left: b.left, top: b.top, width: b.width, height: b.height };
+};
+const boxOf = ([x, y, w, h]: Box): ViewBox => ({ x, y, w, h });
+
+/** Fly `el` from one rect to another in FLIGHT_MS, showing the photo from one
+ * viewBox to the other (none for the drawing); `done` once it has landed. */
+function fly(el: HTMLElement, from: Rect, to: Rect, boxes: [ViewBox, ViewBox] | null, p: [number, number], done: () => void): void {
+  const xv = $("xv");
+  xv.classList.add("flying");
+  // Placed in its own box (.vp, which stays put), not fixed: Chromium can lay out
+  // one frame as if still fixed once a fixed element goes back to absolute.
+  const at = rectOf(el.parentElement!);
+  const t0 = performance.now();
+  let raf = 0;
+  const end = (landed: boolean) => {
+    cancelAnimationFrame(raf);
+    flight = null;
+    el.removeAttribute("style");
+    for (const k of ["--dl", "--dt", "--dr", "--db"]) el.parentElement!.style.removeProperty(k);
+    xv.classList.remove("flying", "opening", "closing");
+    xv.style.removeProperty("--p");
+    if (landed) done();
+  };
+  const me = { el, p: p[0], stop: () => end(false) };
+  const frame = (now: number) => {
+    const t = Math.min(1, Math.max(0, (now - t0) / FLIGHT_MS)), e = EASE(t);
+    const r = lerpRect(from, to, e);
+    Object.assign(el.style, { inset: "auto", left: `${r.left - at.left}px`, top: `${r.top - at.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    // The keys and chips in the photo's corners ride with it (phone.css: --dl, --dt, --dr, --db).
+    const vp = el.parentElement!;
+    vp.style.setProperty("--dl", `${r.left - at.left}px`);
+    vp.style.setProperty("--dt", `${r.top - at.top}px`);
+    vp.style.setProperty("--dr", `${at.left + at.width - r.left - r.width}px`);
+    vp.style.setProperty("--db", `${at.top + at.height - r.top - r.height}px`);
+    if (boxes) editor.showBox(lerpBox(boxes[0], boxes[1], e));
+    me.p = p[0] + (p[1] - p[0]) * e;
+    xv.style.setProperty("--p", me.p.toFixed(3));
+    if (t < 1) raf = requestAnimationFrame(frame);
+    else end(true);
+  };
+  flight = me;
+  frame(t0);
+}
+
+/** The card grown to fill the screen, with the editor and the sheet: the photo
+ * flies from the card's crop to the editor's framing of the chain. */
 function openExpanded(): void {
   if (expanded || !selected) return;
   expanded = true;
   const xv = $("xv");
-  const from = $("result").getBoundingClientRect();
+  const r = records.get(selected);
+  // Back while it was closing: carry on from where the photo is.
+  const was = flight && { rect: rectOf(flight.el), box: editor.viewBox, p: flight.p };
+  flight?.stop();
+  const from = was?.rect ?? rectOf($("card-pic"));
   document.documentElement.classList.add("xv-on");
   xv.hidden = false;
   $("expand").setAttribute("aria-expanded", "true");
@@ -851,21 +921,15 @@ function openExpanded(): void {
   renderResult();
   editor.frame();
   if (!reducedMotion()) {
+    const el = flyer(), crop = r && el !== $("x-drawing") ? cardCropOf(r) : null;
+    const start = was?.box ?? (crop ? boxOf(crop) : null), target = editor.viewBox;
     xv.classList.add("opening");
-    Object.assign(xv.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: "3px" });
-    void xv.offsetWidth;
-    xv.classList.add("anim");
-    Object.assign(xv.style, { left: "0px", top: "0px", width: `${innerWidth}px`, height: `${innerHeight}px`, borderRadius: "0px" });
-    afterTransition(xv, () => {
-      xv.classList.remove("anim", "opening");
-      xv.removeAttribute("style");
-      editor.frame();
-    });
+    fly(el, from, rectOf(el), crop && start && target ? [start, target] : null, [was?.p ?? 0, 1], () => {});
   }
   $<HTMLButtonElement>("collapse").focus({ preventScroll: true });
 }
 
-/** Back to the card: the same way it came. `fromHistory`: the back gesture did it. */
+/** Back to the card: the same way it came, the photo landing on the card's crop. `fromHistory`: the back gesture did it. */
 function closeExpanded(fromHistory = false): void {
   if (!expanded) return;
   expanded = false;
@@ -874,40 +938,22 @@ function closeExpanded(fromHistory = false): void {
   const xv = $("xv");
   const done = () => {
     xv.hidden = true;
-    xv.classList.remove("anim", "closing");
-    xv.removeAttribute("style");
     document.documentElement.classList.remove("xv-on");
   };
   $("expand").setAttribute("aria-expanded", "false");
   if (!fromHistory && history_.state?.expanded) history_.back();
+  const was = flight && { rect: rectOf(flight.el), p: flight.p };
+  flight?.stop();
   const card = $("result");
   if (reducedMotion() || card.hidden) {
     done();
     return;
   }
-  const to = card.getBoundingClientRect();
+  const el = flyer(), r = selected ? records.get(selected) : undefined;
+  const crop = r && el !== $("x-drawing") ? cardCropOf(r) : null, box = editor.viewBox;
   xv.classList.add("closing");
-  Object.assign(xv.style, { left: "0px", top: "0px", width: `${innerWidth}px`, height: `${innerHeight}px` });
-  void xv.offsetWidth;
-  xv.classList.add("anim");
-  Object.assign(xv.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: "3px" });
-  afterTransition(xv, done);
+  fly(el, was?.rect ?? rectOf(el), rectOf($("card-pic")), crop && box ? [box, boxOf(crop)] : null, [was?.p ?? 1, 0], done);
   $<HTMLButtonElement>("expand").focus({ preventScroll: true });
-}
-
-function afterTransition(e: HTMLElement, then: () => void): void {
-  let ran = false;
-  const once = () => {
-    if (ran) return;
-    ran = true;
-    e.removeEventListener("transitionend", end);
-    then();
-  };
-  const end = (ev: TransitionEvent) => {
-    if (ev.target === e && ev.propertyName === "height") once();
-  };
-  e.addEventListener("transitionend", end);
-  setTimeout(once, 450);
 }
 
 $("expand").onclick = openExpanded;
