@@ -39,9 +39,11 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): (t:
   };
 }
 
-/** The expanded view's easing, as the page's other motion. */
-export const EASE = cubicBezier(0.2, 0.8, 0.2, 1);
-export const FLIGHT_MS = 320;
+/** The expanded view's easing: a gentle start (under 1% in the first 60 Hz frame,
+ * so the picture never jumps off the card), half way by a quarter of the time,
+ * then a long settle. (0.2, 0.8, 0.2, 1) moved 21% in the first frame: a jump on a phone. */
+export const EASE = cubicBezier(0.3, 0, 0, 1);
+export const FLIGHT_MS = 380;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** Sizes grow and shrink geometrically: a zoom looks even all the way. */

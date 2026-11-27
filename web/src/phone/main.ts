@@ -724,6 +724,7 @@ function renderResult(): void {
   if (drawing.dataset.key !== `${r.id}:${drawn.length}`) {
     drawing.innerHTML = drawn;
     drawing.dataset.key = `${r.id}:${drawn.length}`;
+    drawing.dataset.box = drawing.querySelector("svg")?.getAttribute("viewBox") ?? "";   // its own framing (resetDrawing)
   }
   const edited = !!v && hasEdits(v.edits);
   $<HTMLButtonElement>("undo").disabled = busy || gone || !history(r.id).canUndo;
@@ -863,10 +864,60 @@ const rectOf = (e: Element): Rect => {
 };
 const boxOf = ([x, y, w, h]: Box): ViewBox => ({ x, y, w, h });
 
-/** Fly `el` from one rect to another in FLIGHT_MS, showing the photo from one
- * viewBox to the other (none for the drawing); `done` once it has landed. */
-function fly(el: HTMLElement, from: Rect, to: Rect, boxes: [ViewBox, ViewBox] | null, p: [number, number], done: () => void): void {
-  const xv = $("xv");
+/** What the flying element shows: its viewBox (photo px, or mm for a deleted
+ * photo's drawing) and, for the drawing, its inner margin (the card's is 10 px). */
+interface Shot { box: ViewBox; pad: number }
+
+const isDrawing = (el: HTMLElement) => el === $("x-drawing");
+const drawingSvg = () => $("x-drawing").querySelector("svg");
+const svgBox = (s: SVGSVGElement): ViewBox => {
+  const b = s.viewBox.baseVal;
+  return { x: b.x, y: b.y, w: b.width, h: b.height };
+};
+
+/** The card's picture, or null when it has nothing to match (no crop, no drawing). */
+function cardShot(drawing: boolean): Shot | null {
+  if (drawing) {
+    const c = $("card-pic").querySelector("svg");
+    return c ? { box: svgBox(c), pad: parseFloat(getComputedStyle(c).paddingLeft) || 0 } : null;
+  }
+  const r = selected ? records.get(selected) : undefined, crop = r && cardCropOf(r);
+  return crop ? { box: boxOf(crop), pad: 0 } : null;
+}
+
+/** What the expanded view shows now (mid-flight: where the flight has got to). */
+function viewShot(drawing: boolean): Shot | null {
+  if (drawing) {
+    const d = drawingSvg();
+    return d ? { box: svgBox(d), pad: parseFloat(d.style.padding) || 0 } : null;
+  }
+  const b = editor.viewBox;
+  return b ? { box: b, pad: 0 } : null;
+}
+
+function showShot(drawing: boolean, s: Shot): void {
+  if (!drawing) {
+    editor.showBox(s.box);
+    return;
+  }
+  const d = drawingSvg();
+  if (!d) return;
+  d.setAttribute("viewBox", `${s.box.x} ${s.box.y} ${s.box.w} ${s.box.h}`);
+  d.style.padding = s.pad ? `${s.pad}px` : "";
+}
+
+/** The drawing back to its own framing (renderResult drew it with it; a flight changes it). */
+function resetDrawing(): void {
+  const d = drawingSvg(), box = $("x-drawing").dataset.box;
+  if (!d) return;
+  if (box) d.setAttribute("viewBox", box);
+  d.style.padding = "";
+}
+
+/** Fly `el` from one rect to another in FLIGHT_MS, showing one shot to the
+ * other as it goes (the picture keeps still on the card at both ends); `done` once it has landed. */
+function fly(el: HTMLElement, from: Rect, to: Rect, shots: [Shot, Shot] | null, p: [number, number], done: () => void): void {
+  const xv = $("xv"), drawing = isDrawing(el);
   xv.classList.add("flying");
   // Placed in its own box (.vp, which stays put), not fixed: Chromium can lay out
   // one frame as if still fixed once a fixed element goes back to absolute.
@@ -880,6 +931,7 @@ function fly(el: HTMLElement, from: Rect, to: Rect, boxes: [ViewBox, ViewBox] | 
     for (const k of ["--dl", "--dt", "--dr", "--db"]) el.parentElement!.style.removeProperty(k);
     xv.classList.remove("flying", "opening", "closing");
     xv.style.removeProperty("--p");
+    if (drawing) resetDrawing();
     if (landed) done();
   };
   const me = { el, p: p[0], stop: () => end(false) };
@@ -893,7 +945,10 @@ function fly(el: HTMLElement, from: Rect, to: Rect, boxes: [ViewBox, ViewBox] | 
     vp.style.setProperty("--dt", `${r.top - at.top}px`);
     vp.style.setProperty("--dr", `${at.left + at.width - r.left - r.width}px`);
     vp.style.setProperty("--db", `${at.top + at.height - r.top - r.height}px`);
-    if (boxes) editor.showBox(lerpBox(boxes[0], boxes[1], e));
+    if (shots) {
+      const [a, b] = shots;
+      showShot(drawing, { box: lerpBox(a.box, b.box, e), pad: a.pad + (b.pad - a.pad) * e });
+    }
     me.p = p[0] + (p[1] - p[0]) * e;
     xv.style.setProperty("--p", me.p.toFixed(3));
     if (t < 1) raf = requestAnimationFrame(frame);
@@ -904,14 +959,14 @@ function fly(el: HTMLElement, from: Rect, to: Rect, boxes: [ViewBox, ViewBox] | 
 }
 
 /** The card grown to fill the screen, with the editor and the sheet: the photo
- * flies from the card's crop to the editor's framing of the chain. */
+ * (or the drawing) flies from the card's framing to the view's. */
 function openExpanded(): void {
   if (expanded || !selected) return;
   expanded = true;
   const xv = $("xv");
-  const r = records.get(selected);
-  // Back while it was closing: carry on from where the photo is.
-  const was = flight && { rect: rectOf(flight.el), box: editor.viewBox, p: flight.p };
+  // Back while it was closing: carry on from where the picture is.
+  const wasEl = flight?.el;
+  const was = flight && wasEl && { rect: rectOf(wasEl), shot: viewShot(isDrawing(wasEl)), p: flight.p };
   flight?.stop();
   const from = was?.rect ?? rectOf($("card-pic"));
   document.documentElement.classList.add("xv-on");
@@ -921,15 +976,15 @@ function openExpanded(): void {
   renderResult();
   editor.frame();
   if (!reducedMotion()) {
-    const el = flyer(), crop = r && el !== $("x-drawing") ? cardCropOf(r) : null;
-    const start = was?.box ?? (crop ? boxOf(crop) : null), target = editor.viewBox;
+    const el = flyer(), drawing = isDrawing(el);
+    const start = (wasEl === el ? was?.shot : null) ?? cardShot(drawing), target = viewShot(drawing);
     xv.classList.add("opening");
-    fly(el, from, rectOf(el), crop && start && target ? [start, target] : null, [was?.p ?? 0, 1], () => {});
+    fly(el, from, rectOf(el), start && target ? [start, target] : null, [was?.p ?? 0, 1], () => {});
   }
   $<HTMLButtonElement>("collapse").focus({ preventScroll: true });
 }
 
-/** Back to the card: the same way it came, the photo landing on the card's crop. `fromHistory`: the back gesture did it. */
+/** Back to the card: the same way it came, landing on the card's own picture. `fromHistory`: the back gesture did it. */
 function closeExpanded(fromHistory = false): void {
   if (!expanded) return;
   expanded = false;
@@ -942,17 +997,19 @@ function closeExpanded(fromHistory = false): void {
   };
   $("expand").setAttribute("aria-expanded", "false");
   if (!fromHistory && history_.state?.expanded) history_.back();
+  const el = flyer(), drawing = isDrawing(el);
+  // Turned back while opening: from where the picture is.
   const was = flight && { rect: rectOf(flight.el), p: flight.p };
+  const start = viewShot(drawing);
   flight?.stop();
   const card = $("result");
   if (reducedMotion() || card.hidden) {
     done();
     return;
   }
-  const el = flyer(), r = selected ? records.get(selected) : undefined;
-  const crop = r && el !== $("x-drawing") ? cardCropOf(r) : null, box = editor.viewBox;
+  const end = cardShot(drawing);
   xv.classList.add("closing");
-  fly(el, was?.rect ?? rectOf(el), rectOf($("card-pic")), crop && box ? [box, boxOf(crop)] : null, [was?.p ?? 1, 0], done);
+  fly(el, was?.rect ?? rectOf(el), rectOf($("card-pic")), start && end ? [start, end] : null, [was?.p ?? 1, 0], done);
   $<HTMLButtonElement>("expand").focus({ preventScroll: true });
 }
 
