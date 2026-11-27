@@ -290,6 +290,7 @@ function startRename(r: PhotoRecord, host: HTMLElement): void {
   input.onkeydown = (e) => {
     if (e.key === "Enter" || e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();             // Escape ends the rename only, not the expanded view too
       endRename(e.key === "Enter");
     }
   };
@@ -320,8 +321,9 @@ $("rename").onclick = () => {
   if (r) startRename(r, $("x-name"));
 };
 
-/** The card's star: starring opens the name field in place; un-starring clears the name. */
-$("star").onclick = () => {
+/** The star (the card's or the expanded view's): starring opens the name field
+ * (on the card, or the view's title); un-starring clears the name. */
+function toggleStar(nameHost: HTMLElement): void {
   const r = selected ? records.get(selected) : undefined;
   if (!r) return;
   const on = !starOf(r).on;
@@ -332,8 +334,10 @@ $("star").onclick = () => {
   if (s) sendChange([s.id]);
   renderList();
   renderResult();
-  if (on) startRename(r, $("r-name"));
-};
+  if (on) startRename(r, nameHost);
+}
+$("star").onclick = () => toggleStar($("r-name"));
+$("x-star").onclick = () => toggleStar($("x-name"));
 
 $("delete").onclick = () => {
   if (selected) void deletePhoto(selected);
@@ -667,11 +671,13 @@ function renderResult(): void {
   for (const c of ["chk", "bad"]) card.classList.toggle(c, tag === c);
   card.classList.toggle("gone", gone);
   renderCardPicture(r);
-  const star = $("star");
-  star.setAttribute("aria-pressed", String(starOf(r).on));
-  star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);
+  for (const star of [$("star"), $("x-star")]) {
+    star.setAttribute("aria-pressed", String(starOf(r).on));
+    star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);
+  }
   if (renaming?.host.id !== "r-name") $("r-name").textContent = nameOf(r).text;
-  $("r-time").textContent = timeOf(r);
+  $("x-nm").textContent = nameOf(r).text;
+  for (const t of [$("r-time"), $("x-time")]) t.textContent = timeOf(r);
   for (const t of [$("r-tag"), $("x-tag")]) {
     t.className = `tag ${tag}`;
     t.textContent = label;
@@ -871,6 +877,7 @@ function fly(el: HTMLElement, from: Rect, to: Rect, boxes: [ViewBox, ViewBox] | 
     cancelAnimationFrame(raf);
     flight = null;
     el.removeAttribute("style");
+    for (const k of ["--dl", "--dt", "--dr", "--db"]) el.parentElement!.style.removeProperty(k);
     xv.classList.remove("flying", "opening", "closing");
     xv.style.removeProperty("--p");
     if (landed) done();
@@ -880,6 +887,12 @@ function fly(el: HTMLElement, from: Rect, to: Rect, boxes: [ViewBox, ViewBox] | 
     const t = Math.min(1, Math.max(0, (now - t0) / FLIGHT_MS)), e = EASE(t);
     const r = lerpRect(from, to, e);
     Object.assign(el.style, { inset: "auto", left: `${r.left - at.left}px`, top: `${r.top - at.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    // The keys and chips in the photo's corners ride with it (phone.css: --dl, --dt, --dr, --db).
+    const vp = el.parentElement!;
+    vp.style.setProperty("--dl", `${r.left - at.left}px`);
+    vp.style.setProperty("--dt", `${r.top - at.top}px`);
+    vp.style.setProperty("--dr", `${at.left + at.width - r.left - r.width}px`);
+    vp.style.setProperty("--db", `${at.top + at.height - r.top - r.height}px`);
     if (boxes) editor.showBox(lerpBox(boxes[0], boxes[1], e));
     me.p = p[0] + (p[1] - p[0]) * e;
     xv.style.setProperty("--p", me.p.toFixed(3));

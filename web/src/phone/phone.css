@@ -126,14 +126,19 @@ button { cursor: pointer; touch-action: manipulation; }
 .ov-curve { fill: none; stroke: var(--curve); stroke-width: 3px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .ov-halo { fill: none; stroke: #fff; stroke-width: 6px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .9; }
 .fl { position: absolute; display: flex; align-items: center; gap: 6px; z-index: 1; }
-.fl.tl { left: 4px; top: 4px; right: 120px; } .fl.tr { right: 8px; top: 9px; } .fl.bl { left: 8px; bottom: 8px; } .fl.br { right: 8px; bottom: 8px; }
+/* The photo's corners, on the card and in the expanded view; --dl/--dt/--dr/--db move them with
+   the photo while it flies between the two (main.ts). */
+.fl.tl { left: calc(4px + var(--dl, 0px)); top: calc(4px + var(--dt, 0px)); right: calc(120px + var(--dr, 0px)); }
+.fl.tr { right: calc(8px + var(--dr, 0px)); top: calc(9px + var(--dt, 0px)); }
+.fl.bl { left: calc(8px + var(--dl, 0px)); bottom: calc(8px + var(--db, 0px)); }
+.fl.br { right: calc(8px + var(--dr, 0px)); bottom: calc(8px + var(--db, 0px)); }
 .star { width: 40px; height: 40px; border: 0; padding: 0; background: none; display: grid; place-items: center; flex: none; }
 .star svg { width: 24px; height: 24px; }
 .star path { fill: rgba(20, 20, 20, .25); stroke: rgba(255, 255, 255, .9); stroke-width: 1.6; }
 .star[aria-pressed="true"] path { fill: var(--fav); stroke: var(--fav); }
-.work .nm { font: 600 12.5px/1 var(--f-data); color: #fff; background: rgba(20, 20, 20, .72); padding: 5px 6px; border-radius: 2px; min-width: 0;
+.work .nm, .xv .nm { font: 600 12.5px/1 var(--f-data); color: #fff; background: rgba(20, 20, 20, .72); padding: 5px 6px; border-radius: 2px; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.work .nm:empty { display: none; }
+.work .nm:empty, .xv .nm:empty { display: none; }
 input.rename { font: 500 13px/1 var(--f-data); background: rgba(255, 255, 255, .96); color: #151515; border: 1px solid #151515; border-radius: 2px;
   padding: 7px 8px; width: 100%; min-width: 0; max-width: 220px; }
 .tag { font: 600 10.5px/1 var(--f-data); letter-spacing: .06em; padding: 5px 6px 4px; border-radius: 2px; color: #fff; background: #3a3a3a; white-space: nowrap; }
@@ -233,7 +238,10 @@ html.xv-on, html.xv-on body { overflow: hidden; }
 .xv.flying::before { content: ""; position: absolute; inset: 0; background: var(--page); opacity: var(--p, 1); }
 .xv.flying.chk::before { box-shadow: inset 0 0 0 4px var(--chk); } .xv.flying.bad::before { box-shadow: inset 0 0 0 4px var(--bad); }
 .xv.flying .xbar, .xv.flying .sheet { position: relative; opacity: var(--p, 1); }
-.xv.flying .vp > .fl, .xv.flying #overlay > :not(.ov-edge) { opacity: var(--p, 1); }
+/* The name chip shows on the card only: in flight it fades as the view's title comes in. */
+.xv:not(.flying) #x-nm { display: none; }
+.xv.flying #x-nm { opacity: calc(1 - var(--p, 1)); }
+.xv.flying #overlay > :not(.ov-edge) { opacity: var(--p, 1); }
 .xv.flying .vp { pointer-events: none; }
 .tools { display: flex; gap: 6px; flex-wrap: wrap; }
 .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 2px; }
