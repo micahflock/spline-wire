@@ -704,7 +704,7 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   // After a reload, with the core holding nothing, the old curve is copied and downloaded from its kept files.
   await p.reload();
   await old.tap();
-  await expect(p.locator("#card-nophoto")).toHaveText("Photo deleted · curve kept");
+  await expect(p.locator("#result")).toHaveClass(/\bgone\b/);
   await expect(p.locator("#card-pic svg path.cv")).toHaveCount(1);     // the curve, drawn without its photo
   await expect(p.locator("#swap")).toBeDisabled();
   await expand(p);
@@ -756,7 +756,7 @@ test("a HEIC photo, which Chromium cannot decode, gets its picture from the engi
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 60_000 });
   const card = p.locator("#card-pic image");
   await expect(card).toHaveAttribute("href", /^blob:/, { timeout: 30_000 });
-  await expect(p.locator("#card-nophoto")).toBeHidden();
+  await expect(p.locator("#result")).not.toHaveClass(/\bgone\b/);
   const id = (await item.getAttribute("data-id"))!;
   const kept = () => p.evaluate((id) => new Promise<string[]>((resolve, reject) => {
     const req = indexedDB.open("splinewire-phone");

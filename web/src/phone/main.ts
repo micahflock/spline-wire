@@ -666,7 +666,6 @@ function renderResult(): void {
   for (const c of ["chk", "bad"]) card.classList.toggle(c, tag === c);
   card.classList.toggle("gone", gone);
   renderCardPicture(r);
-  $("card-nophoto").hidden = !gone;
   const star = $("star");
   star.setAttribute("aria-pressed", String(starOf(r).on));
   star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);

@@ -27,7 +27,7 @@ The mockup is a **reference for look, layout and behaviour, not code to copy**. 
    - Bottom left, floating: **Swap side** flips the curve to the other side of the chain (today's Inside/Outside).
    - Bottom right: the **expand** key, which opens the expanded view (below). The collapse key sits in the same bottom-right corner of the expanded photo, so the key never jumps corners.
    - Check: 2 px amber border. Failed: 2 px red border, no curve, and a problem box over the photo (the ValueError text plus advice). There's no Swap side on a failed curve.
-   - If the photo was deleted ("photos kept" limit), the card shows the chain drawing on the card colour with "Photo deleted · curve kept".
+   - If the photo was deleted ("photos kept" limit), the card shows the chain drawing on the card colour, with no note.
 7. **History grid:** 4 columns, newest first, 12 tiles. Each tile shows **only the chain and the curve, no photo**. The star and name float on top when set. A small amber or red dot marks a Check or Failed curve. Tapping a tile makes it the working curve and scrolls to the top.
 8. **`•••` over a dashed rule:** expands to the full history (the same grid, all rows). It shows ▲ to collapse.
 9. **Settings** (below the fold, a big uppercase heading on a 2 px rule). Groups are mono legends on hairlines, and rows are label left, control right, McMaster style:

@@ -153,7 +153,6 @@ input.rename { font: 500 13px/1 var(--f-data); background: rgba(255, 255, 255, .
 .problem b { display: block; font: 600 11px/1.2 var(--f-data); letter-spacing: .05em; text-transform: uppercase; color: #b3200f; }
 .problem .raw { font: 11.5px/1.35 var(--f-data); margin-top: 3px; white-space: pre-wrap; }
 .problem .advice { margin-top: 3px; color: #4a4a45; }
-.nophoto { position: absolute; left: 10px; bottom: 56px; font: 500 10px/1 var(--f-data); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
 .work.gone .pic svg { padding: 10px; }
 
 /* Drawings of curves: the tiles, and the card of a curve whose photo was deleted. */
