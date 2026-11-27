@@ -708,7 +708,7 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   await expect(p.locator("#card-pic svg path.cv")).toHaveCount(1);     // the curve, drawn without its photo
   await expect(p.locator("#swap")).toBeDisabled();
   await expand(p);
-  await expect(p.locator("#hint")).toContainText("deleted to save space");
+  await expect(p.locator("#hint")).toHaveText("");
   await expect(p.locator("#photo")).toBeHidden();
   await expect(p.locator("#x-drawing svg")).toBeVisible();
   await expect(p.locator("#undo")).toBeDisabled();

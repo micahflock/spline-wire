@@ -705,7 +705,7 @@ function renderResult(): void {
   const via = r.via === "camera" ? (r.camera?.still === "frame" ? `page camera, video frame${r.camera.why ? ` (takePhoto: ${r.camera.why})` : ""}` : "page camera")
     : r.via === "take" ? "system camera" : "library";
   const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
-  $("r-meta").textContent = [gone ? "photo deleted · curve kept" : r.name, size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
+  $("r-meta").textContent = [r.name, size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
 
   const v = doc?.view;
   svg.classList.toggle("wait", busy);
@@ -721,7 +721,7 @@ function renderResult(): void {
   const edited = !!v && hasEdits(v.edits);
   $<HTMLButtonElement>("undo").disabled = busy || gone || !history(r.id).canUndo;
   $<HTMLButtonElement>("reset").disabled = busy || gone || !edited;
-  $("hint").textContent = gone ? "The photo was deleted to save space; the curve is kept, but its pins can no longer be fixed."
+  $("hint").textContent = gone ? ""
     : v ? "Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom, double-tap to fit."
     : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
   photoPins.value = String(r.pins);
