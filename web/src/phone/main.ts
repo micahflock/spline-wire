@@ -899,7 +899,9 @@ const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").match
  * Opening and closing animate with the browser's view transition where it has one (Safari 18, Chrome 111,
  * Firefox 144): it snapshots the page before and after and morphs the photo's box and its corner keys between
  * the card and the view (their view-transition-names, phone.css), crossfading the rest; the page itself stays
- * as it is. Elsewhere, and with reduced motion, it switches at once. */
+ * as it is. The pictures inside the box are not stretched to it (it changes shape, so they would grow past
+ * both ends): `animatePictures` moves and scales them so the chain goes from where and how big the card shows it
+ * to where and how big the view does, both snapshots in step. Elsewhere, and with reduced motion, it switches at once. */
 let expanded = false;
 /** Where the page was scrolled to when the view opened: back there when it closes. */
 let scrolledTo = 0;
@@ -920,6 +922,51 @@ function showExpanded(): void {
   }
 }
 
+/** The view transition's length and easing: as phone.css gives its groups. */
+const VT_MS = 380, VT_EASE = "cubic-bezier(.3, 0, 0, 1)";
+
+/** The picture in the card or in the view (the photo, or the drawing once the photo is deleted). */
+function pictureOf(inView: boolean): SVGSVGElement | null {
+  if (!inView) return $("card-pic").querySelector("svg");
+  return $("x-drawing").hidden ? svg : $("x-drawing").querySelector("svg");
+}
+
+/** Where a picture's content is on the screen: its user units (photo px, or mm) to the screen, its centre and size. */
+interface Placed { m: DOMMatrix; cx: number; cy: number; w: number; h: number }
+function placeOf(el: SVGSVGElement | null): Placed | null {
+  const m = el?.getScreenCTM(), b = el?.getBoundingClientRect();
+  return m && b && b.width && b.height ? { m, cx: b.left + b.width / 2, cy: b.top + b.height / 2, w: b.width, h: b.height } : null;
+}
+
+/** The two snapshots of the picture in the morphing box (phone.css keeps each at its own size, clipped to the box).
+ * They are moved and scaled so that both show the chain at the same place and size all the way: at the start where
+ * the old picture has it, at the end where the new one has it. Its content point at the old picture's centre leads;
+ * `r` is how much bigger the new picture draws it. (Both are transformed about their centres, which are the box's.)
+ * As they show the same thing in the same place, they are not crossfaded (half see-through, the box's background
+ * would show at the edge of the smaller): the one that covers more of the box stays opaque underneath, the other
+ * fades over it (in when it is the new one, out when the old). Returns the animations, which the transition's end
+ * must cancel: they hold their last frame, and the next transition's snapshots have the same names. */
+function animatePictures(from: Placed | null, to: Placed | null): Animation[] {
+  const root = document.documentElement, timing = { duration: VT_MS, easing: VT_EASE, fill: "both" as const };
+  const OLD = "::view-transition-old(x-photo)", NEW = "::view-transition-new(x-photo)";
+  const r = from && to ? to.m.a / from.m.a : NaN;
+  if (!from || !to || !Number.isFinite(r) || r < 0.05 || r > 20) {
+    return [root.animate({ opacity: [0, 1] }, { ...timing, pseudoElement: NEW })];      // just the new over the old
+  }
+  const p = new DOMPoint(from.cx, from.cy).matrixTransform(from.m.inverse()).matrixTransform(to.m);
+  const dx = p.x - to.cx, dy = p.y - to.cy;
+  const moves = [
+    root.animate({ transform: ["none", `translate(${dx}px, ${dy}px) scale(${r})`] }, { ...timing, pseudoElement: OLD }),
+    root.animate({ transform: [`translate(${-dx / r}px, ${-dy / r}px) scale(${1 / r})`, "none"] }, { ...timing, pseudoElement: NEW }),
+  ];
+  // How much of the box each covers where it covers least: the old at the end, the new at the start.
+  const oldCover = Math.min((from.w * r) / to.w, (from.h * r) / to.h), newCover = Math.min(to.w / r / from.w, to.h / r / from.h);
+  const oldUnder = oldCover > newCover;
+  root.classList.toggle("vt-old-over", !oldUnder);
+  return [...moves, oldUnder ? root.animate({ opacity: [0, 1] }, { ...timing, pseudoElement: NEW })
+    : root.animate({ opacity: [1, 0] }, { ...timing, pseudoElement: OLD })];
+}
+
 /** showExpanded, animated where the browser can and the person has not asked for less motion. */
 function switchView(animate: boolean): void {
   if (!animate || reducedMotion() || !document.startViewTransition) {
@@ -927,9 +974,21 @@ function switchView(animate: boolean): void {
     return;
   }
   const root = document.documentElement;
+  const r = selected ? records.get(selected) : undefined;
   root.classList.add("vt");                       // while it runs (the end-to-end tests wait for it)
-  const t = document.startViewTransition(showExpanded);
-  void t.finished.finally(() => root.classList.remove("vt"));
+  root.classList.toggle("vt-drawing", !!r?.photoDeleted);
+  const from = placeOf(pictureOf(!expanded));     // the picture shown before the switch
+  let to: Placed | null = null;
+  const t = document.startViewTransition(() => {
+    showExpanded();
+    to = placeOf(pictureOf(expanded));
+  });
+  let pictures: Animation[] = [];
+  void t.ready.then(() => { pictures = animatePictures(from, to); }, () => {});
+  void t.finished.finally(() => {
+    for (const a of pictures) a.cancel();
+    root.classList.remove("vt", "vt-drawing", "vt-old-over");
+  });
 }
 
 function openExpanded(): void {
