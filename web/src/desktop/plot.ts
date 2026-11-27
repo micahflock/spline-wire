@@ -1,6 +1,7 @@
 // The curve drawn in millimetres, as the current app's curveSvg draws it: a
 // millimetre graticule (10 mm major lines, 2 mm minor; 50 and 10 mm on big
-// curves), the chain's pins faintly, the spline through the points, the points,
+// curves), the chain faintly (as the chain it was measured with, drawing/chain-art.ts,
+// when the page knows it; else a band with its pins), the spline through the points, the points,
 // and a scale bar. One SVG unit is one millimetre in both directions, so the
 // drawing keeps the curve's true proportions at any size.
 //
@@ -8,6 +9,7 @@
 // markup holds numbers, and the label escaped.
 
 import type { Point } from "../relay/messages";
+import { chainArt, type ChainLook } from "../drawing/chain-art";
 import { esc } from "./wording";
 
 export interface PlotGeometry {
@@ -81,7 +83,7 @@ export interface CornerLayer {
 
 /** The SVG for a curve. Colours come from the page's CSS variables. */
 export function plotSvg(points: readonly Point[], pins: readonly Point[], spline: readonly Point[], label: string,
-  layer?: CornerLayer): string {
+  layer?: CornerLayer, look?: ChainLook | null): string {
   const g = plotGeometry(points, pins, layer ? [...spline, ...layer.pieces.flat(), ...layer.targets] : spline);
   const w = g.x1 - g.x0;
   const h = g.y1 - g.y0;
@@ -96,10 +98,11 @@ export function plotSvg(points: readonly Point[], pins: readonly Point[], spline
   // y is flipped so that +y is up, as in the DXF and in Fusion; the label is
   // drawn outside the flip so its text is upright.
   return `<svg viewBox="${n(g.x0)} ${n(-g.y1)} ${n(w)} ${n(h)}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(label)}">
+<g transform="scale(1,-1)"><g class="grid">${grid}</g></g>
+${look ? `<g class="chain-art">${chainArt(look, pins.map(([x, y]): Point => [x, -y]), 1)}</g>` : ""}
 <g transform="scale(1,-1)">
-<g class="grid">${grid}</g>
-<path class="chain" d="${path(pins)}"/>
-${pins.map((p) => `<circle class="pin" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 1.6)}"/>`).join("")}
+${look ? "" : `<path class="chain" d="${path(pins)}"/>
+${pins.map((p) => `<circle class="pin" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 1.6)}"/>`).join("")}`}
 ${layer ? layer.pieces.map((pc) => `<path class="trace" d="${path(pc)}"/>`).join("") : `<path class="trace" d="${path(spline)}"/>`}
 ${layer ? layer.replaced.map((i) => layer.targets[i]!).map((p) => `<circle class="pt-was" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(g.r * 1.1)}"/>`).join("") : ""}
 ${points.filter((p) => !layer?.corners.some((c) => c.at[0] === p[0] && c.at[1] === p[1]))

@@ -114,6 +114,7 @@ function platesArt(c: ChainLook, at: readonly Point[], n: number, s: number, t: 
   };
   for (let j = 1; j < n - 1; j += 2) out.push(link(j, true));       // the inner links, under the outer ones
   for (let j = 0; j < n - 1; j += 2) out.push(link(j, false));
+  if (n === 1) out.push(`<circle${isNew(0)} cx="${f(at[0]![0])}" cy="${f(at[0]![1])}" r="${f(w / 2)}" style="fill:${t.link}"/>`);   // a pin alone: its plate's end
   const r = (c.fiducial_mm / 2) * s, ri = ((c.ring_inner_mm ?? 0) / 2) * s;
   for (let k = 0; k < n; k++) {
     const [x, y] = at[k]!;

@@ -112,6 +112,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 /* the drawing (phone/drawings.ts curveDrawing): the chain faint, its pins, the curve in blue */
 .thumb .ch { stroke: var(--chain-2); opacity: .3; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 .thumb .pd { fill: var(--chain-2); opacity: .7; }
+/* the chain a curve was measured with (drawing/chain-art.ts), faded behind the curve */
+.chain-art { opacity: .4; }
 .thumb .cv { stroke: var(--curve); fill: none; stroke-width: 1.6px; stroke-linejoin: round; stroke-linecap: round; }
 .item .thumb .dot { position: absolute; right: 3px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--chk); }
 .item.draft .thumb { border-style: dashed; display: grid; place-items: center; font: 500 13px/1 var(--f-data); color: var(--muted); }
@@ -170,6 +172,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .plot svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .plot .grat, .plot .grat-2 { stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .plot .grat { stroke: var(--grat); } .plot .grat-2 { stroke: var(--grat-2); }
+.plot .chain-art { opacity: .24; }
 .plot .chain { fill: none; stroke: var(--chain-2); stroke-opacity: .14; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
 .plot .pin { fill: var(--card); stroke: var(--plot-ink); stroke-opacity: .6; stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .plot .trace { fill: none; stroke: var(--curve); stroke-width: 2.5px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
@@ -183,6 +186,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 8px 16px 10px; font: 11px/1.3 var(--f-data); color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { width: 14px; height: 14px; flex: none; }
+.legend .chain-art { display: inline-flex; opacity: .55; }
 .corner-hint { margin: -4px 0 0; padding: 0 16px 14px; font-size: 12.5px; color: var(--muted); }
 
 .read { border-left: 1px solid var(--rule-2); background: var(--card); display: flex; flex-direction: column; min-height: 0; }

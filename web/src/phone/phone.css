@@ -159,6 +159,8 @@ input.rename { font: 500 13px/1 var(--f-data); background: rgba(255, 255, 255, .
 /* Drawings of curves: the tiles, and the card of a curve whose photo was deleted. */
 .ch { stroke: var(--chain-2); opacity: .35; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 .pd { fill: var(--chain-2); opacity: .7; }
+/* the chain a curve was measured with (drawing/chain-art.ts), faded behind the curve */
+.chain-art { opacity: .4; }
 .cv { stroke: var(--curve); fill: none; stroke-width: 1.6px; stroke-linejoin: round; stroke-linecap: round; }
 .cv.big { stroke-width: 2.2px; }
 

@@ -28,6 +28,12 @@ describe("the chain as drawn", () => {
     expect(dark).toContain("stroke:var(--ca-link)");          // the rim dark on a pale head
   });
 
+  it("draws a pin alone on its plate, so it shows on the page (the legend's icon)", () => {
+    const svg = chainMarkSvg(ORING, 1);
+    expect(svg).toContain(`r="4" style="fill:var(--ca-link)"`);
+    expect(svg).toContain(`r="2.5" style="fill:var(--ca-mark)"`);
+  });
+
   it("swaps the tones for a chain printed the other way round", () => {
     const svg = chainArt({ ...ORING, fiducial_shade: "dark" }, [[0, 0], [10, 0]], 1);
     expect(svg).toContain("fill:var(--ca-link)");          // the dots, dark

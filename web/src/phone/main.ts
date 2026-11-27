@@ -714,7 +714,7 @@ function renderResult(): void {
   editor.show(gone ? null : v ?? null, { pending });
   const drawing = $("x-drawing");
   drawing.hidden = !gone;
-  const drawn = gone && doc?.curve ? curveDrawing(doc.curve, 1, { big: true }) : "";
+  const drawn = gone && doc?.curve ? curveDrawing(doc.curve, 1, { big: true, look: lookOf(r) }) : "";
   if (drawing.dataset.key !== `${r.id}:${drawn.length}`) {
     drawing.innerHTML = drawn;
     drawing.dataset.key = `${r.id}:${drawn.length}`;
@@ -757,7 +757,7 @@ function renderCardPicture(r: PhotoRecord): void {
   const doc = r.doc, v = doc?.view;
   let html = "";
   if (r.photoDeleted || (!r.pixels && !v)) {
-    html = doc?.curve ? curveDrawing(doc.curve, CARD_ASPECT, { pad: 10, big: true }) : "";
+    html = doc?.curve ? curveDrawing(doc.curve, CARD_ASPECT, { pad: 10, big: true, look: lookOf(r) }) : "";
   } else {
     const photo = v ? { width: v.width, height: v.height } : r.pixels!;
     const marks = v ? (v.pins.length ? v.pins : v.unused).map((m): [number, number] => [m.x, m.y]) : [];
@@ -776,6 +776,11 @@ const CARD_ASPECT = 1.8;
 const DOWNLOADS: [OutputKind, string][] = [["dxf", "DXF"], ["svg", "SVG 1:1"], ["csv", "CSV"], ["json", "JSON"], ["fusion_csv", "Fusion CSV"]];
 
 // ---- the list of photos ----
+
+/** The chain a photo was measured with, in its colours, as the drawings show it; null until the presets are loaded. */
+function lookOf(r: PhotoRecord): ChainSpec | null {
+  return Object.keys(chains).length ? chainSpec(chains, r.chain, r.pins, r.shade ?? "light") : null;
+}
 
 /** The history's first rows; ••• shows the rest. */
 const TILES = 12;
@@ -803,7 +808,7 @@ function tile(r: PhotoRecord): HTMLButtonElement {
   const [tag, label] = tagOf(r);
   const b = el("button", { type: "button", className: `tile${r.id === selected ? " on" : ""}` });
   const c = r.doc?.curve;
-  b.innerHTML = c && c.pins.length > 1 ? curveDrawing(c, 1) : `<span class="wait">${tag === "bad" ? "—" : "…"}</span>`;
+  b.innerHTML = c && c.pins.length > 1 ? curveDrawing(c, 1, { look: lookOf(r) }) : `<span class="wait">${tag === "bad" ? "—" : "…"}</span>`;
   if (starOf(r).on) {
     const name = el("span", { textContent: nameOf(r).text });
     const tl = el("span", { className: "tl" }, name);
@@ -1602,6 +1607,8 @@ async function main(): Promise<void> {
     if (!r.ok) throw new Error(`chains.json: HTTP ${r.status}`);
     chains = (await r.json()) as Record<string, ChainSpec>;
     renderSettings();
+    renderList();                     // the drawings, now with their chains
+    renderResult();
   });
   void startPairing().catch((e: Error) => toast(`Pairing: ${e.message}`));
   void retireServiceWorker();

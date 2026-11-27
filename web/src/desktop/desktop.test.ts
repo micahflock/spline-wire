@@ -143,6 +143,12 @@ describe("the curve drawing", () => {
     expect(svg).toContain(`viewBox="${g.x0} ${-g.y1} ${g.x1 - g.x0} ${g.y1 - g.y0}"`);
     expect(svg.match(/class="pt"/g)).toHaveLength(curve.points.length);
     expect(svg.match(/class="pin"/g)).toHaveLength(curve.pins.length);
+    // With the chain it was measured with, the chain is drawn as that chain (drawing/chain-art.ts), y flipped as the plot's.
+    const drawn = plotSvg(curve.points, curve.pins, curve.spline, "x", undefined,
+      { pitch_mm: 10, half_width_mm: 4, fiducial: "dot", fiducial_mm: 5, ring_inner_mm: 0, contact: "edge" });
+    expect(drawn).not.toContain('class="pin"');
+    expect(drawn.match(/<g class="chain-art">.*?<\/g>/s)![0].match(/<circle/g)).toHaveLength(curve.pins.length);
+    expect(drawn).toContain(`cy="${+(-curve.pins[0]![1]).toFixed(2)}"`);
   });
 
   it("coarsens the grid for a big curve", () => {

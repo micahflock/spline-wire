@@ -28,8 +28,8 @@ import {
 import { DOWNLOADS, downloadName, type DownloadKind } from "./names";
 import { plotSvg } from "./plot";
 import { curveDrawing } from "../phone/drawings";
-import { chainMarkSvg } from "../drawing/chain-art";
-import { chainSpec, loadSettings } from "../phone/settings";
+import { chainMarkSvg, type ChainLook } from "../drawing/chain-art";
+import { chainLabel, chainSpec, loadSettings } from "../phone/settings";
 import { dxfText } from "../pipeline/dxf";
 import { pieces, shape, toggleMark, type Shaped } from "./corners";
 import { qrSvg } from "./qr";
@@ -68,8 +68,9 @@ const PHONE_KEY = "phone";
 
 /** In Fusion's palette (?fusion). */
 const FUSION = fusionMode(location.search);
-/** The chain presets (chains.json), read for the chain drawn in the header (renderChainMark). */
+/** The chain presets (chains.json), read for the chains drawn: the header's, and each curve's (lookOf). */
 let presets: Promise<Record<string, ChainSpec>> | null = null;
+let chains: Record<string, ChainSpec> = {};
 const UNDO = IS_MAC ? "⌘Z" : "Ctrl+Z";
 
 // Its own prefix: a phone page open in the same browser (testing on one
@@ -133,22 +134,38 @@ selection.keepIn(ids());
 renderAll();
 if (FUSION) void startFusion();
 else void renderChainMark();
+void loadPresets().then(() => { renderList(); renderMain(); }, () => {});
 
 // ---- the chain in the header ------------------------------------------------
 
-/** A short piece of the chain chosen here (Measure a photo's Chain and Colours), as the phone's strip draws it. */
-async function renderChainMark(): Promise<void> {
+function loadPresets(): Promise<Record<string, ChainSpec>> {
   presets ??= fetch(new URL("chains.json", SITE_ROOT)).then(async (r) => {
     if (!r.ok) throw new Error(`chains.json: HTTP ${r.status}`);
-    return (await r.json()) as Record<string, ChainSpec>;
+    return chains = (await r.json()) as Record<string, ChainSpec>;
+  }).catch((e: Error) => {
+    presets = null;                // the drawings go without their chains; the next call tries again
+    throw e;
   });
+  return presets;
+}
+
+/** A short piece of the chain chosen here (Measure a photo's Chain and Colours), as the phone's strip draws it. */
+async function renderChainMark(): Promise<void> {
   try {
-    const chains = await presets, s = loadSettings(store);
-    if (!Object.keys(chains).length) return;
-    $("chain-mark").innerHTML = chainMarkSvg(chainSpec(chains, s.chain, 3, s.shade));
+    const all = await loadPresets(), s = loadSettings(store);
+    if (!Object.keys(all).length) return;
+    $("chain-mark").innerHTML = chainMarkSvg(chainSpec(all, s.chain, 3, s.shade));
   } catch {
-    presets = null;                // the header goes without its drawing; the next change tries again
+    /* the header goes without its drawing */
   }
+}
+
+/** The chain a curve was measured with, by its name (the phone sends the preset's name, chainLabel), with the
+ * curve's own pitch and width; null for a chain this build does not know, or before the presets are in.
+ * The curve does not say which colours its chain is printed in: drawn as the presets print them. */
+function lookOf(c: Curve): ChainLook | null {
+  const key = Object.keys(chains).find((k) => chainLabel(k) === c.chain.name);
+  return key ? { ...chains[key]!, pitch_mm: c.chain.pitch_mm, half_width_mm: c.chain.half_width_mm } : null;
 }
 
 // ---- the relay ------------------------------------------------------------
@@ -508,7 +525,7 @@ function renderList(): void {
     const mine = inbox.isLocal(c.id);
     return `<li><button type="button" class="item${c.id === flashId ? " flash" : ""}" data-id="${esc(c.id)}"
       aria-current="${!showingDraft && c.id === selection.id}">
-      <span class="thumb" aria-hidden="true">${curveDrawing({ pins: c.pins_mm, spline: c.points_mm }, 1, { pad: 8 })}${w ? `<span class="dot"></span>` : ""}</span>
+      <span class="thumb" aria-hidden="true">${curveDrawing({ pins: c.pins_mm, spline: c.points_mm }, 1, { pad: 8, look: lookOf(c) })}${w ? `<span class="dot"></span>` : ""}</span>
       <span class="row1">${inbox.isStarred(c.id) ? `<span class="starred" title="Starred">★</span>` : ""}<span class="name">${esc(title(c))}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
       <span class="sub"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, now))}</time>
         · ${c.chain.n_pins} pins · ${esc(c.chain.name)}</span>
@@ -638,6 +655,7 @@ function curveHtml(c: Curve): string {
   const mine = inbox.isLocal(c.id);
   const d = c.diagnostics;
   const s = shapedOf(c);
+  const look = lookOf(c);
   const splines = pieces(s).map((p) => splineSamples(p));
   const spline = splines.flat();
   const xs = [...spline, ...c.pins_mm].map((p) => p[0]);
@@ -647,7 +665,7 @@ function curveHtml(c: Curve): string {
   const plot = plotSvg(s.points, c.pins_mm, spline, `The measured curve, ${plural(s.points.length, "point")}${sharp}, ${size}, on a millimetre grid`, {
     pieces: splines, targets: c.points_mm, replaced: s.replaced,
     corners: s.corners.map((i, j) => ({ at: s.points[i]!, source: s.zones[j]!.source })),
-  });
+  }, look);
   const found = c.chain.n_pins - d.missing_pins;
   const cells: [string, string, string, boolean][] = [
     ["Points", `${s.points.length}`, s.corners.length ? `${plural(s.corners.length, "sharp corner")}` : "on the object's edge", false],
@@ -676,7 +694,7 @@ function curveHtml(c: Curve): string {
       <button type="button" class="btn plain small" data-act="delete">Delete…</button></div>
     <div class="plot">${plot}</div>
     <div class="legend" aria-hidden="true">
-      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--plot-ink)" stroke-opacity=".6"/></svg>Pin of the chain</span>
+      <span>${look ? `<span class="chain-art">${chainMarkSvg(look, 1)}</span>` : `<svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--plot-ink)" stroke-opacity=".6"/></svg>`}Pin of the chain</span>
       <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3.5" fill="var(--curve)"/></svg>Point on the object's edge</span>
       <span><svg viewBox="0 0 14 14"><line x1="1" y1="7" x2="13" y2="7" stroke="var(--curve)" stroke-width="2.5"/></svg>Spline through the points</span>
       <span><svg viewBox="0 0 14 14"><rect x="3.5" y="3.5" width="7" height="7" transform="rotate(45 7 7)" fill="var(--ink)"/></svg>Sharp corner</span>

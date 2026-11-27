@@ -92,16 +92,21 @@ export function smoothPath(pts: readonly Point[]): string {
 const line = (pts: readonly Point[]) => pts.map(([x, y], i) => `${i ? "L" : "M"}${f(x)} ${f(y)}`).join("");
 
 /** A curve as a drawing, from its mm (y up, as in CAD; drawn y down): the chain
- * as a faint thick line with its pins, the curve over it in the curve's colour.
- * For the history's tiles (aspect 1) and the card of a curve whose photo was deleted. */
-export function curveDrawing(c: { pins: readonly Point[]; spline: readonly Point[] }, aspect: number, opts: { pad?: number; big?: boolean } = {}): string {
+ * it was measured with, faded (drawing/chain-art.ts; with no `look`, a faint thick
+ * line with its pins), the curve over it in the curve's colour. For the history's
+ * tiles (aspect 1), the card of a curve whose photo was deleted, and the desktop
+ * page's list. */
+export function curveDrawing(c: { pins: readonly Point[]; spline: readonly Point[] }, aspect: number,
+  opts: { pad?: number; big?: boolean; look?: ChainLook | null } = {}): string {
   const flip = (p: readonly Point[]) => p.map(([x, y]): Point => [x, -y]);
   const pins = flip(c.pins), spline = flip(c.spline);
-  const b = fitBox(bbox([...pins, ...spline]), aspect, opts.pad ?? 12);
+  const b = fitBox(bbox([...pins, ...spline]), aspect, Math.max(opts.pad ?? 12, opts.look ? reachMm(opts.look) + 1 : 0));
+  const chain = opts.look
+    ? `<g class="chain-art">${chainArt(opts.look, pins, 1)}</g>`
+    : `<path class="ch" d="${line(pins)}" stroke-width="9.5"/>`
+      + pins.map(([x, y]) => `<circle class="pd" cx="${f(x)}" cy="${f(y)}" r="${opts.big ? 1.6 : 1.9}"/>`).join("");
   return `<svg viewBox="${b.map(f).join(" ")}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
-    + `<path class="ch" d="${line(pins)}" stroke-width="9.5"/>`
-    + pins.map(([x, y]) => `<circle class="pd" cx="${f(x)}" cy="${f(y)}" r="${opts.big ? 1.6 : 1.9}"/>`).join("")
-    + `<path class="cv${opts.big ? " big" : ""}" d="${line(spline)}" vector-effect="non-scaling-stroke"/></svg>`;
+    + chain + `<path class="cv${opts.big ? " big" : ""}" d="${line(spline)}" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 /** The working curve card's picture: the photo (a preview stretched over the
