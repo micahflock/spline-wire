@@ -894,43 +894,67 @@ const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").match
 
 /** The expanded view: a part of the page, in its flow, shown in place of the page's own content while open
  * (no overlay, no scroll of its own: the page scrolls as usual). The photo's box keeps its size while the page
- * scrolls (phone.css), so the editor never refits under a finger. */
+ * scrolls (phone.css), so the editor never refits under a finger.
+ *
+ * Opening and closing animate with the browser's view transition where it has one (Safari 18, Chrome 111,
+ * Firefox 144): it snapshots the page before and after and morphs the photo's box and its corner keys between
+ * the card and the view (their view-transition-names, phone.css), crossfading the rest; the page itself stays
+ * as it is. Elsewhere, and with reduced motion, it switches at once. */
 let expanded = false;
 /** Where the page was scrolled to when the view opened: back there when it closes. */
 let scrolledTo = 0;
+
+/** Show the page or the view, as `expanded` says now (a transition overtaken by another applies the newest). */
+function showExpanded(): void {
+  $("page").hidden = expanded;
+  $("xv").hidden = !expanded;
+  $("expand").setAttribute("aria-expanded", String(expanded));
+  if (expanded) {
+    renderResult();
+    scrollTo(0, 0);
+    editor.frame();
+    $<HTMLButtonElement>("collapse").focus({ preventScroll: true });
+  } else {
+    scrollTo(0, scrolledTo);
+    if (!$("result").hidden) $<HTMLButtonElement>("expand").focus({ preventScroll: true });
+  }
+}
+
+/** showExpanded, animated where the browser can and the person has not asked for less motion. */
+function switchView(animate: boolean): void {
+  if (!animate || reducedMotion() || !document.startViewTransition) {
+    showExpanded();
+    return;
+  }
+  const root = document.documentElement;
+  root.classList.add("vt");                       // while it runs (the end-to-end tests wait for it)
+  const t = document.startViewTransition(showExpanded);
+  void t.finished.finally(() => root.classList.remove("vt"));
+}
 
 function openExpanded(): void {
   if (expanded || !selected) return;
   expanded = true;
   scrolledTo = scrollY;
-  $("page").hidden = true;
-  $("xv").hidden = false;
-  $("expand").setAttribute("aria-expanded", "true");
   history_.pushState({ ...(history_.state ?? {}), expanded: true }, "");
-  renderResult();
-  scrollTo(0, 0);
-  editor.frame();
-  $<HTMLButtonElement>("collapse").focus({ preventScroll: true });
+  switchView(true);
 }
 
-/** Back to the page, where it was. `fromHistory`: the back gesture did it. */
-function closeExpanded(fromHistory = false): void {
+/** Back to the page, where it was. `fromHistory`: the back gesture or key did it; `animate`: false when the
+ * browser has already animated it (Safari's swipe back). */
+function closeExpanded(fromHistory = false, animate = true): void {
   if (!expanded) return;
   expanded = false;
   taps.cancel();
   if (renaming?.host.id === "x-nm") endRename(true);
-  $("xv").hidden = true;
-  $("page").hidden = false;
-  $("expand").setAttribute("aria-expanded", "false");
   if (!fromHistory && history_.state?.expanded) history_.back();
-  scrollTo(0, scrolledTo);
-  if (!$("result").hidden) $<HTMLButtonElement>("expand").focus({ preventScroll: true });
+  switchView(animate);
 }
 
 $("expand").onclick = openExpanded;
 $("collapse").onclick = () => closeExpanded();
-addEventListener("popstate", () => {
-  if (expanded && !history_.state?.expanded) closeExpanded(true);
+addEventListener("popstate", (e: PopStateEvent) => {
+  if (expanded && !history_.state?.expanded) closeExpanded(true, !e.hasUAVisualTransition);
 });
 addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Escape" && expanded && !renaming && !cameraView.isOpen) closeExpanded();

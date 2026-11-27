@@ -145,11 +145,13 @@ const selectedId = () => page.locator("#photos .tile.on").getAttribute("data-id"
 async function expand(p: Page = page): Promise<void> {
   if (await p.locator("#xv").isHidden()) await p.locator("#expand").tap();
   await expect(p.locator("#xv")).toBeVisible();
+  await expect(p.locator("html")).not.toHaveClass(/\bvt\b/);       // the view transition has finished
 }
 
 async function collapse(p: Page = page): Promise<void> {
   if (await p.locator("#xv").isVisible()) await p.locator("#collapse").tap();
   await expect(p.locator("#xv")).toBeHidden();
+  await expect(p.locator("html")).not.toHaveClass(/\bvt\b/);
 }
 const viewBox = async () => (await page.locator("#photo").getAttribute("viewBox"))!.split(" ").map(Number);
 const lastMs = () => page.evaluate(() => (window as unknown as PhoneWindow).phone.timings.at(-1)!.ms);
@@ -231,6 +233,11 @@ test("the expanded view has the card's star, time and tag in the same corners", 
     }));
   };
   const card = await corners("#card-pic", ["#star", "#r-time", "#r-tag"]);
+  // Opening morphs the card's photo box and its corner keys into the view's (the browser's view transition).
+  await page.locator("#expand").tap();
+  await expect.poll(() => page.evaluate(() => document.getAnimations()
+    .map((a) => (a.effect as KeyframeEffect | null)?.pseudoElement ?? "").filter((p) => p.startsWith("::view-transition-group"))))
+    .toEqual(expect.arrayContaining(["::view-transition-group(x-photo)", "::view-transition-group(x-tl)", "::view-transition-group(x-br)"]));
   await expand();
   await expect(page.locator("#page")).toBeHidden();                       // in place of the page, not over it
   const view = await corners("#photo", ["#x-star", "#x-time", "#x-tag"]);
