@@ -242,7 +242,7 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
 #result .fl.tr, .vp .fl.tr { view-transition-name: x-tr; }
 #result .fl.bl, .vp .fl.bl { view-transition-name: x-bl; }
 #result .fl.br, .vp .fl.br { view-transition-name: x-br; }
-::view-transition-group(*) { animation-duration: 380ms; animation-timing-function: cubic-bezier(.3, 0, 0, 1); }
+::view-transition-group(*) { animation-duration: 280ms; animation-timing-function: cubic-bezier(.3, 0, 0, 1); }
 ::view-transition-image-pair(x-photo) { overflow: clip; }
 ::view-transition-old(x-photo), ::view-transition-new(x-photo) { width: 100%; height: 100%; object-fit: none;
   animation: none; mix-blend-mode: normal; }                 /* main.ts fades one over the other */
@@ -255,6 +255,11 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
    here ran only on the first transition in Safari. Clipped to their own place, so they come out of the photo's
    bottom edge, with the photo and its keys drawn over them. */
 .sheet { view-transition-name: x-sheet; }
+/* No frames during the transition: the card's border and the view's photo (or drawing) border, and their Check or
+   Failed colours, would be drawn into the snapshots and stand round the moving picture (on closing, the view's
+   frame stayed solid inside the shrinking box to the end). html.vt is set before the snapshots are taken. */
+html.vt #result, html.vt .vp .photo-svg, html.vt .vp .drawing, html.vt .vp .drawing > svg { border-color: transparent; }
+html.vt .xv .vp { outline-color: transparent; }
 ::view-transition-group(x-photo), ::view-transition-group(x-tl), ::view-transition-group(x-tr),
 ::view-transition-group(x-bl), ::view-transition-group(x-br) { z-index: 1; }
 ::view-transition-image-pair(x-sheet) { overflow: clip; }
