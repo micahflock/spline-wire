@@ -1554,16 +1554,16 @@ function renderSettings(): void {
   $<HTMLSelectElement>("s-keep").value = String(settings.keepPhotos);
   settingsPins.value = String(defaultPins(settings, chains));
   renderStrip();
+  // The focal length in use for photos without camera data: the one typed, else the detected camera's.
   const focal = $<HTMLInputElement>("s-focal");
-  if (document.activeElement !== focal) focal.value = settings.savedFocal35?.toString() ?? "";
+  const saved = savedFocal(settings), learned = mainLens(settings);
+  if (document.activeElement !== focal) focal.value = saved?.focal35.toString() ?? "";
   const override = $<HTMLInputElement>("s-override");
   if (document.activeElement !== override) override.value = settings.focalOverride35?.toString() ?? "";
-  const saved = savedFocal(settings), learned = mainLens(settings);
-  focal.placeholder = learned ? `${learned.focal35}` : "none";
   $("s-focal-status").textContent = focalStatus(saved, learned);
-  $("s-lenses").replaceChildren(...settings.lenses.map((l) => el("li", {},
-    el("span", { textContent: `${l.name}${l.ultraWide ? " (ultra-wide)" : ""}` }), el("span", { textContent: `${l.focal35} mm` }))));
-  $("s-teach-note").hidden = settings.lenses.length > 0;
+  $("s-camera").replaceChildren(...(learned
+    ? [el("span", { textContent: learned.name }), el("b", { textContent: `${learned.focal35} mm` })]
+    : [el("span", { textContent: "None yet" })]));
 }
 
 function setSettings(next: Settings, measureAgain = false): void {

@@ -167,8 +167,8 @@ export function spaceText(photos: number, bytes: number, curvesOnly: number): st
 /** Settings, Focal length: where the value for photos without camera data comes from. */
 export function focalStatus(saved: { focal35: number; lens: { name: string } | null } | null, learned: { name: string; focal35: number } | null): string {
   const use = "Used for photos without camera data, which iPhones often strip.";
-  if (saved?.lens) return `${saved.focal35} mm, learned from ${saved.lens.name}. ${use}`;
-  if (saved) return `${use} Clear it to use ${learned ? `the ${learned.focal35} mm learned from ${learned.name}` : "one learned from a photo"}.`;
+  if (saved?.lens) return `The detected camera's. ${use} Type another to override it.`;
+  if (saved) return `Typed. ${use} Clear it to use ${learned ? `the detected camera's ${learned.focal35} mm` : "one taught from a photo"}.`;
   return "Not known yet: photos without camera data, which iPhones often strip, are estimated from the chain, which is less "
     + "accurate. Teach it from a photo, or type it: 24 mm on iPhone 14 Pro, 15 and later; 26 mm on earlier models.";
 }

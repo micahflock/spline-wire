@@ -108,13 +108,11 @@
 
     <div class="grp">
       <h3>Focal length</h3>
-      <div class="row"><label for="s-focal">Main camera, mm <small class="mono muted">(35 mm eq.)</small></label>
+      <div class="row"><span>Detected camera</span><span class="v cam-v" id="s-camera" role="status"></span></div>
+      <div class="row"><label for="s-focal">Focal length override, mm <small class="mono muted">(35 mm eq.)</small></label>
         <input id="s-focal" class="num" inputmode="decimal" placeholder="none"></div>
       <p class="small" id="s-focal-status" role="status"></p>
-      <ul class="lenses" id="s-lenses" aria-label="Focal length by lens"></ul>
       <div class="row"><span>Teach from a photo</span><label class="btn">Choose photo<input type="file" accept="image/*" id="s-teach" class="file"></label></div>
-      <p class="small" id="s-teach-note">Learned from any photo this phone's back camera took, never the front camera.
-        Android's in-page camera often leaves it out.</p>
       <p class="small bad-text" id="s-error" role="alert"></p>
     </div>
 

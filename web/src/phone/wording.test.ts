@@ -73,9 +73,9 @@ describe("what the phone keeps", () => {
   it("says where the focal length for photos without camera data comes from", () => {
     const lens = { name: "Pixel 7 Pro back camera 6.81mm f/1.85", focal35: 24 };
     expect(focalStatus({ focal35: 24, lens }, lens)).toBe(
-      "24 mm, learned from Pixel 7 Pro back camera 6.81mm f/1.85. Used for photos without camera data, which iPhones often strip.");
-    expect(focalStatus({ focal35: 26, lens: null }, lens)).toMatch(/Clear it to use the 24 mm learned from Pixel 7 Pro/);
-    expect(focalStatus({ focal35: 26, lens: null }, null)).toMatch(/Clear it to use one learned from a photo\.$/);
+      "The detected camera's. Used for photos without camera data, which iPhones often strip. Type another to override it.");
+    expect(focalStatus({ focal35: 26, lens: null }, lens)).toMatch(/^Typed\. .* Clear it to use the detected camera's 24 mm\.$/);
+    expect(focalStatus({ focal35: 26, lens: null }, null)).toMatch(/Clear it to use one taught from a photo\.$/);
     expect(focalStatus(null, null)).toMatch(/^Not known yet: .* estimated from the chain/);
   });
 });

@@ -209,9 +209,9 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
 .downloads { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .downloads:empty { display: none; }
 .downloads .btn { flex: 1 1 0; font: 500 12.5px/1 var(--f-data); min-width: 0; padding: 6px 4px; }
-.lenses { list-style: none; padding: 0; margin: 0; font: 13px/1.3 var(--f-data); }
-.lenses li { display: flex; justify-content: space-between; gap: 10px; min-height: 40px; align-items: center; border-bottom: 1px solid var(--rule); }
-.lenses li span:first-child { min-width: 0; overflow-wrap: anywhere; }
+/* Settings, Detected camera: the lens's name, its focal length under it. */
+.cam-v { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; overflow-wrap: anywhere; }
+.cam-v b { font-weight: 600; color: var(--ink); }
 .offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; margin-top: 8px; background: var(--well); border-left: 4px solid var(--curve); font-size: 14px; }
 .offer span { flex: 1 1 160px; }
 .tips ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; color: var(--muted); } .tips li { margin: 3px 0; }
