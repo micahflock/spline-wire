@@ -732,6 +732,8 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   await expect(p.locator("#hint")).toHaveText("");
   await expect(p.locator("#photo")).toBeHidden();
   await expect(p.locator("#x-drawing svg")).toBeVisible();
+  // The drawing flew from the card's framing to its own, and keeps its own once landed.
+  expect(await p.locator("#x-drawing svg").getAttribute("viewBox")).toBe(await p.locator("#x-drawing").getAttribute("data-box"));
   await expect(p.locator("#undo")).toBeDisabled();
   await collapse(p);
   await tap("Copy points");

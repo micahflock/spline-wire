@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EASE, cubicBezier, lerpBox, lerpRect } from "./flight";
+import { EASE, FLIGHT_MS, cubicBezier, lerpBox, lerpRect } from "./flight";
 
 describe("cubicBezier", () => {
   it("is linear for the linear curve and pinned at both ends", () => {
@@ -17,8 +17,10 @@ describe("cubicBezier", () => {
     }
   });
 
-  it("eases out: fast at first, never past the end, always forward", () => {
-    expect(EASE(0.25)).toBeGreaterThan(0.5);
+  it("starts gently (no jump in the first frames), is half way by a quarter, never past the end, always forward", () => {
+    expect(EASE(16.7 / FLIGHT_MS)).toBeLessThan(0.02);
+    expect(EASE(33.3 / FLIGHT_MS)).toBeLessThan(0.06);
+    expect(EASE(0.25)).toBeGreaterThan(0.45);
     let last = 0;
     for (let t = 0.01; t <= 1; t += 0.01) {
       const v = EASE(t);
