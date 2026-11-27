@@ -238,9 +238,6 @@ html.xv-on, html.xv-on body { overflow: hidden; }
 .xv.flying::before { content: ""; position: absolute; inset: 0; background: var(--page); opacity: var(--p, 1); }
 .xv.flying.chk::before { box-shadow: inset 0 0 0 4px var(--chk); } .xv.flying.bad::before { box-shadow: inset 0 0 0 4px var(--bad); }
 .xv.flying .xbar, .xv.flying .sheet { position: relative; opacity: var(--p, 1); }
-/* The name chip shows on the card only: in flight it fades as the view's title comes in. */
-.xv:not(.flying) #x-nm { display: none; }
-.xv.flying #x-nm { opacity: calc(1 - var(--p, 1)); }
 .xv.flying #overlay > :not(.ov-edge) { opacity: var(--p, 1); }
 .xv.flying .vp { pointer-events: none; }
 .tools { display: flex; gap: 6px; flex-wrap: wrap; }

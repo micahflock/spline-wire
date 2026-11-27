@@ -625,6 +625,8 @@ test.describe("paired with a computer", () => {
     await field.fill("Pipe 1.5in, left");
     await field.press("Enter");
     await expect(page.locator("#x-name")).toHaveText("Pipe 1.5in, left");
+    await expect(page.locator("#x-nm")).toBeVisible();                 // beside the view's star too, as on the card
+    await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
     await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe 1\.5in, left,/);
     await expect(row.locator(".name")).toHaveText("Pipe 1.5in, left");
