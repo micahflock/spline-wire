@@ -315,7 +315,8 @@ test("the chain style is chosen per photo in the expanded view; the table has no
   await expect(select.locator("option")).toHaveText(["Snap-fit chain", "O-ring chain"]);
   await expect(page.locator("#numbers")).not.toContainText("Curve points");
   await select.selectOption("oring");                  // this photo only: measured again with the O-ring chain
-  await expect(page.locator("#r-meta")).toContainText("O-ring chain");
+  await expect(page.locator("#x-details")).toBeHidden();               // no title or details line outside debug mode
+  await expect(page.locator("#r-meta")).toContainText("O-ring chain");   // the photo's details (shown in debug mode only)
   await expect(page.locator("#r-pins input")).toHaveValue("13");          // the O-ring preset's own count
   await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", /done|error/);
   await select.selectOption("snap");
@@ -327,7 +328,8 @@ test("the chain style is chosen per photo in the expanded view; the table has no
 
 test("Copy points puts the Fusion add-in's table on the clipboard", async () => {
   await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
-  await expect(page.locator("#settings #copy")).toHaveCount(0);         // This curve is in the expanded view, not Settings
+  await expect(page.locator("#settings #copy")).toHaveCount(0);
+  await expect(page.locator("#send-note")).toHaveText("No computer paired");         // This curve is in the expanded view, not Settings
   await expand();
   await tapButton("Copy points");
   await expect(page.locator("#toast")).toContainText("Copied");
@@ -401,6 +403,10 @@ test("debug mode, from ?debug, shows the settings for testing until left, and th
   await page.goto("phone/?debug");
   await expect(page.locator("#debug-box")).toBeVisible();
   await expect(page.locator("#s-chain")).toHaveValue("snap");
+  await expand();                                                      // the photo's details, above it in debug mode
+  await expect(page.locator("#x-details")).toBeVisible();
+  await expect(page.locator("#r-meta")).toContainText("pipe.jpg");
+  await collapse();
   await page.locator("#s-override").fill("25");
   await page.locator("#s-override").blur();
   await page.selectOption("#s-view", "chain");
@@ -653,7 +659,7 @@ test.describe("paired with a computer", () => {
     const first = (await received())[0]!.id;
     const row = desktop.locator(`button.item[data-id="${first}"]`);
     await row.click();
-    // Renamed on the phone, in the expanded view's title.
+    // Named on the phone, beside the expanded view's star.
     await phoneItem(photoId).tap();
     await expand();
     await expect(page.locator("#x-star")).toHaveAttribute("aria-pressed", "true");   // starred on the computer, unnamed:
@@ -662,18 +668,15 @@ test.describe("paired with a computer", () => {
     const field = page.getByRole("textbox", { name: "Name of the curve" });
     await field.fill("Pipe 1.5in, left");
     await field.press("Enter");
-    await expect(page.locator("#x-name")).toHaveText("Pipe 1.5in, left");
-    await expect(page.locator("#x-nm")).toBeVisible();                 // beside the view's star too, as on the card
+    await expect(page.locator("#x-nm")).toBeVisible();                 // beside the view's star, as on the card
     await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
     await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
-    // A name given is renamed by tapping it: the view's title (a button to a screen reader; the dialog keeps its name) …
-    await expect(page.getByRole("dialog", { name: "Pipe 1.5in, left" })).toBeVisible();
-    await expect(page.locator("#x-name")).toHaveAttribute("role", "button");
-    await expect(page.getByRole("button", { name: "Rename Pipe 1.5in, left" })).toHaveCount(1);   // the card's chip
-    await page.locator("#x-name").tap();
-    await expect(page.locator("#x-name input.rename")).toBeFocused();
-    await page.locator("#x-name input.rename").press("Escape");
-    await expect(page.locator("#x-name")).toHaveText("Pipe 1.5in, left");
+    await expect(page.getByRole("dialog", { name: "Pipe 1.5in, left" })).toBeVisible();   // no title bar: the view is named after it
+    // A name given is renamed by tapping it (a button to a screen reader) …
+    await page.getByRole("dialog").getByRole("button", { name: "Rename Pipe 1.5in, left" }).tap();
+    await expect(page.locator("#x-nm input.rename")).toBeFocused();
+    await page.locator("#x-nm input.rename").press("Escape");
+    await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe 1\.5in, left,/);
     await expect(row.locator(".name")).toHaveText("Pipe 1.5in, left");
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe 1.5in, left");
@@ -685,7 +688,7 @@ test.describe("paired with a computer", () => {
     await desktop.keyboard.press("Enter");
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe, left");
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe, left,/);
-    await expect(page.locator("#x-name")).toHaveText("Pipe, left");
+    await expect(page.locator("#x-nm")).toHaveText("Pipe, left");
     // Escape does not; a click elsewhere does, and the click still goes where it was meant.
     await desktop.getByRole("button", { name: "Rename" }).click();
     await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Not this");
@@ -703,11 +706,12 @@ test.describe("paired with a computer", () => {
     expect((await download).suggestedFilename()).toBe("Pipe bend-curve.csv");
     // An empty name: the phone calls it after its time, the computer after its photo.
     await expand();
-    await page.locator("#x-nm").tap();                 // … or the chip beside the star
+    await page.locator("#x-nm").tap();                 // … by a tap
     await expect(page.locator("#x-nm input.rename")).toBeFocused();
     await field.fill("");
     await field.press("Enter");
-    await expect(page.locator("#x-name")).toHaveText(/^Curve \d\d:\d\d$/);
+    await expect(page.getByRole("dialog")).toHaveAttribute("aria-label", /^Curve \d\d:\d\d$/);
+    await expect(page.locator("#x-nm")).toBeHidden();                    // no name: no chip
     await expect(page.locator("#r-name")).toHaveText("");
     await collapse();
     await expect(row.locator(".name")).toHaveText("pipe.jpg");

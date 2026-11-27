@@ -278,7 +278,7 @@ async function removePhoto(id: string): Promise<void> {
   void core.call("close", { photo: id }).catch(() => {});
 }
 
-/** The photo whose name is being edited, and where: the card's name (after starring it) or the expanded view's title. */
+/** The photo whose name is being edited, and where: beside the card's star or the expanded view's. */
 let renaming: { id: string; host: HTMLElement } | null = null;
 
 function startRename(r: PhotoRecord, host: HTMLElement): void {
@@ -295,8 +295,8 @@ function startRename(r: PhotoRecord, host: HTMLElement): void {
     }
   };
   input.onblur = () => endRename(true);
-  // The host holds the field now: no longer the name's button, and seen by a screen reader (the view's chip is hidden from one).
-  for (const a of ["role", "tabindex", "aria-label", "aria-hidden"]) host.removeAttribute(a);
+  // The host holds the field now: no longer the name's button.
+  for (const a of ["role", "tabindex", "aria-label"]) host.removeAttribute(a);
   host.classList.remove("named");
   host.replaceChildren(input);
   input.focus();
@@ -319,9 +319,9 @@ function endRename(keep: boolean): void {
   renderResult();
 }
 
-/** A name given is renamed by tapping it: the chip beside the star (card or expanded view) or the view's title.
+/** A name given is renamed by tapping it: the chip beside the star (card or expanded view).
  * Unnamed, they offer nothing (the star names a curve). */
-for (const [id, host] of [["r-name", "r-name"], ["x-nm", "x-nm"], ["x-name", "x-name"]] as const) {
+for (const [id, host] of [["r-name", "r-name"], ["x-nm", "x-nm"]] as const) {
   const rename = () => {
     const r = selected ? records.get(selected) : undefined;
     if (r && nameOf(r).text && renaming?.host.id !== host) startRename(r, $(host));
@@ -703,17 +703,14 @@ function renderResult(): void {
   }
   if (renaming?.host.id !== "r-name") $("r-name").textContent = nameOf(r).text;
   if (renaming?.host.id !== "x-nm") $("x-nm").textContent = nameOf(r).text;
-  // The name, tapped, renames: a button to a screen reader while it is a name and not the field. The view's chip
-  // repeats its title, so it stays hidden from one (except while it holds the field).
-  for (const id of ["r-name", "x-name", "x-nm"]) {
+  // The name, tapped, renames: a button to a screen reader while it is a name and not the field.
+  for (const id of ["r-name", "x-nm"]) {
     const host = $(id), editing = renaming?.host.id === id, named = !!nameOf(r).text && !editing;
     host.classList.toggle("named", named);
-    if (id === "x-nm") host.toggleAttribute("aria-hidden", !editing);
-    else if (named) {
+    if (named) {
       host.setAttribute("role", "button");
       host.tabIndex = 0;
-      // The title also names the dialog (aria-labelledby): it keeps its own text as its name.
-      if (id === "r-name") host.setAttribute("aria-label", `Rename ${nameOf(r).text}`);
+      host.setAttribute("aria-label", `Rename ${nameOf(r).text}`);
     } else for (const a of ["role", "tabindex", "aria-label"]) host.removeAttribute(a);
   }
   for (const t of [$("r-time"), $("x-time")]) t.textContent = timeOf(r);
@@ -744,7 +741,8 @@ function renderResult(): void {
   // The expanded view: its title, the editor and the sheet.
   const xv = $("xv");
   for (const c of ["chk", "bad"]) xv.classList.toggle(c, tag === c);
-  if (renaming?.host.id !== "x-name") $("x-name").textContent = titleOf(r);
+  xv.setAttribute("aria-label", titleOf(r));
+  $("x-details").hidden = !settings.debug;
   const info = doc?.info;
   const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
   const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
@@ -1034,7 +1032,7 @@ function closeExpanded(fromHistory = false): void {
   if (!expanded) return;
   expanded = false;
   taps.cancel();
-  if (renaming?.host.id === "x-name" || renaming?.host.id === "x-nm") endRename(true);
+  if (renaming?.host.id === "x-nm") endRename(true);
   const xv = $("xv");
   const done = () => {
     xv.hidden = true;
@@ -1367,7 +1365,7 @@ function renderSend(r: PhotoRecord, enabled: boolean): void {
   } else if (offer.kind === "send") {
     note.textContent = "Taken before this phone was paired: send it, and the computer follows your changes from then on.";
   } else if (offer.kind === "unpaired" && r.status === "done") {
-    note.textContent = "No computer paired: close this view and tap the computer pill at the top to pair one.";
+    note.textContent = "No computer paired";
   }
 }
 
