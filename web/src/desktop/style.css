@@ -72,7 +72,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 /* top bar: the wordmark, the link to the phone, Measure a photo */
 .top { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 2px solid var(--ink); background: var(--page); flex-wrap: wrap; min-height: 52px; }
 .mark { display: flex; align-items: center; gap: 10px; }
-#chain-mark { display: block; height: 20px; min-width: 84px; }
+#chain-mark { display: block; height: 20px; min-width: 66px; }
 #chain-mark svg { display: block; height: 100%; width: auto; }
 .mark h1 { font: 500 19px/1 var(--f-data); letter-spacing: -.02em; text-transform: none; white-space: nowrap; }
 .mark h1 span { color: var(--muted); font-weight: 400; }

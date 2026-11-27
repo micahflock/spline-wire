@@ -18,10 +18,11 @@ describe("chain strip", () => {
     expect(pins[per + 1]![0]).toBeLessThan(pins[per]![0]);
   });
 
-  it("draws the chosen chain: one rimmed head per pin of the snap-fit chain, ending in its empty sleeve", () => {
+  it("draws the chosen chain: as many rimmed heads as the chain has pins, a pin over the last hook too", () => {
     const svg = stripSvg(SNAP, 5, 358, 4);
-    expect(svg.match(/<circle/g)).toHaveLength(10);            // a head and its rim on each pin
-    expect(svg.match(/class="sleeve"/g)).toHaveLength(1);
+    expect(svg.match(/<circle/g)).toHaveLength(10);            // a head and its rim on each of the 5 pins
+    expect(svg.match(/<line/g)).toHaveLength(4);               // 4 links between them, no empty hook
+    expect(svg).not.toContain("sleeve");
     expect(svg.match(/class="new"/g)?.length).toBeGreaterThan(0);
     expect(svg).toContain('aria-label="A chain of 5 pins"');
   });

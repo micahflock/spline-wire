@@ -5,7 +5,7 @@
 // Pure: SVG strings and numbers, so they are tested without a page.
 
 import type { Point } from "../core/types";
-import { chainArt, reachMm, tailPositions, type ChainLook } from "../drawing/chain-art";
+import { chainArt, reachMm, type ChainLook } from "../drawing/chain-art";
 
 const f = (n: number) => (Math.round(n * 10) / 10).toString();
 
@@ -32,7 +32,7 @@ export function stripSvg(look: ChainLook | null, n: number, width: number, grew 
   if (!look) return `<svg class="strip" viewBox="0 0 ${f(width)} 20" height="20" aria-hidden="true"></svg>`;
   const s = STRIP_PITCH / look.pitch_mm, reach = reachMm(look) * s;
   const margin = Math.ceil(reach) + 1, row = Math.max(STRIP_PITCH, Math.ceil(2 * reach + 4));
-  const { pins, height } = stripLayout(n + tailPositions(look), width, STRIP_PITCH, row, margin);
+  const { pins, height } = stripLayout(n, width, STRIP_PITCH, row, margin);
   return `<svg class="strip" viewBox="0 0 ${f(width)} ${height}" height="${height}" role="img" aria-label="A chain of ${n} pins">`
     + chainArt(look, pins, s, { grew }) + "</svg>";
 }
