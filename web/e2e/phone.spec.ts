@@ -327,6 +327,8 @@ test("the chain style is chosen per photo in the expanded view; the table has no
 
 test("Copy points puts the Fusion add-in's table on the clipboard", async () => {
   await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
+  await expect(page.locator("#settings #copy")).toHaveCount(0);         // This curve is in the expanded view, not Settings
+  await expand();
   await tapButton("Copy points");
   await expect(page.locator("#toast")).toContainText("Copied");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -345,6 +347,8 @@ test("Copy points puts the Fusion add-in's table on the clipboard", async () => 
   const download = page.waitForEvent("download");
   await tapButton("Download the DXF file");
   expect((await download).suggestedFilename()).toBe("pipe-curve.dxf");
+  await page.locator("#this-curve").screenshot({ path: path.join(SHOTS, "expanded-this-curve.png") });
+  await collapse();
 });
 
 test("a reload keeps the photo and its measurement", async () => {
@@ -422,9 +426,9 @@ test("an error is shown as is, and the photo can still be fixed by hand", async 
   await expect(page.locator("#result")).toHaveClass(/\bbad\b/);
   await expect(page.locator("#swap")).toBeHidden();       // nothing to swap on a failed curve
   await expect(item.locator(".dot.bad")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Copy points" })).toBeDisabled();
   await page.screenshot({ path: path.join(SHOTS, "error-light.png"), fullPage: true });
   await expand();
+  await expect(page.getByRole("button", { name: "Copy points" })).toBeDisabled();
   await expect(page.locator("#xv")).toHaveClass(/\bbad\b/);
   await expect(page.locator("#overlay .ov-unused").first()).toBeVisible();
   await page.emulateMedia({ colorScheme: "dark" });
@@ -440,7 +444,7 @@ test("an error is shown as is, and the photo can still be fixed by hand", async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.viewport.width);
 });
 
-test("dark rims on light links are found once Colours says so", async () => {
+test("dark rims on light links are found once Colors says so", async () => {
   // The test before leaves its failed photo first in the list, already "error": wait for
   // this photo's tile to take its place before reading the status, or the check passes on
   // the old one and the message below gets only toContainText's 5 s (failed in CI run 45883557855).
@@ -450,7 +454,7 @@ test("dark rims on light links are found once Colours says so", async () => {
   await expect(item).not.toHaveAttribute("data-id", before!, { timeout: 30_000 });
   await expect(item).toHaveAttribute("data-status", "error", { timeout: 120_000 });
   await expect(page.locator("#r-problem")).toContainText("No chain found");
-  await expect(page.locator("#r-problem")).toContainText("choose that under Colours in Settings");
+  await expect(page.locator("#r-problem")).toContainText("choose that under Colors in Settings");
   await page.locator("#s-shade").selectOption("dark");
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
   await expect(page.locator("#numbers")).toContainText("13 / 13");
@@ -511,6 +515,7 @@ test.describe("paired with a computer", () => {
     await expect(page.locator("#link-text")).toHaveText(/^Linked/);
     await expect(phoneItem(photoId)).toHaveAttribute("data-status", "done");
     await phoneItem(photoId).tap();
+    await expand();                                    // This curve: in the expanded view
     await expect(page.locator("#send-note")).toContainText("Taken before this phone was paired");
     // The engine is new after the navigation: the files sent are the ones kept with the photo when it was measured.
     await tapButton("Send to computer");
@@ -527,6 +532,7 @@ test.describe("paired with a computer", () => {
       expect(files[kind], kind).toBe(photoFiles[kind]);
     }
     log("link states:", JSON.stringify(await page.evaluate(() => (window as unknown as { phone: { link: unknown } }).phone.link)));
+    await collapse();
   });
 
   test("a change on the phone replaces the curve on the computer, also one made while it is closed", async () => {
@@ -683,8 +689,7 @@ test.describe("paired with a computer", () => {
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe bend");
     await expect(desktop.getByRole("button", { name: /Star/ })).toHaveAttribute("aria-pressed", "false");   // starred before: the click unstarred it
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe bend,/);
-    // The phone's own files take the name too.
-    await collapse();
+    // The phone's own files take the name too (This curve, in the expanded view).
     const download = page.waitForEvent("download");
     await page.locator("#downloads button", { hasText: "CSV" }).first().tap();
     expect((await download).suggestedFilename()).toBe("Pipe bend-curve.csv");
@@ -770,13 +775,13 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   // The drawing flew from the card's framing to its own, and keeps its own once landed.
   expect(await p.locator("#x-drawing svg").getAttribute("viewBox")).toBe(await p.locator("#x-drawing").getAttribute("data-box"));
   await expect(p.locator("#undo")).toBeDisabled();
-  await collapse(p);
-  await tap("Copy points");
+  await tap("Copy points");                            // This curve, in the expanded view
   await expect(p.locator("#toast")).toContainText("Copied");
   expect(await p.evaluate(() => navigator.clipboard.readText())).toBe(want.files.tsv);
   const download = p.waitForEvent("download");
   await tap("Download the DXF file");
   expect(fs.readFileSync((await (await download).path())!, "utf8")).toBe(want.files.dxf);
+  await collapse(p);
   await expect(old).toHaveAttribute("data-status", "done");
 
   // Delete photos, keep curves: the newer one goes too.

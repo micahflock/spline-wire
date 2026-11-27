@@ -682,7 +682,6 @@ function tagOf(r: PhotoRecord): [string, string] {
 function renderResult(): void {
   const r = selected ? records.get(selected) : undefined;
   $("result").hidden = !r;
-  $("this-curve").hidden = !r;
   if (!r) {
     closeExpanded();
     return;
@@ -1368,7 +1367,7 @@ function renderSend(r: PhotoRecord, enabled: boolean): void {
   } else if (offer.kind === "send") {
     note.textContent = "Taken before this phone was paired: send it, and the computer follows your changes from then on.";
   } else if (offer.kind === "unpaired" && r.status === "done") {
-    note.textContent = "No computer paired: tap the computer pill at the top to pair one.";
+    note.textContent = "No computer paired: close this view and tap the computer pill at the top to pair one.";
   }
 }
 
