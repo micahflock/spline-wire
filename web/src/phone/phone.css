@@ -249,6 +249,19 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
 .vt-old-over::view-transition-old(x-photo) { z-index: 1; }
 ::view-transition-group(x-photo) { background: var(--photo-bg); }
 .vt-drawing::view-transition-group(x-photo) { background: var(--card); }
+/* The view's settings (the sheet, only in the view) slide down 240 px from under the photo as it opens (not their
+   whole height, which streamed their rows past), and back up
+   under it as it closes, fading in and out (else they stand over the page fading out, or back in, until the end):
+   clipped to their own place, so they come out of the photo's bottom edge, with the photo
+   and its keys drawn over them. */
+.sheet { view-transition-name: x-sheet; }
+::view-transition-group(x-photo), ::view-transition-group(x-tl), ::view-transition-group(x-tr),
+::view-transition-group(x-bl), ::view-transition-group(x-br) { z-index: 1; }
+::view-transition-image-pair(x-sheet) { overflow: clip; }
+::view-transition-new(x-sheet) { animation: x-sheet-in 380ms cubic-bezier(.3, 0, 0, 1) both; }
+::view-transition-old(x-sheet) { animation: x-sheet-out 380ms cubic-bezier(.3, 0, 0, 1) both; }
+@keyframes x-sheet-in { from { transform: translateY(-240px); opacity: 0; } }
+@keyframes x-sheet-out { to { transform: translateY(-240px); opacity: 0; } }
 .tools { display: flex; gap: 6px; flex-wrap: wrap; }
 .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 2px; }
 .hint:empty { display: none; }
