@@ -16,17 +16,18 @@
 <body>
 <header class="top">
   <div class="mark">
-    <svg width="44" height="16" viewBox="0 0 33 12" aria-hidden="true">
-      <rect x="1" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/><rect x="10" y="2.2" width="13" height="7.6" rx="3.8" fill="var(--brand)" opacity=".75"/>
-      <rect x="19" y="1.2" width="13" height="9.6" rx="4.8" fill="var(--brand)"/>
-      <circle cx="5.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="14.8" cy="6" r="2" fill="var(--brand-dot)"/><circle cx="23.8" cy="6" r="2" fill="var(--brand-dot)"/>
+    <!-- the phone page's chain strip in small: links alternately thick and thin, a dot on each pin -->
+    <svg width="50" height="10" viewBox="0 0 80 14" aria-hidden="true">
+      <line class="lnk" x1="7" y1="7" x2="29" y2="7" stroke-width="12"/><line class="lnk b" x1="29" y1="7" x2="51" y2="7" stroke-width="9"/>
+      <line class="lnk" x1="51" y1="7" x2="73" y2="7" stroke-width="12"/>
+      <circle class="pin" cx="7" cy="7" r="3"/><circle class="pin" cx="29" cy="7" r="3"/><circle class="pin" cx="51" cy="7" r="3"/><circle class="pin" cx="73" cy="7" r="3"/>
     </svg>
-    <h1>Spline Wire</h1>
+    <h1 aria-label="Spline Wire">spline<span>·</span>wire</h1>
   </div>
   <span class="spacer"></span>
   <div class="link-state" id="link-state"><span class="lamp" id="lamp"></span><span id="link-text" role="status">Starting…</span><span id="link-wait" class="mono"></span></div>
   <button class="btn small" id="retry" type="button" hidden>Retry now</button>
-  <label class="btn small" id="pick-label" title="Or drop a photo anywhere on this page">Measure a photo…<input type="file" id="pick" accept="image/*,.heic,.heif" hidden></label>
+  <label class="btn cap" id="pick-label" title="Or drop a photo anywhere on this page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Measure a photo…<input type="file" id="pick" accept="image/*,.heic,.heif" hidden></label>
 </header>
 <p class="banner chk" id="storage-note" hidden>This browser isn't keeping anything for this site (a private window?), so the pairing
   and the curves will be forgotten when this tab closes. Open the page in a normal window to keep them.</p>

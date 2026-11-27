@@ -27,6 +27,7 @@ import {
 } from "./fusion";
 import { DOWNLOADS, downloadName, type DownloadKind } from "./names";
 import { plotSvg } from "./plot";
+import { curveDrawing } from "../phone/drawings";
 import { dxfText } from "../pipeline/dxf";
 import { pieces, shape, toggleMark, type Shaped } from "./corners";
 import { qrSvg } from "./qr";
@@ -476,7 +477,7 @@ function renderList(): void {
   const focused = (document.activeElement as HTMLElement | null)?.dataset?.id;
   const now = Date.now();
   const draftItem = draft ? `<li><button type="button" class="item draft" data-draft aria-current="${showingDraft}">
-      <span class="row1"><span class="name">${esc(draft.name)}</span><span class="tag-here">not added</span></span>
+      <span class="thumb" aria-hidden="true">…</span><span class="row1"><span class="name">${esc(draft.name)}</span><span class="tag-here">not added</span></span>
       <span class="sub">${esc(draft.state)}</span></button></li>` : "";
   list.innerHTML = draftItem + inbox.curves.map((c) => {
     const t = Date.parse(c.measured_at);
@@ -484,9 +485,10 @@ function renderList(): void {
     const mine = inbox.isLocal(c.id);
     return `<li><button type="button" class="item${c.id === flashId ? " flash" : ""}" data-id="${esc(c.id)}"
       aria-current="${!showingDraft && c.id === selection.id}">
+      <span class="thumb" aria-hidden="true">${curveDrawing({ pins: c.pins_mm, spline: c.points_mm }, 1, { pad: 8 })}${w ? `<span class="dot"></span>` : ""}</span>
       <span class="row1">${inbox.isStarred(c.id) ? `<span class="starred" title="Starred">★</span>` : ""}<span class="name">${esc(title(c))}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
       <span class="sub"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, now))}</time>
-        <span>· ${esc(c.chain.name)}</span><span>· ${c.chain.n_pins} pins</span></span>
+        · ${c.chain.n_pins} pins · ${esc(c.chain.name)}</span>
     </button></li>`;
   }).join("");
   if (flashId) {
@@ -642,18 +644,19 @@ function curveHtml(c: Curve): string {
     <div class="head">${renaming === c.id
       ? `<input id="rename-input" class="rename" value="${esc(title(c))}" maxlength="100" aria-label="Name of the curve" placeholder="${esc(c.photo)}">`
       : titleHtml(c)}
+      ${c.warnings.length ? `<span class="tag chk" title="${plural(c.warnings.length, "warning")}">CHECK</span>` : `<span class="tag ok">OK</span>`}
       <span class="meta">${metaHtml(c)}</span>
       <span class="spacer"></span>
       <button type="button" class="btn plain small star${inbox.isStarred(c.id) ? " on" : ""}" data-act="star" aria-pressed="${inbox.isStarred(c.id)}"
-        title="${mine ? "Starred here" : "Starred here and on the phone"}">${inbox.isStarred(c.id) ? "★ Starred" : "☆ Star"}</button>
+        title="${mine ? "Starred here" : "Starred here and on the phone"}"><span class="sg">${inbox.isStarred(c.id) ? "★" : "☆"}</span> ${inbox.isStarred(c.id) ? "Starred" : "Star"}</button>
       ${renameButtonHtml(c, renaming === c.id)}
       <button type="button" class="btn plain small" data-act="delete">Delete…</button></div>
     <div class="plot">${plot}</div>
     <div class="legend" aria-hidden="true">
-      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--screen-ink)" stroke-opacity=".55"/></svg>Pin of the chain</span>
-      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3.5" fill="var(--plot-pt)"/></svg>Point on the object's edge</span>
-      <span><svg viewBox="0 0 14 14"><line x1="1" y1="7" x2="13" y2="7" stroke="var(--trace)" stroke-width="2"/></svg>Spline through the points</span>
-      <span><svg viewBox="0 0 14 14"><rect x="3.5" y="3.5" width="7" height="7" transform="rotate(45 7 7)" fill="var(--plot-pt)"/></svg>Sharp corner</span>
+      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--plot-ink)" stroke-opacity=".6"/></svg>Pin of the chain</span>
+      <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3.5" fill="var(--curve)"/></svg>Point on the object's edge</span>
+      <span><svg viewBox="0 0 14 14"><line x1="1" y1="7" x2="13" y2="7" stroke="var(--curve)" stroke-width="2.5"/></svg>Spline through the points</span>
+      <span><svg viewBox="0 0 14 14"><rect x="3.5" y="3.5" width="7" height="7" transform="rotate(45 7 7)" fill="var(--ink)"/></svg>Sharp corner</span>
     </div>
     <p class="corner-hint">${CORNER_HINT}</p>
   </section>
