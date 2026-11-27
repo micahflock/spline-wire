@@ -46,11 +46,10 @@ describe("wording", () => {
     expect(numbers({ ...r, pins: 13, missing_pins: 0, focal_source: "exif" }, 13).filter(([, , , w]) => w)).toEqual([]);
     // The phone's Measurement table: the same figures and flags, in the brief's rows.
     const spec = Object.fromEntries(measurementRows(r, 13).map(([k, v, s, w]) => [k, { v, s, w }]));
-    expect(Object.keys(spec)).toEqual(["Pins found", "Curve points", "Camera tilt", "Link length error", "Focal length", "Object side"]);
+    expect(Object.keys(spec)).toEqual(["Pins found", "Camera tilt", "Link length error", "Focal length"]);
     expect(spec["Pins found"]).toEqual({ v: "12 / 13", s: "1 missing, bridged", w: true });
     expect(spec["Focal length"]).toEqual({ v: "27.1 mm", s: "estimated from the chain", w: true });
     expect(spec["Link length error"]!.s).toBe("rms · max 0.050");
-    expect(spec["Object side"]!.v).toBe("Inside");
     expect(measurementRows({ ...r, pins: 13, missing_pins: 0, focal_source: "exif" }, 13).filter(([, , , w]) => w)).toEqual([]);
   });
 });
@@ -74,9 +73,9 @@ describe("what the phone keeps", () => {
   it("says where the focal length for photos without camera data comes from", () => {
     const lens = { name: "Pixel 7 Pro back camera 6.81mm f/1.85", focal35: 24 };
     expect(focalStatus({ focal35: 24, lens }, lens)).toBe(
-      "24 mm, learned from Pixel 7 Pro back camera 6.81mm f/1.85. Used for photos without camera data, which iPhones often strip.");
-    expect(focalStatus({ focal35: 26, lens: null }, lens)).toMatch(/Clear it to use the 24 mm learned from Pixel 7 Pro/);
-    expect(focalStatus({ focal35: 26, lens: null }, null)).toMatch(/Clear it to use one learned from a photo\.$/);
+      "The detected camera's. Used for photos without camera data, which iPhones often strip. Type another to override it.");
+    expect(focalStatus({ focal35: 26, lens: null }, lens)).toMatch(/^Typed\. .* Clear it to use the detected camera's 24 mm\.$/);
+    expect(focalStatus({ focal35: 26, lens: null }, null)).toMatch(/Clear it to use one taught from a photo\.$/);
     expect(focalStatus(null, null)).toMatch(/^Not known yet: .* estimated from the chain/);
   });
 });

@@ -32,14 +32,16 @@
     <button type="button" class="ck scan" id="take-camera">
       <span class="leg">A</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8V4h4M17 4h4v4M21 16v4h-4M7 20H3v-4"/><circle cx="12" cy="12" r="3"/></svg>
-      <b>Scan</b><small>live video</small>
+      <b>Scan</b>
     </button>
     <label class="ck" id="upload">
       <span class="leg">B</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
-      <b>Upload</b><small>from library</small>
+      <b>Upload</b>
       <input type="file" accept="image/*" multiple id="choose" class="file">
     </label>
+    <!-- The system camera: no key of its own; the camera view offers it when the page's camera fails. -->
+    <input type="file" accept="image/*" capture="environment" id="take" class="file" tabindex="-1" aria-hidden="true">
   </div>
 
   <button type="button" class="pill" id="link-chip" aria-expanded="false" aria-controls="pair-box">
@@ -89,20 +91,9 @@
   <section class="settings" id="settings" aria-labelledby="settings-title">
     <h2 id="settings-title">Settings</h2>
 
-    <div class="grp" id="this-curve" hidden>
-      <h3>This curve</h3>
-      <div class="row"><span>Sending</span><span class="v" id="send-note" role="status" aria-live="polite"></span></div>
-      <div class="acts">
-        <button type="button" class="key" id="copy">Copy points</button>
-        <button type="button" class="btn" id="share" hidden>Share files</button>
-        <button type="button" class="btn" id="send" hidden>Send to computer</button>
-      </div>
-      <div class="downloads" id="downloads" aria-label="Downloads"></div>
-    </div>
-
     <div class="grp">
       <h3>Chain</h3>
-      <div class="row"><label for="s-shade">Colours</label><select id="s-shade">
+      <div class="row"><label for="s-shade">Colors</label><select id="s-shade">
         <option value="light">Light dots or rims on dark links</option>
         <option value="dark">Dark dots or rims on light links</option></select></div>
     </div>
@@ -111,22 +102,17 @@
       <h3>Camera</h3>
       <div class="row"><label for="s-view">Live view</label><select id="s-view">
         <option value="grey">Grey, dimmed</option>
-        <option value="color">In colour</option>
+        <option value="color">In color</option>
         <option value="chain" id="s-view-chain">Only the chain, no video</option></select></div>
-      <div class="row"><span>Use the system camera instead</span>
-        <label class="btn" id="take-label">Take photo<input type="file" accept="image/*" capture="environment" id="take" class="file"></label></div>
-      <p class="small">Its photos lose the focal length on iPhone and Pixel phones: the one under Focal length is used instead.</p>
     </div>
 
     <div class="grp">
       <h3>Focal length</h3>
-      <div class="row"><label for="s-focal">Main camera, mm <small class="mono muted">(35 mm eq.)</small></label>
+      <div class="row"><span>Detected camera</span><span class="v cam-v" id="s-camera" role="status"></span></div>
+      <div class="row"><label for="s-focal">Focal length override, mm <small class="mono muted">(35 mm eq.)</small></label>
         <input id="s-focal" class="num" inputmode="decimal" placeholder="none"></div>
       <p class="small" id="s-focal-status" role="status"></p>
-      <ul class="lenses" id="s-lenses" aria-label="Focal length by lens"></ul>
       <div class="row"><span>Teach from a photo</span><label class="btn">Choose photo<input type="file" accept="image/*" id="s-teach" class="file"></label></div>
-      <p class="small" id="s-teach-note">Learned from any photo this phone's back camera took, never the front camera.
-        Android's in-page camera often leaves it out.</p>
       <p class="small bad-text" id="s-error" role="alert"></p>
     </div>
 
@@ -173,10 +159,9 @@
   </section>
 </main>
 
-<div class="xv" id="xv" hidden role="dialog" aria-modal="true" aria-labelledby="x-name">
-  <div class="xbar">
-    <div class="tt"><div id="x-name"></div><small class="mono" id="r-meta"></small></div>
-  </div>
+<div class="xv" id="xv" hidden role="dialog" aria-modal="true" aria-label="Curve">
+  <!-- The photo's details: debug mode only (the camera's diagnostics); main.ts names the dialog after the curve. -->
+  <div class="xbar" id="x-details" hidden><small class="mono" id="r-meta"></small></div>
   <div class="vp" id="editor">
     <svg id="photo" class="photo-svg" role="img" aria-label="The photo with the measured chain"><image id="photo-img" x="-0.5" y="-0.5" preserveAspectRatio="none"/><g id="overlay"></g></svg>
     <div class="drawing" id="x-drawing" hidden></div>
@@ -184,7 +169,7 @@
       <button type="button" class="star" id="x-star" aria-pressed="false" aria-label="Favourite">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.7 5.9 6.4.7-4.8 4.3 1.4 6.3L12 16.8 6.3 20l1.4-6.3L2.9 9.4l6.4-.7z" stroke-linejoin="round"/></svg>
       </button>
-      <span class="nm" id="x-nm" aria-hidden="true"></span>
+      <span class="nm" id="x-nm"></span>
     </div>
     <div class="fl tr"><span class="time mono" id="x-time"></span><span class="tag" id="x-tag"></span></div>
     <div class="fl bl">
@@ -204,14 +189,24 @@
       <button type="button" class="btn" id="undo" aria-label="Undo the last pin change">Undo</button>
       <button type="button" class="btn" id="reset" aria-label="Remove all pin changes">Reset</button>
       <span class="spacer"></span>
-      <button type="button" class="btn" id="rename">Rename</button>
       <button type="button" class="btn plain danger" id="delete">Delete</button>
     </div>
     <p class="hint" id="hint">Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom, double-tap to fit.</p>
+    <div class="row"><label for="r-chain">Chain style</label><select id="r-chain"></select></div>
     <div class="row"><span>Pins in this photo</span>
       <div class="pins" id="r-pins" role="group" aria-label="Pins in this photo"><input type="number" inputmode="numeric" min="3" max="999"
         aria-label="Pins in this photo"><button type="button" class="k" data-step="1" aria-label="One pin more">+</button><button
         type="button" class="k" data-step="-1" aria-label="One pin fewer">−</button></div></div>
+    <div class="grp" id="this-curve">
+      <h3>This curve</h3>
+      <div class="row"><span>Sending</span><span class="v" id="send-note" role="status" aria-live="polite"></span></div>
+      <div class="acts">
+        <button type="button" class="key" id="copy">Copy points</button>
+        <button type="button" class="btn" id="share" hidden>Share files</button>
+        <button type="button" class="btn" id="send" hidden>Send to computer</button>
+      </div>
+      <div class="downloads" id="downloads" aria-label="Downloads"></div>
+    </div>
     <table class="spec"><caption>Measurement</caption><tbody id="numbers"></tbody></table>
     <ul class="msgs warn" id="warnings" aria-label="Warnings"></ul>
     <ul class="msgs note" id="notes" aria-label="Notes"></ul>

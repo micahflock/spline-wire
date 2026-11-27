@@ -81,7 +81,7 @@ export function errorAdvice(message: string, fixable: boolean, input: Input = "t
   const byHand = fixable ? ` Or ${tap(input)} each pin on the photo.` : "";
   if (/fiducials|detections to find a chain/.test(message)) {
     return "Get the whole chain in the frame with the dots facing up, in focus and without glare, and take the photo again." + byHand
-      + ` If the chain's dots or rims are darker than its links, choose that under Colours${input === "mouse" ? "" : " in Settings"}.`;
+      + ` If the chain's dots or rims are darker than its links, choose that under ${input === "mouse" ? "Colours" : "Colors in Settings"}.`;
   }
   if (/pins in a row|links to rectify/.test(message)) {
     return "Glare or a shadow may be hiding some dots: move the lamp or turn the chain and take it again." + byHand;
@@ -135,18 +135,17 @@ export function numbers(r: MeasurementResult, expectedPins: number, focalDetail?
 }
 
 /** The phone's Measurement table (for UI review/phone/BRIEF.md), as [label, value, detail, warn]: the same figures as
- * `numbers` in the brief's rows and words. */
+ * `numbers` in the brief's rows and words; no object side (Swap side shows it on the photo)
+ * and no curve points (the chain style and its pins are set above the table). */
 export function measurementRows(r: MeasurementResult, expectedPins: number, focalDetail?: string): [string, string, string, boolean][] {
   const found = r.pins;
   return [
     ["Pins found", `${found} / ${expectedPins}`, r.missing_pins ? `${r.missing_pins} missing, bridged` : "",
       found + r.missing_pins !== expectedPins || r.missing_pins > 0],
-    ["Curve points", String(r.curve_points), "", false],
     ["Camera tilt", `${r.tilt_deg.toFixed(1)}°`, "camera to table", false],
     ["Link length error", `${r.link_residual_rms_mm.toFixed(3)} mm`, `rms · max ${r.link_residual_max_mm.toFixed(3)}`,
       r.warnings.some((w) => w.startsWith("link lengths deviate"))],
     ["Focal length", `${r.focal_35mm.toFixed(1)} mm`, focalDetail ?? FOCAL_SOURCE[r.focal_source], r.focal_source === "estimated"],
-    ["Object side", r.object_side === "inside" ? "Inside" : "Outside", "of the bend", false],
   ];
 }
 
@@ -168,8 +167,8 @@ export function spaceText(photos: number, bytes: number, curvesOnly: number): st
 /** Settings, Focal length: where the value for photos without camera data comes from. */
 export function focalStatus(saved: { focal35: number; lens: { name: string } | null } | null, learned: { name: string; focal35: number } | null): string {
   const use = "Used for photos without camera data, which iPhones often strip.";
-  if (saved?.lens) return `${saved.focal35} mm, learned from ${saved.lens.name}. ${use}`;
-  if (saved) return `${use} Clear it to use ${learned ? `the ${learned.focal35} mm learned from ${learned.name}` : "one learned from a photo"}.`;
+  if (saved?.lens) return `The detected camera's. ${use} Type another to override it.`;
+  if (saved) return `Typed. ${use} Clear it to use ${learned ? `the detected camera's ${learned.focal35} mm` : "one taught from a photo"}.`;
   return "Not known yet: photos without camera data, which iPhones often strip, are estimated from the chain, which is less "
     + "accurate. Teach it from a photo, or type it: 24 mm on iPhone 14 Pro, 15 and later; 26 mm on earlier models.";
 }

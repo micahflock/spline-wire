@@ -234,8 +234,9 @@ test("the expanded view has the card's star, time and tag in the same corners", 
   await expect(page.locator("#x-time")).toHaveText((await page.locator("#r-time").textContent())!);
   await expect(page.locator("#x-tag")).toHaveText(/OK|CHECK/);
   await page.locator("#x-star").tap();
-  await expect(page.locator("#x-name input.rename")).toBeFocused();       // starring offers a name, in the title
-  await page.locator("#x-name input.rename").press("Escape");
+  await expect(page.locator("#x-nm input.rename")).toBeFocused();         // starring offers a name, beside the star
+  await expect(page.getByRole("button", { name: "Rename" })).toHaveCount(0);   // no Rename key: a name is tapped
+  await page.locator("#x-nm input.rename").press("Escape");
   await expect(page.locator("#star")).toHaveAttribute("aria-pressed", "true");
   await page.locator("#x-star").tap();
   await expect(page.locator("#x-star")).toHaveAttribute("aria-pressed", "false");
@@ -292,19 +293,44 @@ test("a drag pans and a pinch zooms, and neither adds a pin; a double tap fits t
 });
 
 test("Swap side puts the curve on the other side of the chain, and back; no tapping its side", async () => {
-  await expect(page.locator("#numbers")).toContainText("Inside");
+  // The side, from the measurement's own file (the Measurement table no longer lists it).
+  const side = () => page.evaluate(async (id) =>
+    JSON.parse((await (window as unknown as PhoneWindow).phone.core.call("outputs", { photo: id })).files.json).object_side as string, photoId);
+  await expect.poll(side).toBe("inside");
+  await expect(page.locator("#numbers")).not.toContainText("Object side");
   await expect(page.getByRole("button", { name: "Tap its side" })).toHaveCount(0);
   await page.locator("#x-swap").tap();                 // in the expanded view
-  await expect(page.locator("#numbers")).toContainText("Outside");
+  await expect.poll(side).toBe("outside");
   await expect(pins()).toHaveCount(13);                 // not an edit
   await collapse();
   await page.locator("#swap").tap();                   // on the card
-  await expect(page.locator("#numbers")).toContainText("Inside");
+  await expect.poll(side).toBe("inside");
   await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
+});
+
+test("the chain style is chosen per photo in the expanded view; the table has no curve points", async () => {
+  await expand();
+  const select = page.locator("#r-chain");
+  await expect(select).toHaveValue("snap");
+  await expect(select.locator("option")).toHaveText(["Snap-fit chain", "O-ring chain"]);
+  await expect(page.locator("#numbers")).not.toContainText("Curve points");
+  await select.selectOption("oring");                  // this photo only: measured again with the O-ring chain
+  await expect(page.locator("#x-details")).toBeHidden();               // no title or details line outside debug mode
+  await expect(page.locator("#r-meta")).toContainText("O-ring chain");   // the photo's details (shown in debug mode only)
+  await expect(page.locator("#r-pins input")).toHaveValue("13");          // the O-ring preset's own count
+  await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", /done|error/);
+  await select.selectOption("snap");
+  await expect(page.locator("#r-meta")).toContainText("Snap-fit chain");
+  await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
+  await expect(pins()).toHaveCount(13);
+  await collapse();
 });
 
 test("Copy points puts the Fusion add-in's table on the clipboard", async () => {
   await expect(page.locator("#photos .tile.on")).toHaveAttribute("data-status", "done");
+  await expect(page.locator("#settings #copy")).toHaveCount(0);
+  await expect(page.locator("#send-note")).toHaveText("No computer paired");         // This curve is in the expanded view, not Settings
+  await expand();
   await tapButton("Copy points");
   await expect(page.locator("#toast")).toContainText("Copied");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -323,6 +349,8 @@ test("Copy points puts the Fusion add-in's table on the clipboard", async () => 
   const download = page.waitForEvent("download");
   await tapButton("Download the DXF file");
   expect((await download).suggestedFilename()).toBe("pipe-curve.dxf");
+  await page.locator("#this-curve").screenshot({ path: path.join(SHOTS, "expanded-this-curve.png") });
+  await collapse();
 });
 
 test("a reload keeps the photo and its measurement", async () => {
@@ -337,17 +365,19 @@ test("a reload keeps the photo and its measurement", async () => {
 test("settings learn a focal length per lens, not from a selfie, and take the main camera's as the saved one", async () => {
   // The synthetic photo has the 35 mm tag but names no camera or lens: nothing to remember it under (D17).
   await expect(page.locator("#s-focal-status")).toContainText("Not known yet");
+  await expect(page.locator("#s-camera")).toHaveText("None yet");
+  await expect(page.locator("#s-focal")).toHaveValue("");
   await page.setInputFiles("#s-teach", selfie);
   await expect(page.locator("#toast")).toContainText("front camera");
-  await expect(page.locator("#s-lenses li")).toHaveCount(0);
+  await expect(page.locator("#s-camera")).toHaveText("None yet");
   await page.setInputFiles("#s-teach", lensPhoto);
   await expect(page.locator("#toast")).toContainText("Learned 26 mm for Phone back camera 4.25mm f/1.8");
-  await expect(page.locator("#s-lenses li")).toHaveCount(1);
-  // Taken without asking: nothing typed, the learned value shown and used.
-  await expect(page.locator("#s-focal")).toHaveValue("");
-  await expect(page.locator("#s-focal")).toHaveAttribute("placeholder", "26");
+  // The detected camera, its focal length under it; taken without asking: the override box shows it in use.
+  await expect(page.locator("#s-camera span")).toHaveText("Phone back camera 4.25mm f/1.8");
+  await expect(page.locator("#s-camera b")).toHaveText("26 mm");
+  await expect(page.locator("#s-focal")).toHaveValue("26");
   await expect(page.locator("#s-focal-status")).toHaveText(
-    "26 mm, learned from Phone back camera 4.25mm f/1.8. Used for photos without camera data, which iPhones often strip.");
+    "The detected camera's. Used for photos without camera data, which iPhones often strip. Type another to override it.");
   // The settings for testing wait for debug mode.
   await expect(page.locator("#s-chain")).toHaveValue("snap");
   for (const id of ["#debug-box", "#s-chain", "#s-live", "#s-override", "#debug-note"]) await expect(page.locator(id)).toBeHidden();
@@ -357,16 +387,26 @@ test("settings learn a focal length per lens, not from a selfie, and take the ma
   await page.screenshot({ path: path.join(SHOTS, "settings-light.png"), fullPage: true });
   await page.locator("#s-focal").fill("24");
   await page.locator("#s-focal").blur();
-  await expect(page.locator("#s-focal-status")).toContainText("Clear it to use the 26 mm learned from Phone back camera 4.25mm f/1.8.");
-  await page.locator("#s-focal").fill("");
+  await expect(page.locator("#s-focal-status")).toContainText("Typed. Used for photos without camera data");
+  await expect(page.locator("#s-focal-status")).toContainText("Clear it to use the detected camera's 26 mm.");
+  await expect(page.locator("#s-focal")).toHaveValue("24");
+  await expect(page.locator("#s-camera b")).toHaveText("26 mm");                   // still detected
+  await page.locator("#s-focal").fill("");                                          // cleared: the detected one again
   await page.locator("#s-focal").blur();
-  await expect(page.locator("#s-focal-status")).toContainText("26 mm, learned from");
+  await expect(page.locator("#s-focal")).toHaveValue("26");
+  await expect(page.locator("#s-focal-status")).toContainText("The detected camera's.");
+  await page.locator("#s-focal").evaluate((e) => e.closest(".grp")!.scrollIntoView());
+  await page.screenshot({ path: path.join(SHOTS, "settings-focal.png") });
 });
 
 test("debug mode, from ?debug, shows the settings for testing until left, and their leftovers are named outside it", async () => {
   await page.goto("phone/?debug");
   await expect(page.locator("#debug-box")).toBeVisible();
   await expect(page.locator("#s-chain")).toHaveValue("snap");
+  await expand();                                                      // the photo's details, above it in debug mode
+  await expect(page.locator("#x-details")).toBeVisible();
+  await expect(page.locator("#r-meta")).toContainText("pipe.jpg");
+  await collapse();
   await page.locator("#s-override").fill("25");
   await page.locator("#s-override").blur();
   await page.selectOption("#s-view", "chain");
@@ -400,9 +440,9 @@ test("an error is shown as is, and the photo can still be fixed by hand", async 
   await expect(page.locator("#result")).toHaveClass(/\bbad\b/);
   await expect(page.locator("#swap")).toBeHidden();       // nothing to swap on a failed curve
   await expect(item.locator(".dot.bad")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Copy points" })).toBeDisabled();
   await page.screenshot({ path: path.join(SHOTS, "error-light.png"), fullPage: true });
   await expand();
+  await expect(page.getByRole("button", { name: "Copy points" })).toBeDisabled();
   await expect(page.locator("#xv")).toHaveClass(/\bbad\b/);
   await expect(page.locator("#overlay .ov-unused").first()).toBeVisible();
   await page.emulateMedia({ colorScheme: "dark" });
@@ -418,7 +458,7 @@ test("an error is shown as is, and the photo can still be fixed by hand", async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.viewport.width);
 });
 
-test("dark rims on light links are found once Colours says so", async () => {
+test("dark rims on light links are found once Colors says so", async () => {
   // The test before leaves its failed photo first in the list, already "error": wait for
   // this photo's tile to take its place before reading the status, or the check passes on
   // the old one and the message below gets only toContainText's 5 s (failed in CI run 45883557855).
@@ -428,7 +468,7 @@ test("dark rims on light links are found once Colours says so", async () => {
   await expect(item).not.toHaveAttribute("data-id", before!, { timeout: 30_000 });
   await expect(item).toHaveAttribute("data-status", "error", { timeout: 120_000 });
   await expect(page.locator("#r-problem")).toContainText("No chain found");
-  await expect(page.locator("#r-problem")).toContainText("choose that under Colours in Settings");
+  await expect(page.locator("#r-problem")).toContainText("choose that under Colors in Settings");
   await page.locator("#s-shade").selectOption("dark");
   await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
   await expect(page.locator("#numbers")).toContainText("13 / 13");
@@ -489,6 +529,7 @@ test.describe("paired with a computer", () => {
     await expect(page.locator("#link-text")).toHaveText(/^Linked/);
     await expect(phoneItem(photoId)).toHaveAttribute("data-status", "done");
     await phoneItem(photoId).tap();
+    await expand();                                    // This curve: in the expanded view
     await expect(page.locator("#send-note")).toContainText("Taken before this phone was paired");
     // The engine is new after the navigation: the files sent are the ones kept with the photo when it was measured.
     await tapButton("Send to computer");
@@ -505,6 +546,7 @@ test.describe("paired with a computer", () => {
       expect(files[kind], kind).toBe(photoFiles[kind]);
     }
     log("link states:", JSON.stringify(await page.evaluate(() => (window as unknown as { phone: { link: unknown } }).phone.link)));
+    await collapse();
   });
 
   test("a change on the phone replaces the curve on the computer, also one made while it is closed", async () => {
@@ -617,15 +659,24 @@ test.describe("paired with a computer", () => {
     const first = (await received())[0]!.id;
     const row = desktop.locator(`button.item[data-id="${first}"]`);
     await row.click();
-    // Renamed on the phone, in the expanded view's title.
+    // Named on the phone, beside the expanded view's star.
     await phoneItem(photoId).tap();
     await expand();
-    await tapButton("Rename");
+    await expect(page.locator("#x-star")).toHaveAttribute("aria-pressed", "true");   // starred on the computer, unnamed:
+    await page.locator("#x-star").tap();                                              // off, and on again offers the name
+    await page.locator("#x-star").tap();
     const field = page.getByRole("textbox", { name: "Name of the curve" });
     await field.fill("Pipe 1.5in, left");
     await field.press("Enter");
-    await expect(page.locator("#x-name")).toHaveText("Pipe 1.5in, left");
+    await expect(page.locator("#x-nm")).toBeVisible();                 // beside the view's star, as on the card
+    await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
     await expect(page.locator("#r-name")).toHaveText("Pipe 1.5in, left");
+    await expect(page.getByRole("dialog", { name: "Pipe 1.5in, left" })).toBeVisible();   // no title bar: the view is named after it
+    // A name given is renamed by tapping it (a button to a screen reader) …
+    await page.getByRole("dialog").getByRole("button", { name: "Rename Pipe 1.5in, left" }).tap();
+    await expect(page.locator("#x-nm input.rename")).toBeFocused();
+    await page.locator("#x-nm input.rename").press("Escape");
+    await expect(page.locator("#x-nm")).toHaveText("Pipe 1.5in, left");
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe 1\.5in, left,/);
     await expect(row.locator(".name")).toHaveText("Pipe 1.5in, left");
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe 1.5in, left");
@@ -637,7 +688,7 @@ test.describe("paired with a computer", () => {
     await desktop.keyboard.press("Enter");
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe, left");
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe, left,/);
-    await expect(page.locator("#x-name")).toHaveText("Pipe, left");
+    await expect(page.locator("#x-nm")).toHaveText("Pipe, left");
     // Escape does not; a click elsewhere does, and the click still goes where it was meant.
     await desktop.getByRole("button", { name: "Rename" }).click();
     await desktop.getByRole("textbox", { name: "Name of the curve" }).fill("Not this");
@@ -649,17 +700,18 @@ test.describe("paired with a computer", () => {
     await expect(desktop.locator("#curve-title")).toHaveText("Pipe bend");
     await expect(desktop.getByRole("button", { name: /Star/ })).toHaveAttribute("aria-pressed", "false");   // starred before: the click unstarred it
     await expect(phoneItem(photoId)).toHaveAttribute("aria-label", /^Open Pipe bend,/);
-    // The phone's own files take the name too.
-    await collapse();
+    // The phone's own files take the name too (This curve, in the expanded view).
     const download = page.waitForEvent("download");
     await page.locator("#downloads button", { hasText: "CSV" }).first().tap();
     expect((await download).suggestedFilename()).toBe("Pipe bend-curve.csv");
     // An empty name: the phone calls it after its time, the computer after its photo.
     await expand();
-    await tapButton("Rename");
+    await page.locator("#x-nm").tap();                 // … by a tap
+    await expect(page.locator("#x-nm input.rename")).toBeFocused();
     await field.fill("");
     await field.press("Enter");
-    await expect(page.locator("#x-name")).toHaveText(/^Curve \d\d:\d\d$/);
+    await expect(page.getByRole("dialog")).toHaveAttribute("aria-label", /^Curve \d\d:\d\d$/);
+    await expect(page.locator("#x-nm")).toBeHidden();                    // no name: no chip
     await expect(page.locator("#r-name")).toHaveText("");
     await collapse();
     await expect(row.locator(".name")).toHaveText("pipe.jpg");
@@ -735,13 +787,13 @@ test("past Photos kept and with Delete photos, keep curves, photos go and their 
   // The drawing flew from the card's framing to its own, and keeps its own once landed.
   expect(await p.locator("#x-drawing svg").getAttribute("viewBox")).toBe(await p.locator("#x-drawing").getAttribute("data-box"));
   await expect(p.locator("#undo")).toBeDisabled();
-  await collapse(p);
-  await tap("Copy points");
+  await tap("Copy points");                            // This curve, in the expanded view
   await expect(p.locator("#toast")).toContainText("Copied");
   expect(await p.evaluate(() => navigator.clipboard.readText())).toBe(want.files.tsv);
   const download = p.waitForEvent("download");
   await tap("Download the DXF file");
   expect(fs.readFileSync((await (await download).path())!, "utf8")).toBe(want.files.dxf);
+  await collapse(p);
   await expect(old).toHaveAttribute("data-status", "done");
 
   // Delete photos, keep curves: the newer one goes too.

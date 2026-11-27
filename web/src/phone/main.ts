@@ -278,7 +278,7 @@ async function removePhoto(id: string): Promise<void> {
   void core.call("close", { photo: id }).catch(() => {});
 }
 
-/** The photo whose name is being edited, and where: the card's name (after starring it) or the expanded view's title. */
+/** The photo whose name is being edited, and where: beside the card's star or the expanded view's. */
 let renaming: { id: string; host: HTMLElement } | null = null;
 
 function startRename(r: PhotoRecord, host: HTMLElement): void {
@@ -295,6 +295,9 @@ function startRename(r: PhotoRecord, host: HTMLElement): void {
     }
   };
   input.onblur = () => endRename(true);
+  // The host holds the field now: no longer the name's button.
+  for (const a of ["role", "tabindex", "aria-label"]) host.removeAttribute(a);
+  host.classList.remove("named");
   host.replaceChildren(input);
   input.focus();
   input.select();
@@ -316,13 +319,24 @@ function endRename(keep: boolean): void {
   renderResult();
 }
 
-$("rename").onclick = () => {
-  const r = selected ? records.get(selected) : undefined;
-  if (r) startRename(r, $("x-name"));
-};
+/** A name given is renamed by tapping it: the chip beside the star (card or expanded view).
+ * Unnamed, they offer nothing (the star names a curve). */
+for (const [id, host] of [["r-name", "r-name"], ["x-nm", "x-nm"]] as const) {
+  const rename = () => {
+    const r = selected ? records.get(selected) : undefined;
+    if (r && nameOf(r).text && renaming?.host.id !== host) startRename(r, $(host));
+  };
+  $(id).onclick = rename;
+  $(id).onkeydown = (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+      e.preventDefault();
+      rename();
+    }
+  };
+}
 
 /** The star (the card's or the expanded view's): starring opens the name field
- * (on the card, or the view's title); un-starring clears the name. */
+ * beside it; un-starring clears the name. */
 function toggleStar(nameHost: HTMLElement): void {
   const r = selected ? records.get(selected) : undefined;
   if (!r) return;
@@ -337,7 +351,7 @@ function toggleStar(nameHost: HTMLElement): void {
   if (on) startRename(r, nameHost);
 }
 $("star").onclick = () => toggleStar($("r-name"));
-$("x-star").onclick = () => toggleStar($("x-name"));
+$("x-star").onclick = () => toggleStar($("x-nm"));
 
 $("delete").onclick = () => {
   if (selected) void deletePhoto(selected);
@@ -616,6 +630,19 @@ const photoPins = stepper($("r-pins"), () => (selected ? records.get(selected)?.
   pinsTimer = setTimeout(() => remeasure(r.id, true), 500);
 });
 
+/** The chain style of this photo only (the default for new photos stays in Settings): a new chain brings its own pin count. */
+$<HTMLSelectElement>("r-chain").onchange = (e) => {
+  const r = selected ? records.get(selected) : undefined;
+  const chain = (e.target as HTMLSelectElement).value;
+  if (!r || r.photoDeleted || !(chain in chains) || chain === presetKey(chains, r.chain)) return;
+  r.chain = chain;
+  r.pins = chains[chain]!.n_pins;
+  clearTimeout(pinsTimer);
+  remeasure(r.id, true);
+  renderList();
+  renderResult();
+};
+
 function stepper(box: HTMLElement, get: () => number, set: (n: number) => void): HTMLInputElement {
   const input = box.querySelector("input")!;
   const commit = (n: number) => {
@@ -655,7 +682,6 @@ function tagOf(r: PhotoRecord): [string, string] {
 function renderResult(): void {
   const r = selected ? records.get(selected) : undefined;
   $("result").hidden = !r;
-  $("this-curve").hidden = !r;
   if (!r) {
     closeExpanded();
     return;
@@ -676,7 +702,17 @@ function renderResult(): void {
     star.setAttribute("aria-label", starOf(r).on ? `Unstar ${titleOf(r)}` : `Star ${titleOf(r)}`);
   }
   if (renaming?.host.id !== "r-name") $("r-name").textContent = nameOf(r).text;
-  $("x-nm").textContent = nameOf(r).text;
+  if (renaming?.host.id !== "x-nm") $("x-nm").textContent = nameOf(r).text;
+  // The name, tapped, renames: a button to a screen reader while it is a name and not the field.
+  for (const id of ["r-name", "x-nm"]) {
+    const host = $(id), editing = renaming?.host.id === id, named = !!nameOf(r).text && !editing;
+    host.classList.toggle("named", named);
+    if (named) {
+      host.setAttribute("role", "button");
+      host.tabIndex = 0;
+      host.setAttribute("aria-label", `Rename ${nameOf(r).text}`);
+    } else for (const a of ["role", "tabindex", "aria-label"]) host.removeAttribute(a);
+  }
   for (const t of [$("r-time"), $("x-time")]) t.textContent = timeOf(r);
   for (const t of [$("r-tag"), $("x-tag")]) {
     t.className = `tag ${tag}`;
@@ -705,7 +741,8 @@ function renderResult(): void {
   // The expanded view: its title, the editor and the sheet.
   const xv = $("xv");
   for (const c of ["chk", "bad"]) xv.classList.toggle(c, tag === c);
-  if (renaming?.host.id !== "x-name") $("x-name").textContent = titleOf(r);
+  xv.setAttribute("aria-label", titleOf(r));
+  $("x-details").hidden = !settings.debug;
   const info = doc?.info;
   const focal = info ? (info.focal_35mm ? `${info.focal_35mm} mm in the file` : "no focal length in the file") : "";
   const size = r.pixels ? `${r.pixels.width}×${r.pixels.height}` : "";
@@ -733,6 +770,12 @@ function renderResult(): void {
     : v ? "Tap a pin to remove it, a dot to add one. Drag to move, pinch to zoom, double-tap to fit."
     : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
   photoPins.value = String(r.pins);
+  const chainSelect = $<HTMLSelectElement>("r-chain");
+  if (chainSelect.options.length !== Object.keys(chains).length) {
+    chainSelect.replaceChildren(...Object.keys(chains).map((k) => new Option(chainLabel(k), k)));
+  }
+  chainSelect.value = presetKey(chains, r.chain);
+  chainSelect.disabled = gone;
   for (const c of $("r-pins").querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) c.disabled = gone;
 
   const res = doc?.result;
@@ -989,7 +1032,7 @@ function closeExpanded(fromHistory = false): void {
   if (!expanded) return;
   expanded = false;
   taps.cancel();
-  if (renaming?.host.id === "x-name") endRename(true);
+  if (renaming?.host.id === "x-nm") endRename(true);
   const xv = $("xv");
   const done = () => {
     xv.hidden = true;
@@ -1322,7 +1365,7 @@ function renderSend(r: PhotoRecord, enabled: boolean): void {
   } else if (offer.kind === "send") {
     note.textContent = "Taken before this phone was paired: send it, and the computer follows your changes from then on.";
   } else if (offer.kind === "unpaired" && r.status === "done") {
-    note.textContent = "No computer paired: tap the computer pill at the top to pair one.";
+    note.textContent = "No computer paired";
   }
 }
 
@@ -1509,16 +1552,16 @@ function renderSettings(): void {
   $<HTMLSelectElement>("s-keep").value = String(settings.keepPhotos);
   settingsPins.value = String(defaultPins(settings, chains));
   renderStrip();
+  // The focal length in use for photos without camera data: the one typed, else the detected camera's.
   const focal = $<HTMLInputElement>("s-focal");
-  if (document.activeElement !== focal) focal.value = settings.savedFocal35?.toString() ?? "";
+  const saved = savedFocal(settings), learned = mainLens(settings);
+  if (document.activeElement !== focal) focal.value = saved?.focal35.toString() ?? "";
   const override = $<HTMLInputElement>("s-override");
   if (document.activeElement !== override) override.value = settings.focalOverride35?.toString() ?? "";
-  const saved = savedFocal(settings), learned = mainLens(settings);
-  focal.placeholder = learned ? `${learned.focal35}` : "none";
   $("s-focal-status").textContent = focalStatus(saved, learned);
-  $("s-lenses").replaceChildren(...settings.lenses.map((l) => el("li", {},
-    el("span", { textContent: `${l.name}${l.ultraWide ? " (ultra-wide)" : ""}` }), el("span", { textContent: `${l.focal35} mm` }))));
-  $("s-teach-note").hidden = settings.lenses.length > 0;
+  $("s-camera").replaceChildren(...(learned
+    ? [el("span", { textContent: learned.name }), el("b", { textContent: `${learned.focal35} mm` })]
+    : [el("span", { textContent: "None yet" })]));
 }
 
 function setSettings(next: Settings, measureAgain = false): void {
