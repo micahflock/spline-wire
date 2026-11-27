@@ -1368,14 +1368,18 @@ addEventListener("online", () => link?.retryNow());
 
 // ---- settings ----
 
-/** The chain strip under the header: one pin per pin of the chain, the new link popping in on +. */
-let strip = { pins: 0, width: 0 };
+/** The chain strip under the header: the chosen chain in its colours, one pin per pin of the
+ * chain, the new link popping in on +. Empty until the presets are loaded. */
+let strip = { pins: 0, width: 0, look: "" };
 function renderStrip(): void {
   const box = $("chain-strip");
   const pins = defaultPins(settings, chains), width = Math.round(box.clientWidth) || 358;
-  if (pins === strip.pins && width === strip.width) return;
-  box.innerHTML = stripSvg(pins, width, strip.pins && pins === strip.pins + 1 && width === strip.width ? pins - 1 : -1);
-  strip = { pins, width };
+  const spec = Object.keys(chains).length ? chainSpec(chains, settings.chain, pins, settings.shade) : null;
+  const look = spec ? `${presetKey(chains, settings.chain)} ${settings.shade}` : "";
+  if (pins === strip.pins && width === strip.width && look === strip.look) return;
+  const grew = strip.pins && pins === strip.pins + 1 && width === strip.width && look === strip.look ? pins - 1 : -1;
+  box.innerHTML = stripSvg(spec, pins, width, grew);
+  strip = { pins, width, look };
 }
 
 function renderSettings(): void {

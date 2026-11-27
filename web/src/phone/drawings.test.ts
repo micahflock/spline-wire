@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cardCrop, clampBox, curveDrawing, fitBox, smoothPath, stripLayout, stripSvg } from "./drawings";
 import { TapFilter, type Timer } from "./taps";
+import { ORING, SNAP } from "../drawing/test-looks";
 
 describe("chain strip", () => {
   it("lays out one row while the pins fit", () => {
@@ -17,12 +18,23 @@ describe("chain strip", () => {
     expect(pins[per + 1]![0]).toBeLessThan(pins[per]![0]);
   });
 
-  it("draws one pin per pin and one link per gap, thick and thin by turns, and marks the new pin", () => {
-    const svg = stripSvg(5, 358, 4);
+  it("draws the chosen chain: one rimmed head per pin of the snap-fit chain, ending in its empty sleeve", () => {
+    const svg = stripSvg(SNAP, 5, 358, 4);
+    expect(svg.match(/<circle/g)).toHaveLength(10);            // a head and its rim on each pin
+    expect(svg.match(/class="sleeve"/g)).toHaveLength(1);
+    expect(svg.match(/class="new"/g)?.length).toBeGreaterThan(0);
+    expect(svg).toContain('aria-label="A chain of 5 pins"');
+  });
+
+  it("draws the O-ring chain as plates with a dot on each pin", () => {
+    const svg = stripSvg(ORING, 5, 358);
     expect(svg.match(/<circle/g)).toHaveLength(5);
     expect(svg.match(/<line/g)).toHaveLength(4);
-    expect(svg.match(/stroke-width="12"/g)).toHaveLength(2);
-    expect(svg.match(/class="[a-z ]*new"/g)).toHaveLength(2);
+    expect(svg).not.toContain("sleeve");
+  });
+
+  it("is empty, at the default chain's height, before the presets are loaded", () => {
+    expect(stripSvg(null, 13, 358)).not.toContain("<circle");
   });
 });
 

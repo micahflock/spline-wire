@@ -113,6 +113,8 @@ export interface DraftHost {
   discard(): void;
   /** The draft's name or state changed: redraw its entry in the list. */
   changed(): void;
+  /** The chain or its colours were chosen here: redraw the page's chain. */
+  chainChanged?(): void;
 }
 
 /** What the end-to-end test and the console can read. */
@@ -140,13 +142,12 @@ export class Draft {
   private chains: Record<string, ChainSpec> = {};
   private chain: string;
   private pins: number;
-  private side: Side | [number, number];
+  private side: Side;
   private edits: Edits = NO_EDITS;
   private doc: MeasurementDocument | null = null;
   private failure: Failure | null = null;
   private engineError: string | null = null;
   private editing = false;
-  private picking = false;
   private pending: Pt | null = null;
   private adding = false;
   private closed = false;
@@ -268,13 +269,6 @@ export class Draft {
 
   private tap(p: Pt, slack: number): void {
     if (this.measurer.busy(this.id)) return;
-    if (this.picking) {
-      this.picking = false;
-      this.side = [p.x, p.y];
-      this.pending = p;
-      this.remeasure();
-      return;
-    }
     const v = this.doc?.view;
     if (!v) return;
     const { edits, mark } = editsAfterTap(v, p, slack);
@@ -346,6 +340,7 @@ export class Draft {
   private saveSettings(change: Partial<Settings>): void {
     this.settings = { ...this.settings, ...change };
     saveSettings(this.host.store, this.settings);
+    if ("chain" in change || "shade" in change) this.host.chainChanged?.();
   }
 
   // ---- the page ----
@@ -381,13 +376,9 @@ export class Draft {
         this.edits = NO_EDITS;
         this.remeasure();
       } else if (act === "inside" || act === "outside") {
-        this.picking = false;
         this.side = act;
         this.saveSettings({ side: act });
         this.remeasure();
-      } else if (act === "tap") {
-        this.picking = !this.picking;
-        this.render();
       } else if (act === "fewer" || act === "more") {
         this.setPins(this.pins + (act === "more" ? 1 : -1));
       }
@@ -476,19 +467,15 @@ export class Draft {
     const v = doc?.view ?? null;
     const svg = this.q<SVGSVGElement>(".photo-svg");
     svg.classList.toggle("wait", busy);
-    svg.classList.toggle("picking", this.picking);
     this.editor.show(v, { pending: this.pending });
     this.q<HTMLButtonElement>("[data-here=undo]").disabled = busy || !this.history.canUndo;
     this.q<HTMLButtonElement>("[data-here=reset]").disabled = busy || !v || !hasEdits(v.edits);
-    this.q("[data-out=hint]").textContent = this.picking
-      ? "Click the photo on the object's side of the chain."
-      : v ? "Click a pin to remove it, a dot to add one. Drag to move, wheel to zoom." : "";
+    this.q("[data-out=hint]").textContent = v ? "Click a pin to remove it, a dot to add one. Drag to move, wheel to zoom." : "";
 
-    const sideKey = Array.isArray(this.side) ? "tap" : this.side;
     for (const b of this.root.querySelectorAll<HTMLButtonElement>(".seg button")) {
-      b.setAttribute("aria-pressed", String(this.picking ? b.dataset.here === "tap" : b.dataset.here === sideKey));
+      b.setAttribute("aria-pressed", String(b.dataset.here === this.side));
     }
-    this.q("[data-out=side-now]").textContent = res ? `${SIDE_TEXT[res.object_side]}${Array.isArray(this.side) ? ", from your click" : ""}` : "";
+    this.q("[data-out=side-now]").textContent = res ? SIDE_TEXT[res.object_side] : "";
 
     const chainSel = this.q<HTMLSelectElement>("[data-field=chain]");
     if (chainSel.options.length !== Object.keys(this.chains).length) {
@@ -546,7 +533,6 @@ function layout(name: string): string {
         <div class="seg" role="group" aria-label="Which side of the chain touched the object">
           <button type="button" data-here="inside" aria-pressed="false">Inside</button>
           <button type="button" data-here="outside" aria-pressed="false">Outside</button>
-          <button type="button" data-here="tap" aria-pressed="false">Click its side</button>
         </div>
       </div>
       <label class="field"><span>Chain</span><select data-field="chain"></select></label>

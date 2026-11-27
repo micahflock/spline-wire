@@ -2,7 +2,7 @@
 // Chromium at 1280×800: opening the page loads nothing of the engine; a picked
 // photo shows the engine's progress, then the photo with its pins, compared
 // with native Python; the mouse fixes pins (click), zooms (wheel) and pans
-// (drag); the object side; Add to the list, where the curve is marked
+// (drag); the object side (Inside, Outside); Add to the list, where the curve is marked
 // "measured here", copies as Python's table and offers the files; a reload
 // keeps it. Last, dropped files: one that is not a photo and a photo with too
 // few pins show the core's message as is.
@@ -154,7 +154,9 @@ test("opens without loading any of the measuring engine", async () => {
   await page.waitForLoadState("networkidle");
   const js = await scripts();
   const all = await page.evaluate(() => performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname));
-  expect(all.filter((n) => /\.wasm|chains\.json|worker|engine|libheif/.test(n))).toEqual([]);
+  expect(all.filter((n) => /\.wasm|worker|engine|libheif/.test(n))).toEqual([]);
+  // The chain presets (1 KB) are read, for the chain drawn in the header.
+  await expect(page.locator("#chain-mark svg")).toHaveCount(1);
   jsAtOpen = new Set(js.map((s) => s.name));
   // Nor does any of it carry the engine's code: the core client (which makes
   // the worker), the photo editor and the phone's measuring logic come in here.ts's chunks.
@@ -238,24 +240,15 @@ test("the mouse: a click removes a pin and Undo brings it back; the wheel zooms 
   log(`re-measure after a click: ${removed} ms`);
 });
 
-test("the object side: Outside, a clicked point, Inside", async () => {
+test("the object side: Outside, then Inside (no clicking its side: the phone dropped it too)", async () => {
+  await expect(page.locator(".here .seg button")).toHaveCount(2);
   await page.getByRole("button", { name: "Outside", exact: true }).click();
   await expect(page.locator(".here [data-out=side-now]")).toContainText("outside of the bend");
-  await page.getByRole("button", { name: "Click its side" }).click();
-  await expect(page.locator(".here [data-out=hint]")).toContainText("object's side");
-  const p = await page.evaluate(() => {
-    const cs = [...document.querySelectorAll<SVGGraphicsElement>(".here .ov-layer .ov-pin")];
-    const mid = cs[6]!.getBoundingClientRect(), a = cs[0]!.getBoundingClientRect(), z = cs[12]!.getBoundingClientRect();
-    const ends = { x: (a.x + z.x) / 2, y: (a.y + z.y) / 2 };
-    const m = { x: mid.x + mid.width / 2, y: mid.y + mid.height / 2 };
-    return { x: m.x + (ends.x - m.x) * 0.5, y: m.y + (ends.y - m.y) * 0.5 };
-  });
-  await page.mouse.click(p.x, p.y);
-  await expect(page.locator(".here .ov-side")).toHaveCount(1);
-  await expect(page.locator(".here [data-out=side-now]")).toContainText("from your click");
-  await expect(pins()).toHaveCount(13);
+  await expect(page.getByRole("button", { name: "Outside", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Inside", exact: true }).click();
   await expect(page.locator(".here [data-out=side-now]")).toContainText("inside of the bend");
+  await expect(page.getByRole("button", { name: "Inside", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(pins()).toHaveCount(13);
 });
 
 test("Add to the list: marked as measured here, Python's table on the clipboard, and the files", async () => {

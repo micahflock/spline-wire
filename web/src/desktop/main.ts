@@ -28,6 +28,8 @@ import {
 import { DOWNLOADS, downloadName, type DownloadKind } from "./names";
 import { plotSvg } from "./plot";
 import { curveDrawing } from "../phone/drawings";
+import { chainMarkSvg } from "../drawing/chain-art";
+import { chainSpec, loadSettings } from "../phone/settings";
 import { dxfText } from "../pipeline/dxf";
 import { pieces, shape, toggleMark, type Shaped } from "./corners";
 import { qrSvg } from "./qr";
@@ -36,6 +38,7 @@ import { splineSamples } from "./spline";
 import { statusLine, type PhoneSeen } from "./status";
 import { UnseenTitle } from "./title";
 import type { Draft, DraftHost } from "./here";
+import type { ChainSpec } from "../core/types";
 import { exactTime, relativeTime } from "./when";
 import { FOCAL_SOURCE, FOCAL_SOURCE_HERE, esc, plural, readNote, readWarning } from "./wording";
 
@@ -65,6 +68,8 @@ const PHONE_KEY = "phone";
 
 /** In Fusion's palette (?fusion). */
 const FUSION = fusionMode(location.search);
+/** The chain presets (chains.json), read for the chain drawn in the header (renderChainMark). */
+let presets: Promise<Record<string, ChainSpec>> | null = null;
 const UNDO = IS_MAC ? "⌘Z" : "Ctrl+Z";
 
 // Its own prefix: a phone page open in the same browser (testing on one
@@ -127,6 +132,24 @@ await connect();
 selection.keepIn(ids());
 renderAll();
 if (FUSION) void startFusion();
+else void renderChainMark();
+
+// ---- the chain in the header ------------------------------------------------
+
+/** A short piece of the chain chosen here (Measure a photo's Chain and Colours), as the phone's strip draws it. */
+async function renderChainMark(): Promise<void> {
+  presets ??= fetch(new URL("chains.json", SITE_ROOT)).then(async (r) => {
+    if (!r.ok) throw new Error(`chains.json: HTTP ${r.status}`);
+    return (await r.json()) as Record<string, ChainSpec>;
+  });
+  try {
+    const chains = await presets, s = loadSettings(store);
+    if (!Object.keys(chains).length) return;
+    $("chain-mark").innerHTML = chainMarkSvg(chainSpec(chains, s.chain, 3, s.shade));
+  } catch {
+    presets = null;                // the header goes without its drawing; the next change tries again
+  }
+}
 
 // ---- the relay ------------------------------------------------------------
 
@@ -823,6 +846,7 @@ const draftHost: DraftHost = {
   changed() {
     renderList();
   },
+  chainChanged: () => void renderChainMark(),
 };
 
 function showDraft(): void {

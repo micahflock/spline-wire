@@ -17,6 +17,8 @@
   --curve: #2456f0; --link: #12a150; --fav: #ffbf00; --fav-text: #b07d00; --chk: #ef8a00; --chk-text: #b86500; --bad: #dc2f1c; --bad-text: #b3200f;
   --ink-key: #232323; --ink-key-ink: #f4f4f1;
   --sel: #ebebe7;
+  /* the chain as drawn (drawing/chain-art.ts): links, their lower parts, rims or dots; pale links for a chain printed the other way round */
+  --ca-link: var(--chain); --ca-low: var(--chain-2); --ca-mark: var(--chain-dot); --ca-pale: #b4b4ae; --ca-pale-2: #c9c9c3;
   --grat: #e2e2dd; --grat-2: #f0f0ec; --plot-ink: #3b3b3b;
   /* photo.css's: the editor's photo */
   --screen: #c9c9c9; --line: var(--rule-2);
@@ -31,7 +33,7 @@
     --cap: #ff6a26; --cap-ink: #111111; --cap-edge: #b8440f;
     --curve: #6f93ff; --link: #2fc46e; --fav: #ffc933; --fav-text: #ffc933; --chk: #ffa025; --chk-text: #ffa025; --bad: #ff5a47; --bad-text: #ff7a6a;
     --ink-key: #ededea; --ink-key-ink: #111111;
-    --sel: #242424;
+    --sel: #242424; --ca-pale: #5a5a56; --ca-pale-2: #454542;
     --grat: #2a2a2a; --grat-2: #1f1f1f; --plot-ink: #c9c9c5;
     --screen: #2a2a2a;
     color-scheme: dark;
@@ -70,10 +72,8 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 /* top bar: the wordmark, the link to the phone, Measure a photo */
 .top { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 2px solid var(--ink); background: var(--page); flex-wrap: wrap; min-height: 52px; }
 .mark { display: flex; align-items: center; gap: 10px; }
-.mark svg { display: block; }
-.mark .lnk { stroke: var(--chain); stroke-linecap: round; fill: none; }
-.mark .lnk.b { stroke: var(--chain-2); }
-.mark .pin { fill: var(--chain-dot); }
+#chain-mark { display: block; height: 20px; min-width: 84px; }
+#chain-mark svg { display: block; height: 100%; width: auto; }
 .mark h1 { font: 500 19px/1 var(--f-data); letter-spacing: -.02em; text-transform: none; white-space: nowrap; }
 .mark h1 span { color: var(--muted); font-weight: 400; }
 .link-state { display: inline-flex; align-items: center; gap: 9px; padding: 5px 14px; min-height: 32px; border: 1px solid var(--rule-2); border-radius: 999px;
@@ -262,7 +262,7 @@ dialog::backdrop { background: rgba(14, 13, 11, .42); }
 .copy:disabled { opacity: .45; cursor: default; transform: none; }
 body.fusion .top { gap: 8px; padding: 6px 10px; min-height: 0; }
 body.fusion .mark h1 { font-size: 15px; }
-body.fusion .mark svg { display: none; }
+body.fusion #chain-mark { display: none; }
 body.fusion .plot { flex: none; height: 240px; min-height: 0; margin: 8px 10px 0; }
 body.fusion .head { padding: 8px 10px; }
 body.fusion .head h2, body.fusion .head .rename { font-size: 15px; }

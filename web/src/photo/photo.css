@@ -8,7 +8,6 @@
 /* Thumbnails grey too where the page shows photos grey (an <img>: a CSS filter works;
    the editor's SVG <image> is greyed in its pixels instead, preview.ts greyCopy). */
 html.photos-grey img.th { filter: grayscale(1); }
-.photo-svg.picking { outline: 3px solid var(--ov-edge); outline-offset: -3px; }
 .ov-link, .ov-gap, .ov-pin, .ov-mine, .ov-hand, .ov-unused, .ov-removed, .ov-pending { fill: none; stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .ov-removed circle, .ov-removed path { fill: none; stroke: var(--ov-removed); stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-dasharray: 4 4; }
 .ov-link { stroke: var(--ov-link); } .ov-gap { stroke: var(--ov-unused); stroke-dasharray: 6 5; }

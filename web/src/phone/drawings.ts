@@ -5,6 +5,7 @@
 // Pure: SVG strings and numbers, so they are tested without a page.
 
 import type { Point } from "../core/types";
+import { chainArt, reachMm, tailPositions, type ChainLook } from "../drawing/chain-art";
 
 const f = (n: number) => (Math.round(n * 10) / 10).toString();
 
@@ -21,18 +22,19 @@ export function stripLayout(n: number, width: number, pitch = 22, row = 20, marg
   return { pins, per, height: 2 * (margin + 1) + (rows - 1) * row };
 }
 
-/** The chain strip: links alternate a thick and a thin capsule (the logo's), a
- * dot on each pin. `grew`: the pin just added, drawn popping in. */
-export function stripSvg(n: number, width: number, grew = -1): string {
-  const { pins, height } = stripLayout(n, width);
-  const out = [`<svg class="strip" viewBox="0 0 ${f(width)} ${height}" height="${height}" role="img" aria-label="A chain of ${n} pins">`];
-  for (let i = 0; i < pins.length - 1; i++) {
-    const [a, b] = [pins[i]!, pins[i + 1]!];
-    out.push(`<line class="lnk${i % 2 ? " b" : ""}${i === grew - 1 ? " new" : ""}" x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(b[0])}" y2="${f(b[1])}" stroke-width="${i % 2 ? 9 : 12}"/>`);
-  }
-  pins.forEach(([x, y], i) => out.push(`<circle class="pin${i === grew ? " new" : ""}" cx="${f(x)}" cy="${f(y)}" r="3"/>`));
-  out.push("</svg>");
-  return out.join("");
+/** The strip's links, px apart; each chain is drawn to its own proportions at that length. */
+export const STRIP_PITCH = 22;
+
+/** The chain strip: the chosen chain (drawing/chain-art.ts), one pin per pin of the chain,
+ * rows wrapping serpentine. `grew`: the pin just added, drawn popping in. With no chain
+ * yet (its presets still loading), an empty strip of the default chain's height. */
+export function stripSvg(look: ChainLook | null, n: number, width: number, grew = -1): string {
+  if (!look) return `<svg class="strip" viewBox="0 0 ${f(width)} 20" height="20" aria-hidden="true"></svg>`;
+  const s = STRIP_PITCH / look.pitch_mm, reach = reachMm(look) * s;
+  const margin = Math.ceil(reach) + 1, row = Math.max(STRIP_PITCH, Math.ceil(2 * reach + 4));
+  const { pins, height } = stripLayout(n + tailPositions(look), width, STRIP_PITCH, row, margin);
+  return `<svg class="strip" viewBox="0 0 ${f(width)} ${height}" height="${height}" role="img" aria-label="A chain of ${n} pins">`
+    + chainArt(look, pins, s, { grew }) + "</svg>";
 }
 
 export type Box = [x: number, y: number, w: number, h: number];

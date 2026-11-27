@@ -22,7 +22,6 @@
 .here .ov-edge { stroke: var(--curve); stroke-width: 3px; stroke-linejoin: round; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1.5px #fff); }
 .here .ov-link { stroke: #fff; opacity: .55; }
 .here .ov-side { fill: var(--curve); stroke: #fff; }
-.here .photo-svg.picking { outline-color: var(--curve); }
 .here .tools { display: flex; align-items: center; gap: 6px; padding: 8px 16px 14px; }
 .here .hint { font-size: 12.5px; color: var(--muted); }
 
@@ -32,7 +31,7 @@
 .here .label .muted { color: var(--muted); font-size: 12.5px; }
 .here .label .muted:not(:empty)::before { content: ": "; }
 /* Object side: keys side by side, the one on in ink. */
-.here .seg { display: grid; grid-template-columns: 1fr 1fr 1.3fr; border: 1px solid var(--rule-2); border-radius: 2px; overflow: hidden; }
+.here .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-2); border-radius: 2px; overflow: hidden; }
 .here .seg button { border: none; background: var(--key); padding: 7px 4px; font-size: 13px; min-height: 34px; }
 .here .seg button:hover { background: var(--key-2); }
 .here .seg button + button { border-left: 1px solid var(--rule-2); }
