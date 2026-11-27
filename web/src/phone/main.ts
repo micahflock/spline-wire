@@ -967,6 +967,16 @@ function animatePictures(from: Placed | null, to: Placed | null): Animation[] {
     : root.animate({ opacity: [1, 0] }, { ...timing, pseudoElement: OLD })];
 }
 
+/** The view's settings sliding out from under the photo (new: opening) or back under it (old: closing), fading
+ * as they go (phone.css clips them to their place). Made afresh for each transition, like the pictures': as CSS
+ * keyframes on the transition's pseudo-elements the slide ran on the first transition only, in Safari. */
+function slideSheet(opening: boolean): Animation[] {
+  const root = document.documentElement, timing = { duration: VT_MS, easing: VT_EASE, fill: "both" as const };
+  const away = { transform: "translateY(-240px)", opacity: 0 }, home = { transform: "none", opacity: 1 };
+  return [opening ? root.animate([away, home], { ...timing, pseudoElement: "::view-transition-new(x-sheet)" })
+    : root.animate([home, away], { ...timing, pseudoElement: "::view-transition-old(x-sheet)" })];
+}
+
 /** showExpanded, animated where the browser can and the person has not asked for less motion. */
 function switchView(animate: boolean): void {
   if (!animate || reducedMotion() || !document.startViewTransition) {
@@ -977,14 +987,14 @@ function switchView(animate: boolean): void {
   const r = selected ? records.get(selected) : undefined;
   root.classList.add("vt");                       // while it runs (the end-to-end tests wait for it)
   root.classList.toggle("vt-drawing", !!r?.photoDeleted);
-  const from = placeOf(pictureOf(!expanded));     // the picture shown before the switch
+  const opening = expanded, from = placeOf(pictureOf(!expanded));     // the picture shown before the switch
   let to: Placed | null = null;
   const t = document.startViewTransition(() => {
     showExpanded();
     to = placeOf(pictureOf(expanded));
   });
   let pictures: Animation[] = [];
-  void t.ready.then(() => { pictures = animatePictures(from, to); }, () => {});
+  void t.ready.then(() => { pictures = [...animatePictures(from, to), ...slideSheet(opening)]; }, () => {});
   void t.finished.finally(() => {
     for (const a of pictures) a.cancel();
     root.classList.remove("vt", "vt-drawing", "vt-old-over");
