@@ -14,7 +14,7 @@ import { CoreError, type Commands, type EnginePreviews, type Progress } from "..
 import type { ChainSpec, Edits, MeasureOptions, MeasurementDocument, OutputKind, Side } from "../core/types";
 import { LiveAnalyser } from "../pipeline/live-client";
 import { EditHistory, editsAfterTap } from "../editor/edits";
-import type { Pt, ViewBox } from "../editor/viewport";
+import type { Pt } from "../editor/viewport";
 import { greyCopy, previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
 import { pageRelaySetting, relayAddress } from "../relay/config";
@@ -31,7 +31,6 @@ import { LocalStore } from "../relay/store";
 import { CameraView, type Still } from "./camera-view";
 import { curveFrom } from "./curve";
 import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg, type Box } from "./drawings";
-import { EASE, FLIGHT_MS, lerpBox, lerpRect, type Rect } from "./flight";
 import { TapFilter } from "./taps";
 import { NO_EXIF, exifOfFile, type Exif } from "./exif";
 import { isFront, learn, lensFocal, lensName, mainLens, savedFocal } from "./lenses";
@@ -761,7 +760,6 @@ function renderResult(): void {
   if (drawing.dataset.key !== `${r.id}:${drawn.length}`) {
     drawing.innerHTML = drawn;
     drawing.dataset.key = `${r.id}:${drawn.length}`;
-    drawing.dataset.box = drawing.querySelector("svg")?.getAttribute("viewBox") ?? "";   // its own framing (resetDrawing)
   }
   const edited = !!v && hasEdits(v.edits);
   $<HTMLButtonElement>("undo").disabled = busy || gone || !history(r.id).canUndo;
@@ -894,172 +892,69 @@ const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").match
 
 // ---- the expanded view ----
 
+/** The expanded view: a part of the page, in its flow, shown in place of the page's own content while open
+ * (no overlay, no scroll of its own: the page scrolls as usual). The photo's box keeps its size while the page
+ * scrolls (phone.css), so the editor never refits under a finger.
+ *
+ * Opening and closing animate with the browser's view transition where it has one (Safari 18, Chrome 111,
+ * Firefox 144): it snapshots the page before and after and morphs the photo's box and its corner keys between
+ * the card and the view (their view-transition-names, phone.css), crossfading the rest; the page itself stays
+ * as it is. Elsewhere, and with reduced motion, it switches at once. */
 let expanded = false;
+/** Where the page was scrolled to when the view opened: back there when it closes. */
+let scrolledTo = 0;
 
-/** The photo (or, once it is deleted, the drawing) flying between the card and
- * the expanded view, while the view fades in or out around it (--p, 1 when open). */
-let flight: { el: HTMLElement; p: number; stop(): void } | null = null;
-
-const flyer = (): HTMLElement => ($("x-drawing").hidden ? svg as unknown as HTMLElement : $("x-drawing"));
-const rectOf = (e: Element): Rect => {
-  const b = e.getBoundingClientRect();
-  return { left: b.left, top: b.top, width: b.width, height: b.height };
-};
-const boxOf = ([x, y, w, h]: Box): ViewBox => ({ x, y, w, h });
-
-/** What the flying element shows: its viewBox (photo px, or mm for a deleted
- * photo's drawing) and, for the drawing, its inner margin (the card's is 10 px). */
-interface Shot { box: ViewBox; pad: number }
-
-const isDrawing = (el: HTMLElement) => el === $("x-drawing");
-const drawingSvg = () => $("x-drawing").querySelector("svg");
-const svgBox = (s: SVGSVGElement): ViewBox => {
-  const b = s.viewBox.baseVal;
-  return { x: b.x, y: b.y, w: b.width, h: b.height };
-};
-
-/** The card's picture, or null when it has nothing to match (no crop, no drawing). */
-function cardShot(drawing: boolean): Shot | null {
-  if (drawing) {
-    const c = $("card-pic").querySelector("svg");
-    return c ? { box: svgBox(c), pad: parseFloat(getComputedStyle(c).paddingLeft) || 0 } : null;
+/** Show the page or the view, as `expanded` says now (a transition overtaken by another applies the newest). */
+function showExpanded(): void {
+  $("page").hidden = expanded;
+  $("xv").hidden = !expanded;
+  $("expand").setAttribute("aria-expanded", String(expanded));
+  if (expanded) {
+    renderResult();
+    scrollTo(0, 0);
+    editor.frame();
+    $<HTMLButtonElement>("collapse").focus({ preventScroll: true });
+  } else {
+    scrollTo(0, scrolledTo);
+    if (!$("result").hidden) $<HTMLButtonElement>("expand").focus({ preventScroll: true });
   }
-  const r = selected ? records.get(selected) : undefined, crop = r && cardCropOf(r);
-  return crop ? { box: boxOf(crop), pad: 0 } : null;
 }
 
-/** What the expanded view shows now (mid-flight: where the flight has got to). */
-function viewShot(drawing: boolean): Shot | null {
-  if (drawing) {
-    const d = drawingSvg();
-    return d ? { box: svgBox(d), pad: parseFloat(d.style.padding) || 0 } : null;
-  }
-  const b = editor.viewBox;
-  return b ? { box: b, pad: 0 } : null;
-}
-
-function showShot(drawing: boolean, s: Shot): void {
-  if (!drawing) {
-    editor.showBox(s.box);
+/** showExpanded, animated where the browser can and the person has not asked for less motion. */
+function switchView(animate: boolean): void {
+  if (!animate || reducedMotion() || !document.startViewTransition) {
+    showExpanded();
     return;
   }
-  const d = drawingSvg();
-  if (!d) return;
-  d.setAttribute("viewBox", `${s.box.x} ${s.box.y} ${s.box.w} ${s.box.h}`);
-  d.style.padding = s.pad ? `${s.pad}px` : "";
+  const root = document.documentElement;
+  root.classList.add("vt");                       // while it runs (the end-to-end tests wait for it)
+  const t = document.startViewTransition(showExpanded);
+  void t.finished.finally(() => root.classList.remove("vt"));
 }
 
-/** The drawing back to its own framing (renderResult drew it with it; a flight changes it). */
-function resetDrawing(): void {
-  const d = drawingSvg(), box = $("x-drawing").dataset.box;
-  if (!d) return;
-  if (box) d.setAttribute("viewBox", box);
-  d.style.padding = "";
-}
-
-/** Fly `el` from one rect to another in FLIGHT_MS, showing one shot to the
- * other as it goes (the picture keeps still on the card at both ends); `done` once it has landed. */
-function fly(el: HTMLElement, from: Rect, to: Rect, shots: [Shot, Shot] | null, p: [number, number], done: () => void): void {
-  const xv = $("xv"), drawing = isDrawing(el);
-  xv.classList.add("flying");
-  // Placed in its own box (.vp, which stays put), not fixed: Chromium can lay out
-  // one frame as if still fixed once a fixed element goes back to absolute.
-  const at = rectOf(el.parentElement!);
-  const t0 = performance.now();
-  let raf = 0;
-  const end = (landed: boolean) => {
-    cancelAnimationFrame(raf);
-    flight = null;
-    el.removeAttribute("style");
-    for (const k of ["--dl", "--dt", "--dr", "--db"]) el.parentElement!.style.removeProperty(k);
-    xv.classList.remove("flying", "opening", "closing");
-    xv.style.removeProperty("--p");
-    if (drawing) resetDrawing();
-    if (landed) done();
-  };
-  const me = { el, p: p[0], stop: () => end(false) };
-  const frame = (now: number) => {
-    const t = Math.min(1, Math.max(0, (now - t0) / FLIGHT_MS)), e = EASE(t);
-    const r = lerpRect(from, to, e);
-    Object.assign(el.style, { inset: "auto", left: `${r.left - at.left}px`, top: `${r.top - at.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-    // The keys and chips in the photo's corners ride with it (phone.css: --dl, --dt, --dr, --db).
-    const vp = el.parentElement!;
-    vp.style.setProperty("--dl", `${r.left - at.left}px`);
-    vp.style.setProperty("--dt", `${r.top - at.top}px`);
-    vp.style.setProperty("--dr", `${at.left + at.width - r.left - r.width}px`);
-    vp.style.setProperty("--db", `${at.top + at.height - r.top - r.height}px`);
-    if (shots) {
-      const [a, b] = shots;
-      showShot(drawing, { box: lerpBox(a.box, b.box, e), pad: a.pad + (b.pad - a.pad) * e });
-    }
-    me.p = p[0] + (p[1] - p[0]) * e;
-    xv.style.setProperty("--p", me.p.toFixed(3));
-    if (t < 1) raf = requestAnimationFrame(frame);
-    else end(true);
-  };
-  flight = me;
-  frame(t0);
-}
-
-/** The card grown to fill the screen, with the editor and the sheet: the photo
- * (or the drawing) flies from the card's framing to the view's. */
 function openExpanded(): void {
   if (expanded || !selected) return;
   expanded = true;
-  const xv = $("xv");
-  // Back while it was closing: carry on from where the picture is.
-  const wasEl = flight?.el;
-  const was = flight && wasEl && { rect: rectOf(wasEl), shot: viewShot(isDrawing(wasEl)), p: flight.p };
-  flight?.stop();
-  const from = was?.rect ?? rectOf($("card-pic"));
-  document.documentElement.classList.add("xv-on");
-  xv.hidden = false;
-  $("expand").setAttribute("aria-expanded", "true");
+  scrolledTo = scrollY;
   history_.pushState({ ...(history_.state ?? {}), expanded: true }, "");
-  renderResult();
-  editor.frame();
-  if (!reducedMotion()) {
-    const el = flyer(), drawing = isDrawing(el);
-    const start = (wasEl === el ? was?.shot : null) ?? cardShot(drawing), target = viewShot(drawing);
-    xv.classList.add("opening");
-    fly(el, from, rectOf(el), start && target ? [start, target] : null, [was?.p ?? 0, 1], () => {});
-  }
-  $<HTMLButtonElement>("collapse").focus({ preventScroll: true });
+  switchView(true);
 }
 
-/** Back to the card: the same way it came, landing on the card's own picture. `fromHistory`: the back gesture did it. */
-function closeExpanded(fromHistory = false): void {
+/** Back to the page, where it was. `fromHistory`: the back gesture or key did it; `animate`: false when the
+ * browser has already animated it (Safari's swipe back). */
+function closeExpanded(fromHistory = false, animate = true): void {
   if (!expanded) return;
   expanded = false;
   taps.cancel();
   if (renaming?.host.id === "x-nm") endRename(true);
-  const xv = $("xv");
-  const done = () => {
-    xv.hidden = true;
-    document.documentElement.classList.remove("xv-on");
-  };
-  $("expand").setAttribute("aria-expanded", "false");
   if (!fromHistory && history_.state?.expanded) history_.back();
-  const el = flyer(), drawing = isDrawing(el);
-  // Turned back while opening: from where the picture is.
-  const was = flight && { rect: rectOf(flight.el), p: flight.p };
-  const start = viewShot(drawing);
-  flight?.stop();
-  const card = $("result");
-  if (reducedMotion() || card.hidden) {
-    done();
-    return;
-  }
-  const end = cardShot(drawing);
-  xv.classList.add("closing");
-  fly(el, was?.rect ?? rectOf(el), rectOf($("card-pic")), start && end ? [start, end] : null, [was?.p ?? 1, 0], done);
-  $<HTMLButtonElement>("expand").focus({ preventScroll: true });
+  switchView(animate);
 }
 
 $("expand").onclick = openExpanded;
 $("collapse").onclick = () => closeExpanded();
-addEventListener("popstate", () => {
-  if (expanded && !history_.state?.expanded) closeExpanded(true);
+addEventListener("popstate", (e: PopStateEvent) => {
+  if (expanded && !history_.state?.expanded) closeExpanded(true, !e.hasUAVisualTransition);
 });
 addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Escape" && expanded && !renaming && !cameraView.isOpen) closeExpanded();
