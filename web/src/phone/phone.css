@@ -89,9 +89,14 @@ button { cursor: pointer; touch-action: manipulation; }
    so the same gap shows above it and right of it, on both keys. */
 .ck svg { position: absolute; top: 12px; right: 12px; }
 .ck .leg { position: absolute; top: 10px; left: 12px; font: 500 10px/1 var(--f-data); opacity: .7; }
-.ck:active { transform: translateY(1px); box-shadow: inset 0 -2px 0 var(--key-2); }
+/* Pressed: the key sinks onto its bottom edge and darkens a little, animated. Held down while what it opened is on
+   its way: Scan until the camera view shows (html.cam-starting), Upload while the phone's photo menu is open
+   (main.ts, .held). */
+.ck { transition: transform .12s ease-out, box-shadow .12s ease-out, filter .12s ease-out; }
+.ck:active, .ck.held, html.cam-starting #take-camera { transform: translateY(2px); box-shadow: inset 0 -2px 0 var(--key-2); filter: brightness(.9); }
 .ck.scan { background: var(--cap); color: var(--cap-ink); border-color: var(--cap-edge); box-shadow: inset 0 -4px 0 var(--cap-edge); }
-.ck.scan:active { box-shadow: inset 0 -2px 0 var(--cap-edge); }
+.ck.scan:active, html.cam-starting #take-camera { box-shadow: inset 0 -2px 0 var(--cap-edge); }
+@media (prefers-reduced-motion: reduce) { .ck { transition: none; } }
 
 /* The computer pill, and the pairing details it opens in place. */
 .pill { margin-top: 10px; width: 100%; display: flex; align-items: center; gap: 9px; min-height: 44px; border: 1px solid var(--rule-2); border-radius: 999px;
@@ -328,9 +333,9 @@ html.cam-on, html.cam-on body { overflow: hidden; }
 .cam-live, .cam-fail { overflow: hidden; isolation: isolate;
   box-shadow: 0 18px 48px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .08);
   animation: cam-in .22s cubic-bezier(.2, .8, .2, 1); }
-.cam-live { position: relative; width: 100cqw; height: 100cqh; background: #000;
+.cam-live { position: relative; width: 85cqw; height: 85cqh; background: #000;
   transition: width .3s cubic-bezier(.2, .8, .2, 1), height .3s cubic-bezier(.2, .8, .2, 1); }
-.cam-live.fit { width: min(100cqw, 100cqh * var(--cam-ar)); height: min(100cqh, 100cqw / var(--cam-ar)); }
+.cam-live.fit { width: min(85cqw, 85cqh * var(--cam-ar)); height: min(85cqh, 85cqw / var(--cam-ar)); }   /* 85 %: the page round it */
 .cam-fail { position: absolute; top: max(var(--cam-gap), env(safe-area-inset-top)); bottom: max(var(--cam-gap), env(safe-area-inset-bottom));
   left: max(var(--cam-gap), env(safe-area-inset-left)); right: max(var(--cam-gap), env(safe-area-inset-right)); }
 @keyframes cam-in { from { opacity: 0; transform: translateY(12px) scale(.97); } }
@@ -338,15 +343,11 @@ html.cam-on, html.cam-on body { overflow: hidden; }
 /* While the camera starts (camera-view.ts: html.cam-starting, from Scan until the stream has settled on its lens and
    size), nothing of the view is seen and the page is not dimmed (but takes no taps): the card pops in (cam-in) once, at its final shape.
    The card is all but transparent rather than hidden, so Safari keeps giving the video frames (it may pause one it
-   thinks is not seen). The Scan key stays pressed, its viewfinder pulsing like a camera focusing. */
+   thinks is not seen). The Scan key stays pressed meanwhile (.ck above). */
 .cam { transition: background-color .2s; }
 html.cam-starting .cam { background-color: transparent; }
 html.cam-starting .cam-live { opacity: .01; animation: none; transition: none; }
 html.cam-starting .cam-live > :not(video) { visibility: hidden; }   /* at .01 Chromium still drew the white words */
-html.cam-starting #take-camera { transform: translateY(1px); box-shadow: inset 0 -2px 0 var(--cap-edge); }
-html.cam-starting #take-camera svg { animation: focusing .5s cubic-bezier(.45, 0, .55, 1) infinite alternate; }
-@keyframes focusing { to { transform: scale(.78); } }
-@media (prefers-reduced-motion: reduce) { html.cam-starting #take-camera svg { animation: none; opacity: .6; } }
 .cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .cam canvas { pointer-events: none; }
 .cam.flash video { opacity: .6; transition: opacity .1s; }
