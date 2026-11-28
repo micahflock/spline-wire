@@ -24,8 +24,9 @@ import type { Pt } from "../editor/viewport";
 import { curveFrom } from "../phone/curve";
 import { Measurer, type Update } from "../phone/measurer";
 import type { Status } from "../phone/photos";
-import { CHANNEL_TEXT, GRAY_CHANNELS, SHADE_TEXT, chainLabel, chainSpec, debugFromQuery, defaultPins, loadSettings, parseFocal,
-  parsePins, presetKey, saveSettings, type GrayChannel, type Settings, type Shade } from "../phone/settings";
+import { CHANNEL_TEXT, GRAY_CHANNELS, SHADE_TEXT, chainLabel, chainSpec, debugFromQuery, defaultPins, loadSettings,
+  newPhotoChain, parseFocal, parsePins, saveSettings, useChain, type GrayChannel, type Settings, type Shade } from "../phone/settings";
+import { calLabel, findChain, photoCalibration, type PhotoCalibration } from "../phone/calibration";
 import { ENGINE_STAGE, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "../phone/wording";
 import { greyCopy, previews, type Previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
@@ -141,6 +142,8 @@ export class Draft {
   private settings: Settings;
   private chains: Record<string, ChainSpec> = {};
   private chain: string;
+  /** A calibrated chain's numbers over the preset's (item 14), or null for the preset's own. */
+  private cal: PhotoCalibration | null = null;
   /** The colour channel this photo is read with (ChainSpec gray_channel), kept with it as its chain style is. */
   private channel: GrayChannel;
   /** The Channel choice is for testing coloured rims: shown with ?debug in the page's address. */
@@ -221,7 +224,9 @@ export class Draft {
     try {
       await this.engine.load();
       this.chains = await this.engine.chains;
-      this.chain = presetKey(this.chains, this.chain);
+      const { chain, cal } = newPhotoChain(this.settings, this.chains);
+      this.chain = chain;
+      this.cal = cal ?? null;
       this.pins = this.settings.pins ?? defaultPins(this.settings, this.chains);
       if (this.closed) return;
       this.measurer.coreReady();
@@ -234,7 +239,7 @@ export class Draft {
 
   private options(): MeasureOptions {
     return {
-      chain: chainSpec(this.chains, this.chain, this.pins, this.settings.shade, this.channel), side: this.side, edits: this.edits,
+      chain: chainSpec(this.chains, this.chain, this.pins, this.settings.shade, this.channel, this.cal), side: this.side, edits: this.edits,
       saved_focal_35mm: this.settings.savedFocal35,
     };
   }
@@ -316,7 +321,7 @@ export class Draft {
     this.render();
     try {
       const out = await this.outputs();
-      const spec = chainSpec(this.chains, this.chain, this.pins, this.settings.shade, this.channel);
+      const spec = chainSpec(this.chains, this.chain, this.pins, this.settings.shade, this.channel, this.cal);
       const curve = curveFrom(doc, { chainName: chainLabel(this.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm,
         n_pins: this.pins }, await pack(out.files));
       if (!curve) return;
@@ -340,6 +345,19 @@ export class Draft {
     }
     await core.measure(this.id, this.options(), { name: this.name, bytes: () => this.file.arrayBuffer() });
     return core.call("outputs", { photo: this.id });
+  }
+
+  /** Chain style's choices: the presets, then the calibrated chains this page knows (the phone's among
+   * them), and this photo's own if it is no longer listed. */
+  private chainChoices(): [string, string][] {
+    const out: [string, string][] = Object.keys(this.chains).map((k) => [k, chainLabel(k)]);
+    for (const c of this.settings.chains) {
+      if (c.base in this.chains) out.push([`cal:${photoCalibration(c, this.chains).key}`, calLabel(c, this.chains)]);
+    }
+    if (this.cal && !out.some(([v]) => v === `cal:${this.cal!.key}`)) {
+      out.push([`cal:${this.cal.key}`, calLabel({ base: this.chain, ...this.cal }, this.chains)]);
+    }
+    return out;
   }
 
   private saveSettings(change: Partial<Settings>): void {
@@ -392,9 +410,22 @@ export class Draft {
       }
     });
     this.q<HTMLSelectElement>("[data-field=chain]").addEventListener("change", (ev) => {
-      this.chain = (ev.target as HTMLSelectElement).value;
-      this.pins = this.chains[this.chain]?.n_pins ?? this.pins;           // a new chain brings its own pin count
-      this.saveSettings({ chain: this.chain, pins: null });
+      const value = (ev.target as HTMLSelectElement).value;
+      const c = value.startsWith("cal:") ? findChain(this.settings.chains, value.slice(4), this.chains) : undefined;
+      if (c) {
+        // A calibrated chain (the phone's, a card's or one typed there): its numbers, and the colours it gives.
+        this.settings = useChain(this.settings, c, this.chains);
+        saveSettings(this.host.store, this.settings);
+        this.host.chainChanged?.();
+        this.chain = c.base;
+        this.cal = photoCalibration(c, this.chains);
+        if (c.gray_channel) this.channel = c.gray_channel;
+      } else {
+        this.chain = value;
+        this.cal = null;
+        this.saveSettings({ chain: this.chain, cal: null, pins: null });
+      }
+      this.pins = this.settings.pins ?? this.chains[this.chain]?.n_pins ?? this.pins;    // a new chain brings its own pin count
       this.remeasure();
     });
     this.q<HTMLSelectElement>("[data-field=shade]").addEventListener("change", (ev) => {
@@ -490,10 +521,11 @@ export class Draft {
     swap.disabled = busy;
 
     const chainSel = this.q<HTMLSelectElement>("[data-field=chain]");
-    if (chainSel.options.length !== Object.keys(this.chains).length) {
-      chainSel.replaceChildren(...Object.keys(this.chains).map((k) => new Option(chainLabel(k), k)));
+    const choices = this.chainChoices();
+    if ([...chainSel.options].map((o) => `${o.value}=${o.text}`).join("\n") !== choices.map(([v, t]) => `${v}=${t}`).join("\n")) {
+      chainSel.replaceChildren(...choices.map(([v, t]) => new Option(t, v)));
     }
-    chainSel.value = this.chain;
+    chainSel.value = this.cal ? `cal:${this.cal.key}` : this.chain;
     this.q<HTMLSelectElement>("[data-field=shade]").value = this.settings.shade;
     // With ?debug, or while another channel than gray is in use (so the page never hides one that applies).
     this.q("[data-out=channel]").hidden = !this.debug && this.channel === "luma";

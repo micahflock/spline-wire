@@ -65,7 +65,11 @@ export type Message =
   /** The desktop has stored these curves. Idempotent. Kept for phones from before `state`. */
   | { type: "ack"; ids: string[] }
   /** What the sender holds (sync.ts). `full`: all of it, else only what just changed. */
-  | { type: "state"; full: boolean; curves: CurveState[]; deleted: string[] };
+  | { type: "state"; full: boolean; curves: CurveState[]; deleted: string[] }
+  /** The phone's chain for new photos, a calibrated chain as its card link's cal value
+   * (pipeline/chainlink.ts, checked by the desktop against its presets), or null for a preset's
+   * nominal numbers. Sent on meeting the computer and when it changes (work queue item 14). */
+  | { type: "chain"; link: string | null };
 
 /** One curve as a page holds it: the revision it has and the star. */
 export interface CurveState {
@@ -87,6 +91,8 @@ export interface CurveState {
 /** Entries a state message may carry (a full state of a hundred curves and the
  * last deletions is ~15 KB, well inside the relay's 64 K frame). */
 export const STATE_LIMITS = { curves: 500, deleted: 500 };
+/** The longest chain link a message may carry (a full one is ~60 characters). */
+const CHAIN_LINK_CHARS = 300;
 /** The longest name a state may carry (sync.ts NAME_CHARS keeps names shorter). */
 const NAME_LIMIT = 200;
 
@@ -134,6 +140,11 @@ export function parseMessage(body: unknown): Message | null {
       const curve = parseCurve(body.curve);
       return curve && { type: "curve", curve };
     }
+    case "chain":
+      if (body.link === null || (typeof body.link === "string" && body.link.length > 0 && body.link.length <= CHAIN_LINK_CHARS)) {
+        return { type: "chain", link: body.link };
+      }
+      return null;
     default:
       return null;
   }

@@ -172,9 +172,11 @@ test("orange rims on off-white links: lost in gray, tracked through the blue cha
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
   await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
+  // The worker grabs once its check against the page's own grab has agreed (camera/grab.ts): an unsure
+  // check is tried again on a later frame, so it may still be checking when the 13 pins first show.
+  await expect.poll(async () => (await stats(page)).grab, { timeout: 30_000 }).toBe("worker");
   const st = await stats(page);
   log(`orange, blue: ${costs(st)}`);
-  expect(st.grab).toBe("worker");
   expect(st.regions.track).toBeGreaterThan(0);
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
   await measured(page);                                                    // and it measured, through blue

@@ -90,6 +90,8 @@ let lensPhoto: string;            // a back-camera photo with full EXIF, no chai
 let selfie: string;
 let darkRims: string;
 let orangeRims: string;           // orange rims on off-white links on a dark table, found only through blue
+/** The snap-fit chain rendered 1.5% long (pitch 13.2 mm), its truth, and its card's link (work queue item 14). */
+let offPitch: { photo: string; truth: Point[]; card: string };
 let context: BrowserContext;
 let page: Page;
 let photoId: string;
@@ -122,6 +124,15 @@ test.beforeAll(async ({ browser }) => {
   execFileSync("uv", ["run", "splinewire", "synth", "--shape", "pipe", "--size", "2000x1500", "--rim-rgb", "240,122,35",
     "--link-rgb", "235,230,214", "--table-rgb", "60,60,60", "--out", path.join(out, "orange")], { cwd: ROOT, stdio: "inherit" });
   orangeRims = path.join(out, "orange", "pipe.jpg");
+  execFileSync("uv", ["run", "splinewire", "synth", "--shape", "pipe", "--size", "2000x1500", "--pitch", "13.2",
+    "--out", path.join(out, "offpitch")], { cwd: ROOT, stdio: "inherit" });
+  fs.renameSync(path.join(out, "offpitch", "pipe.jpg"), path.join(out, "offpitch", "pipe-13.2.jpg"));
+  const card = execFileSync("uv", ["run", "splinewire", "chain-link", "--pitch", "13.2", "--page", "x"], { cwd: ROOT }).toString().trim();
+  offPitch = {
+    photo: path.join(out, "offpitch", "pipe-13.2.jpg"),
+    truth: (JSON.parse(fs.readFileSync(path.join(out, "offpitch", "pipe-truth.json"), "utf8")) as { pin_points: Point[] }).pin_points,
+    card: card.slice(card.indexOf("#")),             // #cal=1;base=snap;p=13.2;k=…
+  };
   lensPhoto = path.join(out, "lens.jpg");
   selfie = path.join(out, "selfie.jpg");
   execFileSync("uv", ["run", "python", "-c", [
@@ -143,6 +154,27 @@ test.afterAll(async () => {
 });
 
 const pins = () => page.locator("#overlay [data-k]");
+
+/** The largest distance between measured and true pins, after moving, turning and (if need be)
+ * mirroring the measured ones onto the truth, but not scaling them: a pitch error shows as it is. */
+function rigidError(measured: Point[], truth: Point[]): number {
+  const centred = (ps: Point[]): Point[] => {
+    const [cx, cy] = ps.reduce(([x, y], [a, b]) => [x + a / ps.length, y + b / ps.length], [0, 0]);
+    return ps.map(([x, y]) => [x - cx, y - cy]);
+  };
+  const b = centred(truth);
+  let best = Infinity;
+  for (const mirror of [1, -1]) for (const reversed of [false, true]) {
+    const m = measured.map(([x, y]): Point => [x, mirror * y]);
+    const a = centred(reversed ? m.reverse() : m);
+    let sin = 0, cos = 0;
+    a.forEach(([x, y], i) => { const [u, v] = b[i]!; sin += x * v - y * u; cos += x * u + y * v; });
+    const t = Math.atan2(sin, cos);
+    const worst = Math.max(...a.map(([x, y], i) => Math.hypot(x * Math.cos(t) - y * Math.sin(t) - b[i]![0], x * Math.sin(t) + y * Math.cos(t) - b[i]![1])));
+    best = Math.min(best, worst);
+  }
+  return best;
+}
 const tile = (id: string, p: Page = page) => p.locator(`#photos .tile[data-id="${id}"]`);
 const selectedId = () => page.locator("#photos .tile.on").getAttribute("data-id");
 
@@ -801,6 +833,64 @@ test.describe("paired with a computer", () => {
     await collapse();
     await expect(row.locator(".name")).toHaveText("pipe.jpg");
     await desktop.close();
+  });
+
+  test("a chain card's link in the pairing link: measured with the card's pitch, off by the pitch error without it (debug mode)", async () => {
+    const relay = `relay=${encodeURIComponent(demo.relay.url)}`;
+    desktop = await openDesktop();                     // the same computer (its storage keeps the pairing), opened again
+    const secret = new URL((await desktop.locator("[data-pair-link]").first().textContent())!).hash;     // #pair=<secret>
+    // The card scanned before pairing: both in one address, the card's link first. Each reader strips only its own.
+    await page.goto(`phone/?debug&${relay}#${offPitch.card.slice(1)}&${secret.slice(1)}`);
+    await expect(page.locator("#toast")).toContainText("Calibrated snap-fit chain set up · pitch 13.2 mm");
+    await expect(page.locator("#toast button")).toHaveText("Undo");
+    await expect(page).toHaveURL(/\/phone\/\?debug&relay=[^#]*$/);
+    await expect(page.locator("#link-text")).toHaveText(/^Linked/);
+    await expect(page.locator("#s-chain option:checked")).toHaveText("Calibrated snap-fit chain · pitch 13.2 mm");
+    // The computer hears the phone's chain, and its Measure a photo would use it.
+    await expect.poll(() => desktop.evaluate(() => JSON.parse(localStorage.getItem("splinewire-desktop:phone-settings") ?? "{}").chains?.[0]))
+      .toMatchObject({ base: "snap", pitch_mm: 13.2, via: "phone" });
+
+    const before = await page.locator("#photos .tile").count();
+    await page.setInputFiles("#choose", offPitch.photo);
+    await expect(page.locator("#photos .tile")).toHaveCount(before + 1);
+    const id = (await page.locator("#photos .tile").first().getAttribute("data-id"))!;
+    await expect(phoneItem(id)).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    const sent = async (rev: number) => {
+      let c: Curve | undefined;
+      await expect.poll(async () => (c = (await received()).find((x) => x.photo === "pipe-13.2.jpg"))?.rev, { timeout: 60_000 }).toBe(rev);
+      return c!;
+    };
+    const card = await sent(1);
+    expect([card.chain.name, card.chain.pitch_mm, card.chain.half_width_mm]).toEqual(["Snap-fit chain", 13.2, 4.39]);
+    const withCard = rigidError(card.pins_mm, offPitch.truth);
+    await desktop.locator(`button.item[data-id="${card.id}"]`).click();
+    await expect(desktop.locator(".about")).toContainText("13.2 mm, calibrated");
+
+    // The same photo with the preset's nominal pitch (its chain style, in the expanded view): 1.5% small.
+    await phoneItem(id).tap();
+    await expand();
+    await expect(page.locator("#r-meta")).toContainText("Calibrated snap-fit chain · pitch 13.2 mm");
+    await page.locator("#r-chain").selectOption("snap");
+    const nominal = await sent(2);
+    expect(nominal.chain.pitch_mm).toBe(13);
+    const withNominal = rigidError(nominal.pins_mm, offPitch.truth);
+    log(`chain rendered at 13.2 mm: pins off the truth by ${withCard.toFixed(4)} mm at most with the card's pitch, ${withNominal.toFixed(3)} mm with the nominal 13 mm`);
+    expect(withCard).toBeLessThan(0.05);
+    expect(withNominal).toBeGreaterThan(0.3);
+    await collapse();
+
+    // Outside debug mode a card's link is not used, but said; the calibration chosen in debug mode stays, and is named.
+    await page.goto(`phone/?debug=0&${relay}${offPitch.card}`);
+    await expect(page.locator("#toast")).toContainText("Chain cards are being tested: open the page with ?debug");
+    await expect(page.locator("#debug-note")).toContainText("Calibrated snap-fit chain · pitch 13.2 mm");
+    // Back to the preset (debug mode), as the tests after this one expect.
+    await page.goto(`phone/?debug&${relay}`);
+    await page.locator("#s-chain").selectOption("snap");
+    await expect(page.locator("#toast")).toContainText("New photos are measured with this chain: Snap-fit chain.");
+    await tapButton("Leave debug mode");
+    await page.goto(`phone/?${relay}`);                  // the address the next test opens a pairing code over
+    await expect(page.locator("#debug-note")).toBeHidden();
+    await expect(page.locator("#debug-box")).toBeHidden();
   });
 
   test("a code scanned while the page is open pairs it, without loading the page again", async ({ browser }) => {

@@ -1,0 +1,414 @@
+{
+ "about": "Test vectors for a chain card's link (docs/chain-link.md), read by tests/test_chainlink.py and web/src/pipeline/chainlink.test.ts. Written by hand once and checked by eye; both languages must give exactly these results and messages. presets: the numbers the checks use (the real data/chain-snap.yaml and data/chain.yaml, which a printed card's preset never changes). check_characters: Luhn mod N, the first from Wikipedia's Luhn mod N article. good: links and what they say (fields not given are left out). bad: links refused, with the error code and the message. build: fields and the cal value the builder writes; build_bad: fields it refuses.",
+ "presets": {
+  "snap": {
+   "pitch_mm": 13.0,
+   "half_width_mm": 4.39,
+   "n_pins": 13
+  },
+  "oring": {
+   "pitch_mm": 10.0,
+   "half_width_mm": 4.0,
+   "n_pins": 13
+  }
+ },
+ "check_characters": [
+  {
+   "alphabet": "abcdef",
+   "text": "abcdef",
+   "k": "e"
+  },
+  {
+   "text": "1;base=snap;p=12.987;h=4.39",
+   "k": "k"
+  },
+  {
+   "text": "1;base=snap;p=13",
+   "k": "1"
+  },
+  {
+   "text": "1;BASE=SNAP;P=13",
+   "k": "1"
+  },
+  {
+   "text": "",
+   "k": "0"
+  }
+ ],
+ "good": [
+  {
+   "link": "1;base=snap;p=12.987;h=4.39;k=k",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 12.987,
+    "half_width_mm": 4.39
+   }
+  },
+  {
+   "link": "https://micahflock.github.io/spline-wire/phone/#cal=1;base=snap;p=12.987;h=4.39;k=k",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 12.987,
+    "half_width_mm": 4.39
+   }
+  },
+  {
+   "link": "https://micahflock.github.io/spline-wire/phone/?debug#pair=0123456789abcdefghijkl&cal=1;base=snap;p=13.1;k=v",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 13.1
+   }
+  },
+  {
+   "link": "https://micahflock.github.io/spline-wire/phone/?debug#cal=1;base=snap;p=13.1;k=v&pair=0123456789abcdefghijkl",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 13.1
+   }
+  },
+  {
+   "link": "#cal=1;base=snap;p=12.74;h=3.951;shade=dark;ch=b;n=20;k=z",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 12.74,
+    "half_width_mm": 3.951,
+    "fiducial_shade": "dark",
+    "gray_channel": "b",
+    "n_pins": 20
+   }
+  },
+  {
+   "link": "cal=1;base=oring;p=10.2;k=l",
+   "parsed": {
+    "base": "oring",
+    "pitch_mm": 10.2
+   }
+  },
+  {
+   "link": "1;base=snap;p=13.26;ch=luma;k=x",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 13.26,
+    "gray_channel": "luma"
+   }
+  },
+  {
+   "link": "1;BASE=SNAP;P=12.987;H=4.39;K=K",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 12.987,
+    "half_width_mm": 4.39
+   }
+  },
+  {
+   "link": "#cal=1%3Bbase%3Dsnap%3Bp%3D12.987%3Bk%3Du",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 12.987
+   }
+  },
+  {
+   "link": "  1;base=snap;p=12.987;k=u\n",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 12.987
+   }
+  },
+  {
+   "link": "1;p=12.95;base=snap;shade=light;h=4.5;k=a",
+   "parsed": {
+    "base": "snap",
+    "pitch_mm": 12.95,
+    "half_width_mm": 4.5,
+    "fiducial_shade": "light"
+   }
+  }
+ ],
+ "bad": [
+  {
+   "link": "1;base=snap;p=12.987;h=4.39;k=a",
+   "error": "check",
+   "message": "This chain card's code is damaged (check character): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=12.978;h=4.39;k=k",
+   "error": "check",
+   "message": "This chain card's code is damaged (check character): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=12.986;h=4.39;k=k",
+   "error": "check",
+   "message": "This chain card's code is damaged (check character): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=13.5;k=n",
+   "error": "pitch",
+   "message": "The pitch, 13.5 mm, is more than 2% from the snap chain's 13 mm: it must be between 12.74 and 13.26 mm. Check the number, or measure the chain again."
+  },
+  {
+   "link": "1;base=snap;p=12.7;k=k",
+   "error": "pitch",
+   "message": "The pitch, 12.7 mm, is more than 2% from the snap chain's 13 mm: it must be between 12.74 and 13.26 mm. Check the number, or measure the chain again."
+  },
+  {
+   "link": "1;base=snap;p=13;h=5;k=a",
+   "error": "half_width",
+   "message": "The half width, 5 mm, is more than 10% from the snap chain's 4.39 mm: it must be between 3.951 and 4.829 mm. Check the number, or measure the chain again."
+  },
+  {
+   "link": "2;base=snap;p=13;zz=1;k=v",
+   "error": "version",
+   "message": "This chain card was made for a newer version of Spline Wire (link version 2): reload the page to update it."
+  },
+  {
+   "link": "0;base=snap;p=13;k=2",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (version 0): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "002;base=snap;p=13;k=0",
+   "error": "version",
+   "message": "This chain card was made for a newer version of Spline Wire (link version 2): reload the page to update it."
+  },
+  {
+   "link": "01;base=snap;p=13;k=1",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (version 01): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=12.98",
+   "error": "cut_short",
+   "message": "This chain card's link is cut short (it does not end in a check character, ;k=): scan it again or copy the whole link."
+  },
+  {
+   "link": "1;base=snap;p=12.987;h=4.3",
+   "error": "cut_short",
+   "message": "This chain card's link is cut short (it does not end in a check character, ;k=): scan it again or copy the whole link."
+  },
+  {
+   "link": "1;base=snap;p=12.987;h=4.39",
+   "error": "cut_short",
+   "message": "This chain card's link is cut short (it does not end in a check character, ;k=): scan it again or copy the whole link."
+  },
+  {
+   "link": "https://micahflock.github.io/spline-wire/phone/#cal=",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (it does not start with a version number): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1",
+   "error": "cut_short",
+   "message": "This chain card's link is cut short (it does not end in a check character, ;k=): scan it again or copy the whole link."
+  },
+  {
+   "link": "1;base=snap;p=13;zz=1;k=x",
+   "error": "unknown_field",
+   "message": "This chain card's link has a field this version of Spline Wire does not know (zz=1): reload the page to update it, or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=13;serial=42;k=0",
+   "error": "unknown_field",
+   "message": "This chain card's link has a field this version of Spline Wire does not know (serial=42): reload the page to update it, or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;k=r",
+   "error": "missing",
+   "message": "This chain card's link has no pitch (p=): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;p=13;k=d",
+   "error": "missing",
+   "message": "This chain card's link has no chain preset (base=): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=bolt;p=13;k=8",
+   "error": "unknown_preset",
+   "message": "Spline Wire has no chain preset named \"bolt\" (there are snap, oring): if the card is new, reload the page to update Spline Wire."
+  },
+  {
+   "link": "1;base=snap;p=13.0001;k=z",
+   "error": "number",
+   "message": "The pitch (p=13.0001) is not a number of millimetres with up to 3 decimals, such as 12.987."
+  },
+  {
+   "link": "1;base=snap;p=1e1;k=k",
+   "error": "number",
+   "message": "The pitch (p=1e1) is not a number of millimetres with up to 3 decimals, such as 12.987."
+  },
+  {
+   "link": "1;base=snap;p=013;k=v",
+   "error": "number",
+   "message": "The pitch (p=013) is not a number of millimetres with up to 3 decimals, such as 12.987."
+  },
+  {
+   "link": "1;base=snap;p=13;shade=grey;k=w",
+   "error": "value",
+   "message": "The colours (shade=grey) must be light or dark."
+  },
+  {
+   "link": "1;base=snap;p=13;ch=luminance;k=0",
+   "error": "value",
+   "message": "The colour channel (ch=luminance) must be luma, r, g or b."
+  },
+  {
+   "link": "1;base=snap;p=13;n=2;k=a",
+   "error": "value",
+   "message": "The number of pins (n=2) must be a whole number from 3 to 200."
+  },
+  {
+   "link": "1;base=snap;p=13;n=201;k=8",
+   "error": "value",
+   "message": "The number of pins (n=201) must be a whole number from 3 to 200."
+  },
+  {
+   "link": "1;base=snap;p=13;n=07;k=8",
+   "error": "value",
+   "message": "The number of pins (n=07) must be a whole number from 3 to 200."
+  },
+  {
+   "link": "1;base=snap;p=13;p=13;k=b",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (p is given twice): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=13;;h=4;k=c",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (an empty field): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=;k=8",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (p has no value): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "https://micahflock.github.io/spline-wire/phone/#pair=0123456789abcdefghijkl",
+   "error": "not_a_link",
+   "message": "This is not a chain card's link (it has no cal=): scan the card's QR code again or type the pitch in Settings."
+  },
+  {
+   "link": "https://micahflock.github.io/spline-wire/phone/",
+   "error": "not_a_link",
+   "message": "This is not a chain card's link (it has no cal=): scan the card's QR code again or type the pitch in Settings."
+  },
+  {
+   "link": "v1;base=snap;p=13;k=0",
+   "error": "not_a_link",
+   "message": "This is not a chain card's link (it has no cal=): scan the card's QR code again or type the pitch in Settings."
+  },
+  {
+   "link": "#cal=1;base=snap;p=13%ZZ;k=0",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (a bad % escape): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "#cal=1;base=snap;p=13%FF;k=0",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (a bad % escape): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=13;h4.39;k=r",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (a field \"h4.39\"): scan it again or type the pitch in Settings."
+  },
+  {
+   "link": "1;base=snap;p=13;H-W=4;k=v",
+   "error": "damaged",
+   "message": "This chain card's link is damaged (a field \"h-w=4\"): scan it again or type the pitch in Settings."
+  }
+ ],
+ "build": [
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 12.987,
+    "half_width_mm": 4.39
+   },
+   "value": "1;base=snap;p=12.987;h=4.39;k=k"
+  },
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 13.0
+   },
+   "value": "1;base=snap;p=13;k=1"
+  },
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 12.98749
+   },
+   "value": "1;base=snap;p=12.987;k=u"
+  },
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 12.9875
+   },
+   "value": "1;base=snap;p=12.988;k=s"
+  },
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 13.2,
+    "half_width_mm": 4.4,
+    "fiducial_shade": "dark",
+    "gray_channel": "b",
+    "n_pins": 40
+   },
+   "value": "1;base=snap;p=13.2;h=4.4;shade=dark;ch=b;n=40;k=g"
+  },
+  {
+   "fields": {
+    "base": "oring",
+    "pitch_mm": 9.95,
+    "half_width_mm": 4.0
+   },
+   "value": "1;base=oring;p=9.95;h=4;k=1"
+  }
+ ],
+ "build_bad": [
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 14.0
+   },
+   "error": "pitch",
+   "message": "The pitch, 14 mm, is more than 2% from the snap chain's 13 mm: it must be between 12.74 and 13.26 mm. Check the number, or measure the chain again."
+  },
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 13.0,
+    "half_width_mm": 3.9
+   },
+   "error": "half_width",
+   "message": "The half width, 3.9 mm, is more than 10% from the snap chain's 4.39 mm: it must be between 3.951 and 4.829 mm. Check the number, or measure the chain again."
+  },
+  {
+   "fields": {
+    "base": "nope",
+    "pitch_mm": 13.0
+   },
+   "error": "unknown_preset",
+   "message": "Spline Wire has no chain preset named \"nope\" (there are snap, oring): if the card is new, reload the page to update Spline Wire."
+  },
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 13.0,
+    "gray_channel": "red"
+   },
+   "error": "value",
+   "message": "The colour channel (ch=red) must be luma, r, g or b."
+  },
+  {
+   "fields": {
+    "base": "snap",
+    "pitch_mm": 13.0,
+    "n_pins": 1
+   },
+   "error": "value",
+   "message": "The number of pins (n=1) must be a whole number from 3 to 200."
+  }
+ ]
+}

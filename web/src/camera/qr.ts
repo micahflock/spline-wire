@@ -2,10 +2,13 @@
 // means for this page. The scanning itself is qr-scan.ts, the decoding
 // qr-worker.ts (jsQR).
 
+import { hasLink } from "../pipeline/chainlink";
 import { secretFromHash } from "../relay/pairing";
 
 export type CodeMeaning =
   | { kind: "pair"; secret: string }
+  /** A chain card's link (#cal=…, pipeline/chainlink.ts), read wherever the card was made for: it carries only numbers. */
+  | { kind: "card"; hash: string }
   /** A pairing code made by another copy of the site (another host or path): not used. */
   | { kind: "elsewhere"; where: string }
   /** Not a pairing code at all. */
@@ -23,7 +26,7 @@ export function codeMeaning(text: string, here: string): CodeMeaning {
     return { kind: "other" };
   }
   const secret = secretFromHash(url.hash);
-  if (!secret) return { kind: "other" };
+  if (!secret) return hasLink(url.hash) ? { kind: "card", hash: url.hash } : { kind: "other" };
   if (url.origin !== page.origin || url.pathname !== page.pathname) return { kind: "elsewhere", where: url.host + url.pathname };
   return { kind: "pair", secret };
 }

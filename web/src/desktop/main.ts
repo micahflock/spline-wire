@@ -29,7 +29,11 @@ import { DOWNLOADS, downloadName, type DownloadKind } from "./names";
 import { plotSvg } from "./plot";
 import { curveDrawing } from "../phone/drawings";
 import { chainMarkSvg, type ChainLook } from "../drawing/chain-art";
-import { chainLabel, chainSpec, loadSettings } from "../phone/settings";
+import {
+  chainLabel, chainSpec, debugFromQuery, loadSettings, saveSettings, settingsChainLabel, useChain, withPhoneChain,
+} from "../phone/settings";
+import { ChainLinkError, fmtMm, hasLink, parseLink } from "../pipeline/chainlink";
+import { hashWithout } from "../relay/pairing";
 import { dxfText } from "../pipeline/dxf";
 import { pieces, shape, toggleMark, type Shaped } from "./corners";
 import { qrSvg } from "./qr";
@@ -137,6 +141,47 @@ renderAll();
 if (FUSION) void startFusion();
 else void renderChainMark();
 void loadPresets().then(() => { renderList(); renderMain(); }, () => {});
+if (hasLink(location.hash)) void readCard(location.hash);
+addEventListener("hashchange", () => { if (hasLink(location.hash)) void readCard(location.hash); });
+
+// ---- calibrated chains (work queue item 14) ----------------------------------
+
+/** A chain card's link in this page's address (#cal=…): Measure a photo uses its chain, as the
+ * phone page does (debug mode only while chain cards are tested). */
+async function readCard(hash: string): Promise<void> {
+  if (debugFromQuery(location.search) !== true) {
+    toast("Chain cards are being tested: open the page with ?debug.", 6000);
+    return;
+  }
+  history.replaceState(history.state, "", location.pathname + location.search + hashWithout(hash, "cal"));
+  try {
+    const all = await loadPresets();
+    const next = useChain(loadSettings(store), { ...parseLink(hash, all), via: "card", at: Date.now() }, all);
+    saveSettings(store, next);
+    void renderChainMark();
+    toast(`${settingsChainLabel(next, all).replace(" · ", " set up · ")}: Measure a photo uses it.`, 8000);
+  } catch (e) {
+    toast(e instanceof ChainLinkError ? e.message : `Chain card: ${(e as Error).message}`, 8000);
+  }
+}
+
+/** The phone's chain for new photos (its card link, or null): Measure a photo uses it too. Taken
+ * when it changes, so a chain chosen here stays until the phone's changes again. */
+async function phoneChainArrived(link: string | null): Promise<void> {
+  const KEY = "phone-chain";
+  if ((store.get(KEY) ?? "") === (link ?? "")) return;
+  try {
+    const all = await loadPresets();
+    const next = withPhoneChain(loadSettings(store), link === null ? null : parseLink(link, all), all);
+    store.set(KEY, link ?? "");
+    saveSettings(store, next);
+    void renderChainMark();
+    if (link !== null) toast(`The phone's chain, ${settingsChainLabel(next, all).replace(" · from the phone", "")}: Measure a photo uses it.`, 6000);
+  } catch (e) {
+    // A chain this build cannot read (a newer phone's preset): Measure a photo keeps its own.
+    console.warn("the phone's chain:", (e as Error).message);
+  }
+}
 
 // ---- the chain in the header ------------------------------------------------
 
@@ -214,6 +259,7 @@ function onMessage(m: Message): void {
     renderStatus();
   }
   inbox.onMessage(m);
+  if (m.type === "chain") void phoneChainArrived(m.link);
   // A phone that says all it holds hears all this computer holds: stars set and curves deleted here while it was away.
   if (m.type === "state" && m.full) void link?.send(inbox.fullState());
 }
@@ -713,8 +759,8 @@ function curveHtml(c: Curve): string {
         <div class="kv"><span>Measured</span><span>${esc(exactTime(t))}${mine ? ", on this computer" : ""}</span></div>
         <div class="kv"><span>Photo</span><span>${esc(c.photo)}</span></div>
         <div class="kv"><span>Chain</span><span>${esc(c.chain.name)}</span></div>
-        <div class="kv"><span>Link length</span><span>${c.chain.pitch_mm} mm</span></div>
-        <div class="kv"><span>Pin to edge</span><span>${c.chain.half_width_mm} mm</span></div>
+        <div class="kv"><span>Link length</span><span>${c.chain.pitch_mm} mm${calibrated(c, "pitch_mm")}</span></div>
+        <div class="kv"><span>Pin to edge</span><span>${c.chain.half_width_mm} mm${calibrated(c, "half_width_mm")}</span></div>
         <div class="kv"><span>Id</span><span>${esc(c.id)}</span></div>
       </details>
     </div>
@@ -917,6 +963,12 @@ function confirmBox(title: string, body: string, yes: string): Promise<boolean> 
   d.returnValue = "";
   d.showModal();
   return new Promise((resolve) => d.addEventListener("close", () => resolve(d.returnValue === "yes"), { once: true }));
+}
+
+/** ", calibrated" after a curve's pitch or half width when it is not its preset's (a calibrated chain, item 14). */
+function calibrated(c: Curve, field: "pitch_mm" | "half_width_mm"): string {
+  const key = Object.keys(chains).find((k) => chainLabel(k) === c.chain.name);
+  return key && fmtMm(chains[key]![field]) !== fmtMm(c.chain[field]) ? ", calibrated" : "";
 }
 
 function toast(message: string, ms = 3200): void {

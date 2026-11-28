@@ -5,9 +5,10 @@ import { MemoryRelay } from "../../relay/memory-relay";
 import { deriveKeys, newSecret, type Keys, type Role } from "./crypto";
 import { Inbox } from "./inbox";
 import { RelayLink, type LinkStatus } from "./link";
-import { newCurveId, parseCurve, pointsTsv, type Curve, type Message } from "./messages";
+import { newCurveId, parseCurve, parseMessage, pointsTsv, type Curve, type Message } from "./messages";
 import { Outbox } from "./outbox";
-import { desktopSecret, pairingUrl, phoneSecret } from "./pairing";
+import { desktopSecret, hashWithout, pairingUrl, phoneSecret } from "./pairing";
+import { parseLink } from "../pipeline/chainlink";
 import { MemoryStore } from "./store";
 
 function curve(id = newCurveId()): Curve {
@@ -187,6 +188,8 @@ describe("delivery", () => {
   });
 });
 
+const PRESETS = { snap: { pitch_mm: 13, half_width_mm: 4.39 } };
+
 describe("pairing", () => {
   it("goes from the desktop to the phone through the QR link's fragment", () => {
     const desk = new MemoryStore(), phone = new MemoryStore();
@@ -200,9 +203,58 @@ describe("pairing", () => {
     expect(phoneSecret(phone, "", () => {})).toBe(secret);                   // remembered
     expect(phoneSecret(new MemoryStore(), "#pair=nonsense", () => {})).toBeNull();
   });
+
+  // A chain card's link (pipeline/chainlink.ts) shares the fragment: pairing strips only `pair`.
+  const CAL = "cal=1;base=snap;p=12.987;h=4.39;k=k";
+
+  it("keeps a chain card's link when both are in one address, in either order", () => {
+    const secret = desktopSecret(new MemoryStore());
+    for (const hash of [`#pair=${secret}&${CAL}`, `#${CAL}&pair=${secret}`]) {
+      const phone = new MemoryStore();
+      let rest: string | null = null;
+      expect(phoneSecret(phone, hash, (r) => (rest = r))).toBe(secret);
+      expect(rest).toBe(`#${CAL}`);
+      expect(parseLink(rest!, PRESETS).pitch_mm).toBe(12.987);
+    }
+  });
+
+  it("card scanned before pairing: the card's link is left alone, then the pairing link is cleared", () => {
+    const phone = new MemoryStore(), secret = desktopSecret(new MemoryStore());
+    let calls = 0;
+    expect(phoneSecret(phone, `#${CAL}`, () => calls++)).toBeNull();          // not paired yet: nothing to strip
+    expect(calls).toBe(0);
+    let rest: string | null = null;
+    expect(phoneSecret(phone, `#pair=${secret}`, (r) => (rest = r))).toBe(secret);
+    expect(rest).toBe("");
+  });
+
+  it("card scanned after pairing: the pairing is kept and the card's link is left for its reader", () => {
+    const phone = new MemoryStore(), secret = desktopSecret(new MemoryStore());
+    expect(phoneSecret(phone, `#pair=${secret}`, () => {})).toBe(secret);
+    let calls = 0;
+    expect(phoneSecret(phone, `#${CAL}`, () => calls++)).toBe(secret);       // still paired
+    expect(calls).toBe(0);
+    expect(phoneSecret(phone, `#pair=nonsense&${CAL}`, () => calls++)).toBe(secret);   // a bad secret changes nothing
+    expect(calls).toBe(0);
+  });
+
+  it("strips one parameter and keeps the others as written", () => {
+    expect(hashWithout("#pair=abc&cal=1%3Bbase%3Dsnap&x=1", "pair")).toBe("#cal=1%3Bbase%3Dsnap&x=1");
+    expect(hashWithout("#cal=1;base=snap;k=0&pair=abc", "cal")).toBe("#pair=abc");
+    expect(hashWithout("#pair=abc", "pair")).toBe("");
+    expect(hashWithout("", "pair")).toBe("");
+    expect(hashWithout("#&pair=abc&&cal=1", "pair")).toBe("#cal=1");
+    expect(hashWithout("#pairing=1&pair", "pair")).toBe("#pairing=1");
+  });
 });
 
 describe("messages", () => {
+  it("carries the phone's chain as its card link, or null for a preset's numbers", () => {
+    expect(parseMessage({ type: "chain", link: "1;base=snap;p=12.987;k=u" })).toEqual({ type: "chain", link: "1;base=snap;p=12.987;k=u" });
+    expect(parseMessage({ type: "chain", link: null })).toEqual({ type: "chain", link: null });
+    for (const link of [undefined, "", 3, "x".repeat(301)]) expect(parseMessage({ type: "chain", link }), String(link)).toBeNull();
+  });
+
   it("checks a curve off the network and drops what it does not know", () => {
     const c = curve();
     expect(parseCurve({ ...c, extra: "from a newer build" })).toEqual(c);

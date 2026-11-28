@@ -15,6 +15,11 @@
 // chain-only live view.
 
 import type { CameraInfo } from "../camera/choose";
+import type { ChainLink } from "../pipeline/chainlink";
+import {
+  calKey, calLabel, chainLabel, findChain, photoCalibration, rememberChain, storedCalibration,
+  type Calibration, type PhotoCalibration,
+} from "./calibration";
 import type { ChainSpec, Side } from "../core/types";
 import { readJson, type KeyValueStore } from "../relay/store";
 import { KEEP_PHOTOS } from "./photos";
@@ -23,6 +28,11 @@ import type { CameraMemory, LensMemory, LensState } from "./lenses";
 export interface Settings extends LensState {
   /** Key of the chain preset in chains.json. */
   chain: string;
+  /** The phone's calibrated chains (calibration.ts), newest first: from chain cards or typed in. */
+  chains: Calibration[];
+  /** The calibrated chain new photos are measured with (calibration.calKey), over the preset;
+   * null for the preset's nominal numbers. */
+  cal: string | null;
   /** Pins in the chain for new photos; null means the preset's own count. */
   pins: number | null;
   /** This phone's main camera in 35 mm terms, used for photos without EXIF. */
@@ -62,6 +72,8 @@ const LIVE_VIEWS: readonly LiveView[] = ["color", "grey", "chain"];
 
 export const DEFAULT_SETTINGS: Settings = {
   chain: "snap",               // the snap-fit chain is the default (splinewire.chain.DEFAULT_PRESET)
+  chains: [],
+  cal: null,
   pins: null,
   savedFocal35: null,
   focalOverride35: null,
@@ -83,12 +95,7 @@ export const FOCAL_RANGE = { min: 5, max: 500 };
 /** chain.ChainSpec needs at least 3; more than this is a typing slip. */
 export const PIN_RANGE = { min: 3, max: 999 };
 
-/** How the presets are called on the page (the current app's names). */
-const CHAIN_NAMES: Record<string, string> = { snap: "Snap-fit chain", oring: "O-ring chain" };
-
-export function chainLabel(key: string): string {
-  return CHAIN_NAMES[key] ?? key;
-}
+export { chainLabel };
 
 const KEY = "phone-settings";
 
@@ -97,6 +104,9 @@ export function loadSettings(store: KeyValueStore): Settings {
   const raw = readJson<Record<string, unknown>>(store, KEY, {});
   const s = { ...DEFAULT_SETTINGS };
   if (typeof raw.chain === "string" && raw.chain) s.chain = raw.chain;
+  s.chains = Array.isArray(raw.chains)
+    ? raw.chains.map((c) => storedCalibration(c, null)).filter((c): c is Calibration => c !== null).slice(0, 10) : [];
+  s.cal = typeof raw.cal === "string" && s.chains.length ? raw.cal : null;
   s.pins = isPins(raw.pins) ? raw.pins : null;
   s.savedFocal35 = isFocal(raw.savedFocal35) ? raw.savedFocal35 : null;
   s.focalOverride35 = isFocal(raw.focalOverride35) ? raw.focalOverride35 : null;
@@ -146,7 +156,9 @@ export function debugFromQuery(search: string): boolean | null {
 export function debugLeftovers(s: Settings, chains: Record<string, ChainSpec>): string[] {
   const out: string[] = [];
   const first = Object.keys(chains)[0];
-  if (first !== undefined && presetKey(chains, s.chain) !== first) out.push(chainLabel(presetKey(chains, s.chain)));
+  const cal = activeChain(s, chains);
+  if (cal) out.push(calLabel(cal, chains));
+  else if (first !== undefined && presetKey(chains, s.chain) !== first) out.push(chainLabel(presetKey(chains, s.chain)));
   if (s.focalOverride35 !== null) out.push(`focal override ${s.focalOverride35} mm`);
   if (s.liveSize === "full") out.push("full-resolution live stream");
   if (s.liveView === "chain") out.push("chain-only live view");
@@ -182,12 +194,56 @@ export function defaultPins(s: Settings, chains: Record<string, ChainSpec>): num
 
 /** The chain the core measures a photo with: the preset, with the photo's pin
  * count, colours and channel (a photo stored before the colours could be chosen
- * is light on dark, and one stored before the channel could be, gray). */
+ * is light on dark, and one stored before the channel could be, gray), and a
+ * calibrated chain's pitch and half width over the preset's. */
 export function chainSpec(chains: Record<string, ChainSpec>, preset: string, pins: number, shade: Shade = "light",
-  channel: GrayChannel = "luma"): ChainSpec {
+  channel: GrayChannel = "luma", cal: PhotoCalibration | null = null): ChainSpec {
   const spec = chains[presetKey(chains, preset)];
   if (!spec) throw new Error("no chain presets in this build (chains.json is empty)");
-  return { ...spec, n_pins: pins, fiducial_shade: shade, gray_channel: channel };
+  const numbers = cal ? { pitch_mm: cal.pitch_mm, half_width_mm: cal.half_width_mm } : {};
+  return { ...spec, ...numbers, n_pins: pins, fiducial_shade: shade, gray_channel: channel };
+}
+
+/** The calibrated chain in use, if any (and if this build has its preset). */
+export function activeChain(s: Settings, chains: Record<string, ChainSpec>): Calibration | undefined {
+  const c = findChain(s.chains, s.cal, chains);
+  return c && c.base in chains ? c : undefined;
+}
+
+/** The chain a new photo is measured with: the preset, and the calibration's numbers if one is in use. */
+export function newPhotoChain(s: Settings, chains: Record<string, ChainSpec>): { chain: string; cal?: PhotoCalibration } {
+  const c = activeChain(s, chains);
+  return c ? { chain: c.base, cal: photoCalibration(c, chains) } : { chain: presetKey(chains, s.chain) };
+}
+
+/** Settings with a calibrated chain in use: made the newest of the phone's chains, its preset
+ * chosen, and the colours, channel and pins it gives copied into the settings (a card that
+ * gives none leaves them; a chain brings its own pin count, as choosing a preset does). */
+export function useChain(s: Settings, c: Calibration, chains: Record<string, ChainSpec>, now = Date.now()): Settings {
+  const entry = { ...c, at: now };
+  return {
+    ...s,
+    chain: c.base,
+    chains: rememberChain(s.chains, entry, chains),
+    cal: calKey(c, chains),
+    pins: c.n_pins ?? null,
+    shade: c.fiducial_shade ?? s.shade,
+    channel: c.gray_channel ?? s.channel,
+  };
+}
+
+/** The desktop page: the paired phone's chain arrived (its link, or null for a preset's numbers).
+ * It joins the list, marked as the phone's, and is used here too; back on a preset's numbers,
+ * the phone's chain stops being used here, and a chain chosen here is left alone. */
+export function withPhoneChain(s: Settings, link: ChainLink | null, chains: Record<string, ChainSpec>, now = Date.now()): Settings {
+  if (link) return useChain(s, { ...link, via: "phone", at: now }, chains, now);
+  return activeChain(s, chains)?.via === "phone" ? { ...s, cal: null } : s;
+}
+
+/** The label of the chain new photos are measured with. */
+export function settingsChainLabel(s: Settings, chains: Record<string, ChainSpec>): string {
+  const c = activeChain(s, chains);
+  return c ? calLabel(c, chains) : chainLabel(presetKey(chains, s.chain));
 }
 
 export type GrayChannel = NonNullable<ChainSpec["gray_channel"]>;

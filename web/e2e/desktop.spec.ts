@@ -372,6 +372,29 @@ test("Channel (with ?debug): orange rims on off-white links are found through bl
   await page.getByRole("button", { name: "Discard" }).click();
 });
 
+test("a chain card's link (with ?debug): Measure a photo uses its chain, and offers the presets beside it", async () => {
+  const chainStyle = page.locator(".here [data-field=chain]");
+  await page.goto("./#cal=1;base=snap;p=13.2;k=t");
+  await expect(page.locator("#toast")).toContainText("Chain cards are being tested: open the page with ?debug");
+  await page.goto("./?debug#cal=1;base=snap;p=13.2;k=t");
+  await expect(page.locator("#toast")).toContainText("Calibrated snap-fit chain set up · pitch 13.2 mm: Measure a photo uses it.");
+  await expect(page).toHaveURL(/\/\?debug$/);
+  await page.setInputFiles("#pick", pipe.photo);
+  await expect(pins()).toHaveCount(13, { timeout: 120_000 });
+  await expect(chainStyle.locator("option:checked")).toHaveText("Calibrated snap-fit chain · pitch 13.2 mm");
+  await expect(chainStyle.locator("option")).toHaveText(["Snap-fit chain", "O-ring chain", "Calibrated snap-fit chain · pitch 13.2 mm"]);
+  // A damaged link says so, and changes nothing.
+  await page.goto("./?debug#cal=1;base=snap;p=13.3;k=t");
+  await expect(page.locator("#toast")).toContainText("This chain card's code is damaged (check character)");
+  // Back to the preset for what follows.
+  await page.setInputFiles("#pick", pipe.photo);
+  await expect(pins()).toHaveCount(13, { timeout: 120_000 });
+  await chainStyle.selectOption("snap");
+  await expect(pins()).toHaveCount(13, { timeout: 120_000 });
+  await page.getByRole("button", { name: "Discard" }).click();
+  await page.goto("./");
+});
+
 test("a HEIC photo, which Chromium cannot decode, is drawn from the engine's copy under its pins", async () => {
   const t0 = Date.now();
   await page.setInputFiles("#pick", heic.photo);

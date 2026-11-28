@@ -16,6 +16,7 @@ dependencies = [
     "pillow-heif>=0.18",
     "pyyaml>=6.0",
     "scipy>=1.14",
+    "segno>=1.6",
 ]
 
 [project.urls]
