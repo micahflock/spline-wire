@@ -27,7 +27,11 @@ ring_inner_mm: 7.07
 
 # Printed the other way round, dark rims on light links? Add
 # fiducial_shade: dark here, or choose Colours: dark in the app (the default
-# is light: white rims on black links).
+# is light: white rims on black links). Coloured rims that read poorly in
+# gray (orange on off-white links)? Add gray_channel: b (or r, g; the default
+# is luma, the gray) with fiducial_shade: dark: detection then reads the
+# photo's blue alone, where orange is about as dark as black
+# (experiments/colour_channel/).
 
 # Number of pins with a rim (one per link).
 n_pins: 13

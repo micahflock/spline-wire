@@ -86,28 +86,43 @@ class Measurement:
         return out
 
 
-def load_photo(path: Path) -> tuple[np.ndarray, float | None]:
+def load_photo(path: Path, channel: str = "luma") -> tuple[np.ndarray, float | None]:
     """Grayscale pixels (upright per EXIF orientation) and EXIF focal length in px.
 
+    channel: what of the colour becomes the gray (ChainSpec gray_channel):
+    "luma", Pillow's convert("L"), or "r", "g" or "b" alone (gray_from_image).
     Rotating to upright keeps the image diagonal, so the focal length holds.
     Raises ValueError, with a message for the person, if the file is not a
     photo or is damaged.
     """
-    return _load(path, Path(path).name)
+    return _load(path, Path(path).name, channel)
 
 
-def load_photo_bytes(data: bytes, name: str) -> tuple[np.ndarray, float | None]:
+def load_photo_bytes(data: bytes, name: str, channel: str = "luma") -> tuple[np.ndarray, float | None]:
     """load_photo for a photo held in memory (PhotoSession.open).
     name is only used in messages."""
-    return _load(io.BytesIO(data), name)
+    return _load(io.BytesIO(data), name, channel)
 
 
-def _load(source, name: str) -> tuple[np.ndarray, float | None]:
+def gray_from_image(im: Image.Image, channel: str = "luma") -> np.ndarray:
+    """The gray image detection reads: Pillow's luma, L = (19595 R + 38470 G
+    + 7471 B + 0x8000) >> 16, or one of the R, G, B channels as they are
+    (a gray photo's channels are its gray). web/src/pipeline/decode.ts does
+    the same in the browser."""
+    if channel == "luma":
+        return np.asarray(im.convert("L"))
+    if channel not in ("r", "g", "b"):
+        raise ValueError(f"gray_channel must be one of ('luma', 'r', 'g', 'b'), got {channel!r}")
+    rgb = im if im.mode == "RGB" else im.convert("RGB")
+    return np.asarray(rgb.getchannel("RGB".index(channel.upper())))
+
+
+def _load(source, name: str, channel: str = "luma") -> tuple[np.ndarray, float | None]:
     try:
         with Image.open(source) as im:
             focal = focal_px_from_exif(im)
             upright = ImageOps.exif_transpose(im)
-            return np.asarray(upright.convert("L")), focal
+            return gray_from_image(upright, channel), focal
     except FileNotFoundError:
         raise
     except UnidentifiedImageError:

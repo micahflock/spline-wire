@@ -23,6 +23,8 @@
 // Look-alikes that pass are left to the ordering (splinewire/live.py), which
 // knows the pitch.
 
+import { CHANNEL_OFFSET } from "../pipeline/decode";
+import type { GrayChannel } from "../pipeline/types";
 import type { Blob, GrayFrame } from "./types";
 
 /** The whole frame's work size until 2026-11-19, and still the scale
@@ -78,12 +80,18 @@ export const BLOBS = {
   maxCandidates: 400,
 };
 
-/** RGBA pixels (ImageData.data) to gray, by the usual luma weights; into
- * `into` (at least width × height long) if given, which is then reused. */
-export function toGray(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number, into?: Uint8Array): GrayFrame {
+/** RGBA pixels (ImageData.data) to gray, by the usual luma weights, or one
+ * channel alone (ChainSpec gray_channel); into `into` (at least width ×
+ * height long) if given, which is then reused. */
+export function toGray(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number, into?: Uint8Array,
+  channel: GrayChannel = "luma"): GrayFrame {
   const data = into ? into.subarray(0, width * height) : new Uint8Array(width * height);
-  for (let i = 0, j = 0; i < data.length; i++, j += 4) {
-    data[i] = (rgba[j]! * 77 + rgba[j + 1]! * 150 + rgba[j + 2]! * 29) >> 8;
+  if (channel === "luma") {
+    for (let i = 0, j = 0; i < data.length; i++, j += 4) {
+      data[i] = (rgba[j]! * 77 + rgba[j + 1]! * 150 + rgba[j + 2]! * 29) >> 8;
+    }
+  } else {
+    for (let i = 0, j = CHANNEL_OFFSET[channel]; i < data.length; i++, j += 4) data[i] = rgba[j]!;
   }
   return { width, height, data };
 }
@@ -101,12 +109,16 @@ export function workSize(width: number, height: number, shape: Shape = { inner: 
 export interface Shape {
   inner: number;
   dark?: boolean;
+  /** What of the frame's colour to read (ChainSpec gray_channel): for toGray, which
+   * the grab does before detectBlobs; absent, the luma. */
+  channel?: GrayChannel;
 }
 
 /** The fiducial shape of a chain preset. */
-export function shapeOf(chain: { fiducial?: string; fiducial_mm: number; ring_inner_mm?: number; fiducial_shade?: string }): Shape {
+export function shapeOf(chain: { fiducial?: string; fiducial_mm: number; ring_inner_mm?: number; fiducial_shade?: string; gray_channel?: string }): Shape {
   const shape: Shape = chain.fiducial === "ring" && chain.ring_inner_mm ? { inner: chain.ring_inner_mm / chain.fiducial_mm } : { inner: 0 };
   if (chain.fiducial_shade === "dark") shape.dark = true;
+  if (chain.gray_channel === "r" || chain.gray_channel === "g" || chain.gray_channel === "b") shape.channel = chain.gray_channel;
   return shape;
 }
 

@@ -89,6 +89,7 @@ let broken: string;               // a crop with too few pins and no EXIF
 let lensPhoto: string;            // a back-camera photo with full EXIF, no chain
 let selfie: string;
 let darkRims: string;
+let orangeRims: string;           // orange rims on off-white links on a dark table, found only through blue
 let context: BrowserContext;
 let page: Page;
 let photoId: string;
@@ -117,6 +118,10 @@ test.beforeAll(async ({ browser }) => {
   execFileSync("uv", ["run", "splinewire", "synth", "--shape", "pipe", "--dark-fiducials", "--size", "2000x1500",
     "--out", path.join(out, "dark")], { cwd: ROOT, stdio: "inherit" });
   darkRims = path.join(out, "dark", "pipe.jpg");
+  // Coloured rims that read poorly in gray (work queue item 13, experiments/colour_channel/).
+  execFileSync("uv", ["run", "splinewire", "synth", "--shape", "pipe", "--size", "2000x1500", "--rim-rgb", "240,122,35",
+    "--link-rgb", "235,230,214", "--table-rgb", "60,60,60", "--out", path.join(out, "orange")], { cwd: ROOT, stdio: "inherit" });
+  orangeRims = path.join(out, "orange", "pipe.jpg");
   lensPhoto = path.join(out, "lens.jpg");
   selfie = path.join(out, "selfie.jpg");
   execFileSync("uv", ["run", "python", "-c", [
@@ -515,6 +520,46 @@ test("dark rims on light links are found once Colors says so", async () => {
   await tile(photoId).tap();
   await page.locator("#s-shade").selectOption("light");
   await expect(tile(photoId)).toHaveAttribute("data-status", "done");
+});
+
+test("orange rims on off-white links: not found in gray, found and measured through blue (debug mode)", async () => {
+  await expect(page.locator("#s-channel-row")).toBeHidden();             // outside debug mode, no Channel
+  await page.goto("phone/?debug");
+  await expect(page.locator("#s-channel-row")).toBeVisible();
+  await expect(page.locator("#s-channel")).toHaveValue("luma");
+  const before = await page.locator("#photos .tile").first().getAttribute("data-id");
+  await page.setInputFiles("#choose", orangeRims);
+  const item = page.locator("#photos .tile").first();
+  await expect(item).not.toHaveAttribute("data-id", before!, { timeout: 30_000 });
+  await expect(item).toHaveAttribute("data-status", "error", { timeout: 120_000 });
+  const orangeId = (await item.getAttribute("data-id"))!;
+  // Dark rims, as the chain is: still not found in gray on a dark table (orange is lighter than the table there).
+  await expect(page.locator("#r-problem")).toContainText("No chain found");
+  await page.locator("#s-shade").selectOption("dark");
+  await expect(page.locator("#r-problem")).toContainText("pins in a row", { timeout: 120_000 });   // two rims of 13
+  await expect(item).toHaveAttribute("data-status", "error");
+  // Through the blue channel orange is about as dark as black: every pin, measured.
+  await page.locator("#s-channel").selectOption("b");
+  await expect(item).toHaveAttribute("data-status", "done", { timeout: 120_000 });
+  await expect(page.locator("#numbers")).toContainText("13 / 13");
+  await expand();
+  await expect(page.locator("#r-meta")).toContainText("blue channel");
+  await collapse();
+  // Each photo keeps its channel: the gray pipe photo, opened and measured again, is still read in gray.
+  await tile(photoId).tap();
+  await page.locator("#s-shade").selectOption("light");
+  await expect(tile(photoId)).toHaveAttribute("data-status", "done", { timeout: 120_000 });
+  await expect(page.locator("#numbers")).toContainText("13 / 13");
+  // A channel left on outside debug mode applies, and is named.
+  await page.goto("phone/?debug=0");
+  await expect(page.locator("#s-channel-row")).toBeHidden();
+  await expect(page.locator("#debug-note")).toHaveText(
+    "Debug settings still on: blue channel. Open the page with ?debug to change them.");
+  await page.goto("phone/?debug");
+  await page.locator("#s-channel").selectOption("luma");
+  await page.goto("phone/?debug=0");
+  await expect(page.locator("#debug-note")).toBeHidden();
+  await expect(tile(orangeId)).toHaveAttribute("data-status", "done");    // measured with its own channel, kept
 });
 
 test.describe("paired with a computer", () => {

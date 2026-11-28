@@ -14,9 +14,11 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import type { MeasureOptions, MeasurementDocument } from "../core/types";
-import { readGrayPng } from "./golden/png";
+import { readGrayPng, readRgbaPng } from "./golden/png";
+import { grayFromRgba } from "./decode";
 import { searchBox } from "./detect";
 import { PhotoSession } from "./session";
+import type { GrayChannel } from "./types";
 
 interface Case { photo: string; options: MeasureOptions; document: MeasurementDocument; outputs: Record<string, string> | null }
 
@@ -71,15 +73,28 @@ function sameText(got: string, want: string, kind: string, atLeast = 0): void {
   });
 }
 
+/** A golden photo as the engine reads it for `channel`: a gray PNG as it is, a colour one
+ * (photo-snap-orange.png) by decode.ts's conversion, which Python's gray_from_image matches. */
+function photoGray(photo: string, channel: GrayChannel) {
+  const url = new URL(`./golden/${photo}`, import.meta.url);
+  if (photo !== "photo-snap-orange.png") return readGrayPng(url);
+  const rgba = readRgbaPng(url);
+  return grayFromRgba(rgba.data, rgba.width, rgba.height, channel);
+}
+
 describe("PhotoSession against Python", () => {
   const sessions = new Map<string, PhotoSession>();
   for (const [n, c] of cases.entries()) {
     it(`${c.photo} #${n}: ${c.document.error ?? "ok"}`, () => {
+      const raw = c.options.chain.gray_channel ?? "luma";
+      const channel: GrayChannel = ["luma", "r", "g", "b"].includes(raw) ? raw : "luma";
       let s = sessions.get(c.photo);
       if (!s) {
-        s = new PhotoSession(c.photo, readGrayPng(new URL(`./golden/${c.photo}`, import.meta.url)), null, c.document.info);
+        s = new PhotoSession(c.photo, photoGray(c.photo, channel), null, c.document.info, channel);
         sessions.set(c.photo, s);
       }
+      // As the engine does (core/engine.ts): another channel, the photo read again.
+      if (channel !== s.channel) s.useImage(photoGray(c.photo, channel), channel);
       same(s.measure(c.options), c.document, "document");
       if (c.outputs) {
         const files = s.outputs();
@@ -90,6 +105,16 @@ describe("PhotoSession against Python", () => {
       }
     }, 60000);
   }
+  it("measures a photo only in the channel it was read with (the engine reads it again first)", () => {
+    const c = cases.find((k) => k.photo === "photo-snap-orange.png" && k.options.chain.gray_channel === "b" && k.document.ok)!;
+    const s = new PhotoSession(c.photo, photoGray(c.photo, "luma"), null, c.document.info);
+    const doc = s.measure(c.options);
+    expect(doc.ok).toBe(false);
+    expect(doc.error).toBe("Error: the photo was read as its luma, the chain reads its b");      // a bug, shown with its type
+    s.useImage(photoGray(c.photo, "b"), "b");
+    same(s.measure(c.options), c.document, "document");
+    expect(() => s.useImage({ width: 1, height: 1, data: new Uint8Array(1) }, "g")).toThrow(/not \d+×\d+/);
+  });
   it("reports", () => console.log(`[session] ${cases.length} documents; ${rounding} numbers differ in their last digits (no more than allowed)`));
 });
 

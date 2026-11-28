@@ -8,6 +8,7 @@ import type { ChainSpec } from "./types";
 const FIDUCIALS = ["dot", "ring"] as const;
 const CONTACTS = ["edge", "round"] as const;
 const SHADES = ["light", "dark"] as const;
+export const GRAY_CHANNELS = ["luma", "r", "g", "b"] as const;
 
 /** ChainSpec from chain.yaml's keys or saved settings (spec_from_dict). Older
  * files describe a ring as ring_outer_mm + ring_inner_mm, with no `fiducial`. */
@@ -34,6 +35,7 @@ export function specFromDict(raw: Record<string, unknown>): ChainSpec {
     max_bend_deg: Number(raw.max_bend_deg || 80),
     contact: String(raw.contact || "edge") as ChainSpec["contact"],
     fiducial_shade: String(raw.fiducial_shade || "light") as ChainSpec["fiducial_shade"],
+    gray_channel: String(raw.gray_channel || "luma") as ChainSpec["gray_channel"],
   });
 }
 
@@ -45,6 +47,9 @@ export function makeSpec(s: ChainSpec): ChainSpec {
   if (!CONTACTS.includes(s.contact)) throw new PipelineError(`contact must be one of ('edge', 'round'), got '${s.contact}'`);
   if (!SHADES.includes(s.fiducial_shade)) {
     throw new PipelineError(`fiducial_shade must be one of ('light', 'dark'), got '${s.fiducial_shade}'`);
+  }
+  if (!GRAY_CHANNELS.includes(s.gray_channel)) {
+    throw new PipelineError(`gray_channel must be one of ('luma', 'r', 'g', 'b'), got '${s.gray_channel}'`);
   }
   if (!(s.fiducial_mm > 0)) throw new PipelineError(`fiducial_mm must be positive, got ${f(s.fiducial_mm)}`);
   if (s.fiducial === "ring" && !(0 < s.ring_inner_mm && s.ring_inner_mm < s.fiducial_mm)) {

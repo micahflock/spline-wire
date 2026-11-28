@@ -21,7 +21,7 @@ import type { Edits, MeasurementDocument, Point, Side } from "../core/types";
 import type { Exif } from "./exif";
 import type { Corners, Name, Star } from "../relay/sync";
 import type { CurveSync } from "./send";
-import type { Shade } from "./settings";
+import type { GrayChannel, Shade } from "./settings";
 
 export type Status = "queued" | "loading" | "measuring" | "done" | "error";
 export type BlobKind = "original" | "preview" | "thumb" | "outputs";
@@ -54,6 +54,8 @@ export interface PhotoRecord {
   pins: number;
   /** Its chain's colours (settings.Shade); absent on photos from before they could be chosen: light. */
   shade?: Shade;
+  /** Its chain's colour channel (settings.GrayChannel); absent on photos from before it could be chosen: gray. */
+  channel?: GrayChannel;
   side: Side | Point;
   edits: Edits;
   status: Status;

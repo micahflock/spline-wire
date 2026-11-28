@@ -86,6 +86,7 @@ const spreads = async (page: Page, image: string) => {
 let pipe: NativePhoto;
 let heic: NativePhoto;            // the pipe photo as an iPhone's HEIC, which Chromium cannot decode
 let broken: string;               // a crop with too few pins
+let orangeRims: string;           // orange rims on off-white links on a dark table, found only through blue
 let context: BrowserContext;
 let page: Page;
 let jsAtOpen: Set<string>;
@@ -103,6 +104,9 @@ test.beforeAll(async ({ browser }) => {
     "im = Image.open(sys.argv[1]); w, h = im.size",
     "im.crop((0, 0, 1850, h)).save(sys.argv[2], 'JPEG', quality=90)",
   ].join("\n"), pipe.photo, broken], { cwd: ROOT, stdio: "inherit" });
+  execFileSync("uv", ["run", "splinewire", "synth", "--shape", "pipe", "--size", "2000x1500", "--rim-rgb", "240,122,35",
+    "--link-rgb", "235,230,214", "--table-rgb", "60,60,60", "--out", path.join(out, "orange")], { cwd: ROOT, stdio: "inherit" });
+  orangeRims = path.join(out, "orange", "pipe.jpg");
   fs.mkdirSync(SHOTS, { recursive: true });
   context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["clipboard-read", "clipboard-write"] });
   page = await context.newPage();
@@ -340,6 +344,32 @@ test("dropped files: one that is not a photo, and a photo with too few pins, sho
   await expect(page.locator("#curve-title")).toHaveText("pipe.jpg");
   log(`drop to answer: not a photo ${notPhoto.sinceDrop} ms (the engine loading again after the reload),`,
       `then a cropped photo ${crop.sinceDrop} ms (engine loaded)`);
+});
+
+test("Channel (with ?debug): orange rims on off-white links are found through blue, not in gray", async () => {
+  const channel = page.locator(".here [data-out=channel]");
+  await page.goto("./?debug");
+  await page.setInputFiles("#pick", orangeRims);
+  await expect(page.locator(".here .problem .raw")).toContainText("need the whole chain in view", { timeout: 120_000 });
+  await expect(channel).toBeVisible();
+  await expect(page.locator(".here [data-field=channel]")).toHaveValue("luma");
+  await page.locator(".here [data-field=shade]").selectOption("dark");
+  await expect(page.locator(".here .problem .raw")).toContainText("pins in a row", { timeout: 120_000 });     // gray: two rims of 13
+  await page.locator(".here [data-field=channel]").selectOption("b");
+  await expect(pins()).toHaveCount(13, { timeout: 120_000 });
+  await expect(page.locator(".here .nums")).toContainText("13 of 13");
+  await expect(page.locator(".here [data-here=add]")).toBeEnabled();
+  await page.screenshot({ path: path.join(SHOTS, "measure-here-blue-channel.png") });
+  // Back to gray and light for what follows; without ?debug the choice is not shown while gray.
+  await page.locator(".here [data-field=channel]").selectOption("luma");
+  await expect(page.locator(".here .problem .raw")).toContainText("pins in a row", { timeout: 120_000 });
+  await page.locator(".here [data-field=shade]").selectOption("light");
+  await page.getByRole("button", { name: "Discard" }).click();
+  await page.goto("./");
+  await page.setInputFiles("#pick", pipe.photo);
+  await expect(pins()).toHaveCount(13, { timeout: 120_000 });
+  await expect(channel).toBeHidden();
+  await page.getByRole("button", { name: "Discard" }).click();
 });
 
 test("a HEIC photo, which Chromium cannot decode, is drawn from the engine's copy under its pins", async () => {
