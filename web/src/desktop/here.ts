@@ -26,7 +26,7 @@ import { Measurer, type Update } from "../phone/measurer";
 import type { Status } from "../phone/photos";
 import { SHADE_TEXT, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings, type Settings,
   type Shade } from "../phone/settings";
-import { ENGINE_STAGE, SIDE_TEXT, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "../phone/wording";
+import { ENGINE_STAGE, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "../phone/wording";
 import { greyCopy, previews, type Previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
 import { pack } from "../relay/files";
@@ -375,9 +375,12 @@ export class Draft {
         this.editing = true;
         this.edits = NO_EDITS;
         this.remeasure();
-      } else if (act === "inside" || act === "outside") {
-        this.side = act;
-        this.saveSettings({ side: act });
+      } else if (act === "swap") {
+        // The phone's Swap side: the curve to the other side of the chain from where it is now.
+        if (this.measurer.busy(this.id)) return;
+        const now = this.doc?.result?.object_side ?? this.side;
+        this.side = now === "inside" ? "outside" : "inside";
+        this.saveSettings({ side: this.side });
         this.remeasure();
       } else if (act === "fewer" || act === "more") {
         this.setPins(this.pins + (act === "more" ? 1 : -1));
@@ -472,10 +475,9 @@ export class Draft {
     this.q<HTMLButtonElement>("[data-here=reset]").disabled = busy || !v || !hasEdits(v.edits);
     this.q("[data-out=hint]").textContent = v ? "Click a pin to remove it, a dot to add one. Drag to move, wheel to zoom." : "";
 
-    for (const b of this.root.querySelectorAll<HTMLButtonElement>(".seg button")) {
-      b.setAttribute("aria-pressed", String(b.dataset.here === this.side));
-    }
-    this.q("[data-out=side-now]").textContent = res ? SIDE_TEXT[res.object_side] : "";
+    const swap = this.q<HTMLButtonElement>("[data-here=swap]");
+    swap.hidden = !res;                                    // as on the phone: no Swap side without a curve
+    swap.disabled = busy;
 
     const chainSel = this.q<HTMLSelectElement>("[data-field=chain]");
     if (chainSel.options.length !== Object.keys(this.chains).length) {
@@ -516,6 +518,10 @@ function layout(name: string): string {
     <div class="problem" data-out="problem" role="alert" hidden></div>
     <div class="stage">
       <svg class="photo-svg" role="img" aria-label="The photo with the measured chain"><image x="-0.5" y="-0.5" preserveAspectRatio="none"/><g class="ov-layer"></g></svg>
+      <button type="button" class="swap" data-here="swap" aria-label="Swap the curve to the other side of the chain" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9c4-5 12-5 16 0M4 15c4 5 12 5 16 0"/><path d="M17 5l3 4-4 1M7 19l-3-4 4-1"/></svg>
+        Swap side
+      </button>
     </div>
     <div class="tools">
       <button type="button" class="btn small" data-here="undo" aria-label="Undo the last pin change">Undo</button>
@@ -528,13 +534,6 @@ function layout(name: string): string {
   <aside class="read" aria-label="Measurement">
     <div class="sec"><span>Measure here</span><span class="mono" data-out="status" role="status" aria-live="polite"></span></div>
     <div class="scroll">
-      <div class="field-block">
-        <div class="label">Object side<span class="muted" data-out="side-now"></span></div>
-        <div class="seg" role="group" aria-label="Which side of the chain touched the object">
-          <button type="button" data-here="inside" aria-pressed="false">Inside</button>
-          <button type="button" data-here="outside" aria-pressed="false">Outside</button>
-        </div>
-      </div>
       <label class="field"><span>Chain style</span><select data-field="chain"></select></label>
       <label class="field"><span>Colors</span><select data-field="shade">
         <option value="light">${SHADE_TEXT.light}</option><option value="dark">${SHADE_TEXT.dark}</option></select></label>

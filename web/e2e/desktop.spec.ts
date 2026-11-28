@@ -2,7 +2,7 @@
 // Chromium at 1280×800: opening the page loads nothing of the engine; a picked
 // photo shows the engine's progress, then the photo with its pins, compared
 // with native Python; the mouse fixes pins (click), zooms (wheel) and pans
-// (drag); the object side (Inside, Outside); Add to the list, where the curve is marked
+// (drag); the object side (Swap side); Add to the list, where the curve is marked
 // "measured here", copies as Python's table and offers the files; a reload
 // keeps it. Last, dropped files: one that is not a photo and a photo with too
 // few pins show the core's message as is.
@@ -240,14 +240,20 @@ test("the mouse: a click removes a pin and Undo brings it back; the wheel zooms 
   log(`re-measure after a click: ${removed} ms`);
 });
 
-test("the object side: Outside, then Inside (no clicking its side: the phone dropped it too)", async () => {
-  await expect(page.locator(".here .seg button")).toHaveCount(2);
-  await page.getByRole("button", { name: "Outside", exact: true }).click();
-  await expect(page.locator(".here [data-out=side-now]")).toContainText("outside of the bend");
-  await expect(page.getByRole("button", { name: "Outside", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Inside", exact: true }).click();
-  await expect(page.locator(".here [data-out=side-now]")).toContainText("inside of the bend");
-  await expect(page.getByRole("button", { name: "Inside", exact: true })).toHaveAttribute("aria-pressed", "true");
+test("the object side: Swap side, to the other side and back (no Inside/Outside keys, no clicking its side)", async () => {
+  const swap = page.getByRole("button", { name: "Swap the curve to the other side of the chain" });
+  const side = page.locator(".here .cell", { hasText: "Curve" }).locator(".s");
+  await expect(page.getByRole("button", { name: "Inside", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Outside", exact: true })).toHaveCount(0);
+  await expect(swap).toBeVisible();
+  const before = (await side.textContent())!;
+  expect(before).toMatch(/object on the (inside|outside)/);
+  const other = before.includes("inside") ? "object on the outside" : "object on the inside";
+  await swap.click();
+  await expect(side).toHaveText(other);
+  await expect(swap).toBeEnabled();
+  await swap.click();
+  await expect(side).toHaveText(before);
   await expect(pins()).toHaveCount(13);
 });
 
