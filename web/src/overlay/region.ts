@@ -1,5 +1,5 @@
 // Which part of the video frame the live detector reads, and how finely
-// (docs/open-items.md, live view resolution).
+// (experiments/live_view/README.md, Findings).
 //
 // The snap-fit chain's rims are thin: on a full frame drawn at 800 px they are
 // lost once the chain spans less than ~0.40 of the frame's short side. Reading
