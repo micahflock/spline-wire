@@ -410,7 +410,7 @@ test("settings learn a focal length per lens, not from a selfie, and take the ma
   await expect(page.locator("#toast")).toContainText("front camera");
   await expect(page.locator("#s-camera")).toHaveText("None yet");
   await page.setInputFiles("#s-teach", lensPhoto);
-  await expect(page.locator("#toast")).toContainText("Learned 26 mm for Phone back camera 4.25mm f/1.8");
+  await expect(page.locator("#toast")).toContainText("Learned 26mm (4.25mm f/1.8) for Phone back camera.");
   // The detected camera, its focal length under it; taken without asking: the override box shows it in use.
   await expect(page.locator("#s-camera span")).toHaveText("Phone back camera");
   await expect(page.locator("#s-camera b")).toHaveText("26mm (4.25mm f/1.8)");

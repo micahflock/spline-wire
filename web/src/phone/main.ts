@@ -1649,7 +1649,8 @@ $<HTMLInputElement>("s-teach").onchange = async (e) => {
   const before = focalKey();
   // A new main camera changes the focal length for photos without camera data: the open one is measured again.
   setSettings(learn(settings, exif, pixels), focalKey() !== before);
-  toast(`Learned ${exif.focal35} mm for ${lensName(exif)}.`, 5000);
+  const shown = cameraLines({ name: lensName(exif), focal35: exif.focal35!, focalMm: exif.focalMm });
+  toast(`Learned ${shown.focal} for ${shown.camera}.`, 5000);
   // Photos already taken with that lens, which lacked it, are measured with it now.
   for (const r of records.values()) {
     if (r.focal || !r.exif || r.exif.focal35 !== null) continue;
