@@ -33,7 +33,7 @@ import { curveFrom } from "./curve";
 import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg, type Box } from "./drawings";
 import { TapFilter } from "./taps";
 import { NO_EXIF, exifOfFile, type Exif } from "./exif";
-import { isFront, learn, lensFocal, lensName, mainLens, savedFocal } from "./lenses";
+import { cameraLines, isFront, learn, lensFocal, lensName, mainLens, savedFocal } from "./lenses";
 import { Measurer, type Update } from "./measurer";
 import {
   KEEP_CURVES, PHOTO_FILES, PhotoStore, cleanupPlan, hasCurve, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord,
@@ -1528,8 +1528,9 @@ function renderSettings(): void {
   const override = $<HTMLInputElement>("s-override");
   if (document.activeElement !== override) override.value = settings.focalOverride35?.toString() ?? "";
   $("s-focal-status").textContent = focalStatus(saved, learned);
-  $("s-camera").replaceChildren(...(learned
-    ? [el("span", { textContent: learned.name }), el("b", { textContent: `${learned.focal35} mm` })]
+  const shown = learned ? cameraLines(learned) : null;
+  $("s-camera").replaceChildren(...(shown
+    ? [el("span", { textContent: shown.camera }), el("b", { textContent: shown.focal })]
     : [el("span", { textContent: "None yet" })]));
 }
 
@@ -1648,7 +1649,8 @@ $<HTMLInputElement>("s-teach").onchange = async (e) => {
   const before = focalKey();
   // A new main camera changes the focal length for photos without camera data: the open one is measured again.
   setSettings(learn(settings, exif, pixels), focalKey() !== before);
-  toast(`Learned ${exif.focal35} mm for ${lensName(exif)}.`, 5000);
+  const shown = cameraLines({ name: lensName(exif), focal35: exif.focal35!, focalMm: exif.focalMm });
+  toast(`Learned ${shown.focal} for ${shown.camera}.`, 5000);
   // Photos already taken with that lens, which lacked it, are measured with it now.
   for (const r of records.values()) {
     if (r.focal || !r.exif || r.exif.focal35 !== null) continue;
