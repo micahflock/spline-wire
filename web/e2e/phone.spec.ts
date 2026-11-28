@@ -386,6 +386,9 @@ test("Copy points puts the Fusion add-in's table on the clipboard", async () => 
   await tapButton("Download the DXF file");
   expect((await download).suggestedFilename()).toBe("pipe-curve.dxf");
   await page.locator("#this-curve").screenshot({ path: path.join(SHOTS, "expanded-this-curve.png") });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.locator("#this-curve").screenshot({ path: path.join(SHOTS, "expanded-this-curve-dark.png") });
+  await page.emulateMedia({ colorScheme: "light" });
   await collapse();
 });
 
