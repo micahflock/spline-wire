@@ -746,7 +746,8 @@ test.describe("paired with a computer", () => {
     await expect(page.locator("#x-nm input.rename")).toBeFocused();
     await field.fill("");
     await field.press("Enter");
-    await expect(page.locator("#xv")).toHaveAttribute("aria-label", /^Curve \d\d:\d\d$/);
+    // Called after its time, as the corner shows it: the time of day, or the date once the day has turned (a run across midnight).
+    await expect(page.locator("#xv")).toHaveAttribute("aria-label", `Curve ${await page.locator("#x-time").textContent()}`);
     await expect(page.locator("#x-nm")).toBeHidden();                    // no name: no chip
     await expect(page.locator("#r-name")).toHaveText("");
     await collapse();
