@@ -175,9 +175,12 @@ class PhotoSession:
     """A photo and what has been found in it so far."""
 
     def __init__(self, name: str, image: np.ndarray, exif_focal_px: float | None, info: dict,
-                 detected: list[Fiducial] | None = None) -> None:
+                 detected: list[Fiducial] | None = None, channel: str = "luma",
+                 data: bytes | None = None) -> None:
         self.name = name
-        self.image = image                      # grayscale, upright
+        self.image = image                      # grayscale, upright: `channel` of the photo
+        self.channel = channel                  # ChainSpec gray_channel the image was read with
+        self._data = data                       # the photo's bytes, to read another channel from
         self.exif_focal_px = exif_focal_px
         self.info = info
         self._detected = detected
@@ -189,10 +192,25 @@ class PhotoSession:
         self._edits = Edits()                   # the edits of the latest attempt, successful or not
 
     @classmethod
-    def open(cls, data: bytes, name: str) -> "PhotoSession":
-        """Decode a photo. ValueError (for the person) if it is not one."""
-        image, focal = load_photo_bytes(data, name)
-        return cls(name, image, focal, photo_info(io.BytesIO(data)))
+    def open(cls, data: bytes, name: str, channel: str = "luma") -> "PhotoSession":
+        """Decode a photo. ValueError (for the person) if it is not one. The
+        bytes are kept: a measurement whose chain reads another colour
+        channel (ChainSpec gray_channel) decodes them again (use_channel)."""
+        image, focal = load_photo_bytes(data, name, channel)
+        return cls(name, image, focal, photo_info(io.BytesIO(data)), channel=channel, data=data)
+
+    def use_channel(self, channel: str) -> None:
+        """Read the photo's `channel` from now on (the luma, or R, G or B alone):
+        decoded again from its bytes, and its detections found again."""
+        if channel == self.channel:
+            return
+        if self._data is None:
+            raise ValueError(f"this photo was opened as its {self.channel} only; open it again "
+                             f"to read its {channel} channel")
+        self.image, _ = load_photo_bytes(self._data, self.name, channel)
+        self.channel = channel
+        self._detected = self._detected_for = None
+        self._region = self._region_detected = None
 
     @property
     def size(self) -> tuple[int, int]:
@@ -223,6 +241,7 @@ class PhotoSession:
     def run(self, options: Options) -> Measured:
         """Measure with these options. Raises ValueError with a message for the
         person when no chain can be measured; `measure` reports that instead."""
+        self.use_channel(options.spec.gray_channel)
         size = self.size
         focal, source = self.exif_focal_px, "exif" if self.exif_focal_px is not None else "estimated"
         if options.focal_override_35mm is not None:

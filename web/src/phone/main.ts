@@ -43,7 +43,7 @@ import { renamedFile } from "../desktop/names";
 import {
   KEEP_PHOTO_CHOICES, chainLabel, chainSpec, debugFromQuery, debugLeftovers, defaultPins, loadSettings, parseFocal, parsePins, presetKey,
   saveSettings,
-  type Settings, type Shade,
+  CHANNEL_TEXT, type GrayChannel, type Settings, type Shade,
 } from "./settings";
 import {
   ENGINE_STAGE, errorAdvice, errorTitle, failureText, focalStatus, measurementRows, photoFocalText, readNote, readWarning, spaceText,
@@ -99,7 +99,7 @@ function options(id: string): MeasureOptions | null {
   // A photo from the live camera: look for the chain where the live view last saw it first (much faster on 12 MP).
   const search = r.camera && r.pixels ? stillSearchBox(r.camera.frameChain, r.camera.frameSize, r.pixels) : null;
   return {
-    chain: chainSpec(chains, r.chain, r.pins, r.shade), side: r.side, edits: r.edits,
+    chain: chainSpec(chains, r.chain, r.pins, r.shade, r.channel), side: r.side, edits: r.edits,
     saved_focal_35mm: savedFocal(settings)?.focal35 ?? null, focal_override_35mm: settings.focalOverride35 ?? r.focal?.focal35 ?? null,
     ...(search ? { search_px: search } : {}),
   };
@@ -184,7 +184,8 @@ async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | n
     const focal = learnFrom(exif, made?.pixels ?? null, still);
     const r: PhotoRecord = {
       id, name: file.name || "photo.jpg", type: file.type, size: file.size, added: Date.now() + i, via,
-      chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), shade: settings.shade, side: settings.side, edits: NO_EDITS,
+      chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), shade: settings.shade,
+      ...(settings.channel !== "luma" ? { channel: settings.channel } : {}), side: settings.side, edits: NO_EDITS,
       status: "queued", doc: null, failure: null, pixels: made?.pixels ?? null, preview: made?.previewSize ?? null, autoSend: paired(),
       measuredWith: null, exif, focal,
       camera: still ? { label: still.camera, still: still.kind, frameChain: still.frameChain, frameSize: still.frameSize, fov: null, ms: Math.round(still.ms),
@@ -748,7 +749,8 @@ function renderResult(): void {
   const via = r.via === "camera" ? (r.camera?.still === "frame" ? `page camera, video frame${r.camera.why ? ` (takePhoto: ${r.camera.why})` : ""}` : "page camera")
     : r.via === "take" ? "system camera" : "library";
   const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
-  $("r-meta").textContent = [r.name, size, focal, `${chainLabel(r.chain)}`, via, fov].filter(Boolean).join(" · ");
+  const channel = r.channel && r.channel !== "luma" ? `${CHANNEL_TEXT[r.channel].toLowerCase()} channel` : "";
+  $("r-meta").textContent = [r.name, size, focal, `${chainLabel(r.chain)}`, channel, via, fov].filter(Boolean).join(" · ");
 
   const v = doc?.view;
   svg.classList.toggle("wait", busy);
@@ -1045,7 +1047,7 @@ const outputsWork = new Map<string, { doc: string; done: Promise<Outputs> }>();
  * (a tapped side and "inside" give the same curve, but the JSON file says which). Not the
  * focal length settings: a change to them measures the photo again, and a new document. */
 function docKey(r: PhotoRecord, doc: MeasurementDocument): string {
-  return JSON.stringify([doc, r.side, r.edits, r.pins, r.chain, r.shade ?? "light"]);
+  return JSON.stringify([doc, r.side, r.edits, r.pins, r.chain, r.shade ?? "light", r.channel ?? "luma"]);
 }
 
 /** The photo's output files: kept ones while they are of its measurement, else made by the core and kept. */
@@ -1285,7 +1287,7 @@ async function syncCurve(r: PhotoRecord): Promise<void> {
     const out = await outputsOf(r.id);
     // Measured again meanwhile (another tap): that measurement sends its own.
     if (r.doc !== doc || !records.has(r.id) || !outbox) return;
-    const spec = chainSpec(chains, r.chain, r.pins, r.shade);
+    const spec = chainSpec(chains, r.chain, r.pins, r.shade, r.channel);
     const curve = curveFrom(doc, { chainName: chainLabel(r.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm, n_pins: r.pins },
       await pack(out.files));
     if (!curve || r.doc !== doc) return;
@@ -1509,6 +1511,9 @@ function renderSettings(): void {
   }
   select.value = presetKey(chains, settings.chain);
   $<HTMLSelectElement>("s-shade").value = settings.shade;
+  // The colour channel is for testing coloured rims (debug mode), next to Colors; one left on is named below.
+  $("s-channel-row").hidden = !settings.debug;
+  $<HTMLSelectElement>("s-channel").value = settings.channel;
   $<HTMLSelectElement>("s-live").value = settings.liveSize;
   // The chain-only view is for debugging; one chosen there stays shown, so the menu tells the truth.
   $("s-view-chain").hidden = !settings.debug && settings.liveView !== "chain";
@@ -1591,6 +1596,18 @@ $<HTMLSelectElement>("s-shade").onchange = (e) => {
     renderResult();
   }
   toast(shade === "dark" ? "Measuring dark dots or rims on light links." : "Measuring light dots or rims on dark links.");
+};
+$<HTMLSelectElement>("s-channel").onchange = (e) => {
+  const channel = (e.target as HTMLSelectElement).value as GrayChannel;
+  setSettings({ ...settings, channel });
+  // As Colors: the open photo is measured again with it too.
+  const r = selected ? records.get(selected) : undefined;
+  if (r && !r.photoDeleted && (r.channel ?? "luma") !== channel) {
+    r.channel = channel;
+    remeasure(r.id, true);
+    renderResult();
+  }
+  toast(channel === "luma" ? "Detection reads the photo in gray." : `Detection reads the photo's ${CHANNEL_TEXT[channel].toLowerCase()} alone.`);
 };
 $<HTMLSelectElement>("s-live").onchange = (e) => {
   const liveSize = (e.target as HTMLSelectElement).value === "full" ? "full" : "fast";
@@ -1709,7 +1726,7 @@ function toast(text: string, ms = 3500): void {
 const cameraView = new CameraView({
   chain: async () => {
     await chainsLoaded;
-    return chainSpec(chains, presetKey(chains, settings.chain), defaultPins(settings, chains), settings.shade);
+    return chainSpec(chains, presetKey(chains, settings.chain), defaultPins(settings, chains), settings.shade, settings.channel);
   },
   settings: () => settings,
   camerasListed: listCameras,

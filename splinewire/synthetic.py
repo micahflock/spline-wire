@@ -21,6 +21,11 @@ from splinewire.chain import ChainSpec, pins_from_turns
 TRUTH_SCHEMA = "spline-wire/truth@1"
 
 TABLE_GRAY = 205
+Rgb = tuple[float, float, float]
+# A colour photo's noise per channel (R, G, B), gray levels: a phone's white
+# balance under indoor light multiplies blue by about 2 and red by about 1.4
+# over green (experiments/colour_channel/render_still.py).
+SNAP_RGB_NOISE = (4.0, 3.0, 6.0)
 LINK_GRAY = 45
 RING_GRAY = 235
 
@@ -80,11 +85,13 @@ def render_snap_photo(
     spec: ChainSpec,
     camera: Camera,
     rng: np.random.Generator | None = None,
-    table_gray: int = TABLE_GRAY,
-    noise_gray: float = 3.0,
+    table_gray: int | Rgb = TABLE_GRAY,
+    noise_gray: float | Rgb = 3.0,
     blur_px: float = 0.7,
     supersample: int = 3,
     texture_px_per_mm: float = 20.0,
+    link_gray: int | Rgb | None = None,
+    rim_gray: int | Rgb | None = None,
 ) -> np.ndarray:
     """Grayscale photo of the snap-fit chain (contact: round), with its relief.
 
@@ -96,8 +103,21 @@ def render_snap_photo(
     chain is drawn as a stack of flat slices, deepest first, each put where
     the camera sees it on the rim plane (z = 0, where pins_mm are): sleeves
     and arms, the heads, then the white rims with their 0.4 mm walls.
+
+    link_gray and rim_gray override the chain's shades (_shades). Given as
+    (R, G, B), any of the table, link, rim or noise makes a colour photo,
+    H x W x 3: each channel drawn as the gray one is, with its own noise
+    (a coloured chain, for the colour channel the pipeline reads, ChainSpec
+    gray_channel).
     """
     rng = rng or np.random.default_rng(0)
+    link_default, rim_default = _shades(spec)
+    link_gray = link_default if link_gray is None else link_gray
+    rim_gray = rim_default if rim_gray is None else rim_gray
+    rgb = any(np.ndim(v) for v in (table_gray, noise_gray, link_gray, rim_gray))
+    if rgb:
+        table_gray, noise_gray, link_gray, rim_gray = (
+            np.broadcast_to(np.asarray(v, np.float32), (3,)).copy() for v in (table_gray, noise_gray, link_gray, rim_gray))
     tau = texture_px_per_mm
     w, h = camera.image_size
     corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], float)
@@ -152,25 +172,31 @@ def render_snap_photo(
         M = np.linalg.inv(T) @ np.linalg.inv(camera.plane_homography) @ below @ T
         return cv2.warpPerspective(mask, M, (tex_w, tex_h), flags=cv2.INTER_LINEAR)
 
-    tex = np.full((tex_h, tex_w), float(table_gray), np.float32)
+    if rgb:
+        tex = np.empty((tex_h, tex_w, 3), np.float32)
+        tex[:] = table_gray
+    else:
+        tex = np.full((tex_h, tex_w), float(table_gray), np.float32)
     depths = np.r_[np.arange(SNAP_TABLE_MM, SNAP_HEAD_FOOT_MM, -0.5), np.arange(SNAP_HEAD_FOOT_MM, SNAP_RIM_MM - 1e-9, -0.25)]
-    link_gray, rim_gray = _shades(spec)
     slices = [(link_slice(float(d)), float(d), link_gray) for d in depths]
     slices += [(rim, d, rim_gray) for d in (SNAP_RIM_MM, SNAP_RIM_MM / 2, 0.0)]
     for mask, depth, gray in slices:
         a = lowered(mask, float(depth)).astype(np.float32) / 255.0
+        if rgb:
+            a = a[..., None]
         tex = tex * (1 - a) + gray * a
 
     ss = supersample
     S = np.array([[ss, 0, (ss - 1) / 2], [0, ss, (ss - 1) / 2], [0, 0, 1]])
     hi = cv2.warpPerspective(
         np.clip(tex, 0, 255).astype(np.uint8), S @ camera.plane_homography @ T, (w * ss, h * ss),
-        flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=int(table_gray),
+        flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+        borderValue=tuple(int(v) for v in table_gray) if rgb else int(table_gray),
     )
     img = cv2.resize(hi, (w, h), interpolation=cv2.INTER_AREA).astype(np.float64)
     if blur_px > 0:
         img = cv2.GaussianBlur(img, (0, 0), blur_px)
-    img += rng.normal(0.0, noise_gray, img.shape)
+    img += rng.normal(0.0, noise_gray if not rgb else noise_gray.astype(np.float64), img.shape)
     return np.clip(np.round(img), 0, 255).astype(np.uint8)
 
 
@@ -239,13 +265,28 @@ def write_synthetic_photo(
     distance_mm: float = 200.0,
     tilt_deg: float = 25.0,
     seed: int = 0,
+    colours: dict[str, Rgb] | None = None,
 ) -> None:
-    """Render a tilted phone photo of the chain and save it with EXIF focal length."""
+    """Render a tilted phone photo of the chain and save it with EXIF focal length.
+
+    colours: a colour photo of the snap-fit chain instead, from any of "rim",
+    "link" and "table" as (R, G, B) (render_snap_photo; the rest as the gray
+    photo has them), with each channel's noise as a phone's under indoor
+    light (SNAP_RGB_NOISE)."""
     focal = focal_px_from_35mm(focal_35mm, image_size)
     cam = look_at_plane(focal, image_size, distance_mm, tilt_deg=tilt_deg,
                         tilt_direction_deg=35.0, roll_deg=10.0, target_mm=tuple(pins_mm.mean(axis=0)))
-    render = render_snap_photo if spec.contact == "round" else render_photo
-    img = render(pins_mm, spec, cam, rng=np.random.default_rng(seed))
+    rng = np.random.default_rng(seed)
+    if colours:
+        if spec.contact != "round":
+            raise ValueError("colours are drawn for the snap-fit chain only (contact: round)")
+        link, rim = _shades(spec)
+        img = render_snap_photo(pins_mm, spec, cam, rng=rng, table_gray=colours.get("table", (TABLE_GRAY,) * 3),
+                                link_gray=colours.get("link", (link,) * 3), rim_gray=colours.get("rim", (rim,) * 3),
+                                noise_gray=SNAP_RGB_NOISE)
+    else:
+        render = render_snap_photo if spec.contact == "round" else render_photo
+        img = render(pins_mm, spec, cam, rng=rng)
     save_photo(path, img, focal_35mm)
 
 

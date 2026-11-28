@@ -11,9 +11,9 @@
 // within a run: the pitch, and optionally the half width, the fiducials' shade,
 // the colour channel and the pin count. Everything else comes from the preset.
 
-import { makeSpec } from "./chain";
+import { GRAY_CHANNELS, makeSpec } from "./chain";
 import { PipelineError } from "./errors";
-import type { ChainSpec } from "./types";
+import type { ChainSpec, GrayChannel } from "./types";
 
 export const VERSION = 1;
 /** The fragment parameter: #cal=… (beside #pair=…). */
@@ -24,9 +24,9 @@ export const HALF_WIDTH_BAND = 0.1;
 export const MIN_PINS = 3;
 export const MAX_PINS = 200;
 const SHADES = ["light", "dark"] as const;
-/** The colour channel the photo's gray image is made from (item 13's gray_channel; the names are shared). */
-export const CHANNELS = ["luma", "r", "g", "b"] as const;
-export type GrayChannel = (typeof CHANNELS)[number];
+/** The colour channel the photo's gray image is made from: the spec's gray_channel (work queue item 13). */
+export const CHANNELS = GRAY_CHANNELS;
+export type { GrayChannel };
 export const ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 /** The phone page a card opens: ?debug while chain cards are being tested (work queue item 14). */
 export const PHONE_PAGE = "https://micahflock.github.io/spline-wire/phone/?debug";
@@ -266,14 +266,14 @@ export function parseLink(text: string, presets: PresetNumbers): ChainLink {
 
 // --- using it -----------------------------------------------------------------
 
-/** The preset's spec with the link's numbers over it, checked. The colour channel is only
- * carried (link.gray_channel) until the spec has one (work queue item 13). */
+/** The preset's spec with the link's numbers and colours over it, checked. */
 export function applyLink(spec: ChainSpec, link: ChainLink): ChainSpec {
   return makeSpec({
     ...spec,
     pitch_mm: link.pitch_mm,
     half_width_mm: link.half_width_mm ?? spec.half_width_mm,
     fiducial_shade: link.fiducial_shade ?? spec.fiducial_shade,
+    gray_channel: link.gray_channel ?? spec.gray_channel,
     n_pins: link.n_pins ?? spec.n_pins,
   });
 }

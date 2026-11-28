@@ -13,7 +13,8 @@ import { isHeif, photoInfo } from "../pipeline/photo-info";
 import { decodeToGray } from "../pipeline/decode";
 import { PipelineError } from "../pipeline/errors";
 import { analyse } from "../pipeline/live";
-import { specFromDict } from "../pipeline/chain";
+import { GRAY_CHANNELS, specFromDict } from "../pipeline/chain";
+import type { GrayChannel } from "../pipeline/types";
 import heifWasmUrl from "libheif-js/libheif-wasm/libheif.wasm?url";
 import { MAX_OPEN_PHOTOS, type Command, type Commands, type EnginePreviews, type Failure, type Request, type Response } from "./protocol";
 import type { OutputKind } from "./types";
@@ -36,6 +37,9 @@ class Failed extends Error {
 }
 
 const open = new Map<string, PhotoSession>();
+// Each open photo's bytes (a few MB, compressed): a measurement whose chain reads
+// another colour channel (ChainSpec gray_channel) decodes the photo again from them.
+const bytesOf = new Map<string, Uint8Array>();
 // Every open photo, least recently used first: at most MAX_OPEN_PHOTOS, as the protocol says.
 const recent: string[] = [];
 
@@ -49,6 +53,7 @@ function forget(photo: string): void {
   const i = recent.indexOf(photo);
   if (i >= 0) recent.splice(i, 1);
   open.delete(photo);
+  bytesOf.delete(photo);
 }
 
 function session(photo: string): PhotoSession {
@@ -68,7 +73,7 @@ function stem(name: string): string {
 
 let heifWasm: Promise<ArrayBuffer> | null = null;
 
-async function decodeHeif(bytes: Uint8Array, name: string, withPreview: boolean) {
+async function decodeHeif(bytes: Uint8Array, name: string, withPreview: boolean, channel: GrayChannel = "luma") {
   heifWasm ??= fetch(heifWasmUrl).then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.arrayBuffer();
@@ -81,7 +86,24 @@ async function decodeHeif(bytes: Uint8Array, name: string, withPreview: boolean)
     throw new Failed({ kind: "person", message: `could not load the HEIC decoder (${(err as Error)?.message ?? err}); check the connection and try again` });
   }
   const [{ decodeHeif: decode }, lib, wasm] = parts;
-  return decode(bytes, name, lib.default as unknown as LibheifFactory, wasm, withPreview ? previewSizeOf : undefined);
+  return decode(bytes, name, lib.default as unknown as LibheifFactory, wasm, withPreview ? previewSizeOf : undefined, channel);
+}
+
+/** A photo's gray (its `channel`), by the browser's decoder or else, for a HEIC
+ * photo, libheif's; with the previews libheif made when `withPreview`. */
+async function decode(bytes: Uint8Array, name: string, channel: GrayChannel, withPreview: boolean) {
+  try {
+    return { gray: await decodeToGray(new Blob([bytes as Uint8Array<ArrayBuffer>]), channel), preview: null };
+  } catch {
+    if (!isHeif(bytes)) throw new Failed({ kind: "person", message: `${name} is not a photo this program can read (JPEG, HEIC, PNG, TIFF, BMP or WebP)` });
+    // The browser cannot decode it, so the page cannot draw it either: make its previews here.
+    return decodeHeif(bytes, name, withPreview, channel);
+  }
+}
+
+function channelOf(options: unknown): GrayChannel | null {
+  const ch = (options as { chain?: { gray_channel?: unknown } } | null)?.chain?.gray_channel ?? "luma";
+  return (GRAY_CHANNELS as readonly unknown[]).includes(ch) ? (ch as GrayChannel) : null;
 }
 
 /** The pages' preview and thumbnail (photo/preview.ts), from the preview's pixels. */
@@ -110,36 +132,38 @@ const handlers: Handlers = {
     return { versions: { splinewire: import.meta.env.APP_VERSION ?? "dev", engine: "typescript" }, ms: 0 };
   },
 
-  async open({ photo, name, data, previews: wanted }) {
+  async open({ photo, name, data, previews: wanted, channel: asked }) {
     const bytes = new Uint8Array(data);
     forget(photo);                                    // opened again: the new bytes win
     while (recent.length >= MAX_OPEN_PHOTOS) forget(recent[0]!);
-    const heif = isHeif(bytes);
-    let gray;
+    const channel = channelOf({ chain: { gray_channel: asked } }) ?? "luma";
+    const { gray, preview } = await decode(bytes, name, channel, !!wanted);
     let previews: EnginePreviews | null = null;
-    try {
-      gray = await decodeToGray(new Blob([bytes]));
-    } catch {
-      if (!heif) throw new Failed({ kind: "person", message: `${name} is not a photo this program can read (JPEG, HEIC, PNG, TIFF, BMP or WebP)` });
-      // The browser cannot decode it, so the page cannot draw it either: make its previews here.
-      const decoded = await decodeHeif(bytes, name, !!wanted);
-      gray = decoded.gray;
-      if (decoded.preview) {
-        try {
-          previews = await encodePreviews({ width: gray.width, height: gray.height }, decoded.preview);
-        } catch {
-          previews = null;                              // no OffscreenCanvas here: measured, not drawn
-        }
+    if (preview) {
+      try {
+        previews = await encodePreviews({ width: gray.width, height: gray.height }, preview);
+      } catch {
+        previews = null;                              // no OffscreenCanvas here: measured, not drawn
       }
     }
     const { info, focalPx } = photoInfo(bytes, gray);
-    open.set(photo, new PhotoSession(name, gray, focalPx, info));
+    open.set(photo, new PhotoSession(name, gray, focalPx, info, channel));
+    bytesOf.set(photo, bytes);
     touch(photo);
     return wanted ? { info, previews } : { info };
   },
 
   async measure({ photo, options }) {
-    return session(photo).measure(options);
+    const s = session(photo);
+    // Another channel than the photo was read with: decode it again (an unknown
+    // one is left to the options' own check, which names it).
+    const channel = channelOf(options);
+    if (channel && channel !== s.channel) {
+      const bytes = bytesOf.get(photo);
+      if (!bytes) throw new Failed({ kind: "closed", message: `photo '${photo}' is not open` });
+      s.useImage((await decode(bytes, s.name, channel, false)).gray, channel);
+    }
+    return s.measure(options);
   },
 
   async outputs({ photo }) {

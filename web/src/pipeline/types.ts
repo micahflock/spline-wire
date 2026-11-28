@@ -14,7 +14,14 @@ export interface ChainSpec {
   max_bend_deg: number;
   contact: "edge" | "round";
   fiducial_shade: "light" | "dark";
+  gray_channel: GrayChannel;
 }
+
+/** splinewire.chain.GRAY_CHANNELS: what of a photo's colour detection reads.
+ * "luma" is the gray of the luma weights (Pillow's L, the live view's own
+ * approximation of it); "r", "g", "b" one channel alone, for coloured rims
+ * (orange on off-white: "b"). The same names are a chain card's `ch` (D30). */
+export type GrayChannel = "luma" | "r" | "g" | "b";
 
 /** splinewire.detect.Fiducial */
 export interface Fiducial {

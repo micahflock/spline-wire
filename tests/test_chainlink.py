@@ -99,7 +99,7 @@ def test_url_and_apply():
     snap = load_chain_spec(default_chain_path())
     assert apply_link(snap, ChainLink("snap", 12.9)) == replace(snap, pitch_mm=12.9)
     assert apply_link(snap, ChainLink("snap", 13.1, 4.2, "dark", "b", 20)) == \
-        replace(snap, pitch_mm=13.1, half_width_mm=4.2, fiducial_shade="dark", n_pins=20)
+        replace(snap, pitch_mm=13.1, half_width_mm=4.2, fiducial_shade="dark", gray_channel="b", n_pins=20)
 
 
 def test_card_qr_code_decodes_to_the_link():

@@ -20,6 +20,7 @@ import numpy as np
 
 from splinewire.chain import (
     DEFAULT_PRESET,
+    GRAY_CHANNELS,
     SHADES,
     ChainSpec,
     chain_presets,
@@ -27,7 +28,7 @@ from splinewire.chain import (
     load_chain_spec,
     oring_chain_path,
 )
-from splinewire.chainlink import CHANNELS, PHONE_PAGE
+from splinewire.chainlink import PHONE_PAGE
 from splinewire.process import process_photo
 from splinewire.synthetic import (
     circle_wrap_pins,
@@ -71,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "(default: n_pins from the chain file)")
     p.add_argument("--truth", type=Path, help="truth JSON from synth/test-part; reports error")
     _add_shade_arg(p)
+    _add_channel_arg(p)
 
     p = sub.add_parser("synth", help="render a synthetic chain photo with known geometry")
     p.add_argument("--chain", type=Path, help=f"chain file (default: {DEFAULT_CHAIN.name}, the snap-fit "
@@ -89,6 +91,11 @@ def main(argv: list[str] | None = None) -> int:
                         "environments (e.g. shadow, glare, clutter; see splinewire/scene.py). "
                         "Sets camera, light and print itself; --tilt/--distance/--size are ignored")
     _add_shade_arg(p)
+    for part, example in (("rim", "240,122,35"), ("link", "235,230,214"), ("table", "60,60,60")):
+        p.add_argument(f"--{part}-rgb", type=_rgb, metavar="R,G,B",
+                       help=f"a colour photo of the snap-fit chain, its {part}s this colour (e.g. {example}: "
+                            "orange rims, off-white links, a dark table)" if part != "table" else
+                            f"with --rim-rgb or --link-rgb, the table's colour (e.g. {example})")
 
     p = sub.add_parser("test-part", help="write a printable chain drawing with known geometry")
     p.add_argument("--chain", type=Path, default=ORING_CHAIN)
@@ -127,12 +134,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="also find the focal length that fits the target best (slower)")
     p.add_argument("--json", type=Path, help="write every score to this JSON file")
     _add_shade_arg(p)
+    _add_channel_arg(p)
 
     p = sub.add_parser("chain-link", help="make a chain card's link and QR code from the chain's measured numbers")
     p.add_argument("--pitch", type=float, required=True, help="pitch measured over several links, mm (up to 3 decimals)")
     p.add_argument("--half-width", type=float, help="half the sleeve's width across, mm (default: the preset's)")
     p.add_argument("--shade", choices=SHADES, help="the fiducials' shade (default: the preset's, light)")
-    p.add_argument("--channel", choices=CHANNELS, help="the colour channel detection reads (default: the "
+    p.add_argument("--channel", choices=GRAY_CHANNELS, help="the colour channel detection reads (default: the "
                                                        "preset's, luma)")
     p.add_argument("--pins", type=int, help="pins on the chain (default: the preset's)")
     p.add_argument("--base", default=DEFAULT_PRESET, help=f"the chain's preset (default: {DEFAULT_PRESET})")
@@ -153,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         spec = _chain_spec(args)
         if getattr(args, "dark_fiducials", False):
             spec = replace(spec, fiducial_shade="dark")
+        if getattr(args, "channel", None):
+            spec = replace(spec, gray_channel=args.channel)
         return commands[args.command](args, spec)
     except KeyError as err:
         print(f"error: {args.chain} has no {err.args[0]}", file=sys.stderr)
@@ -189,6 +199,22 @@ def _add_shade_arg(p: argparse.ArgumentParser) -> None:
                         "the default is the chain file's fiducial_shade, normally light on dark")
 
 
+def _add_channel_arg(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--channel", choices=GRAY_CHANNELS,
+                   help="what of the photo's colour detection reads: luma (gray, the default) or one channel "
+                        "alone, for coloured fiducials (orange rims on off-white links: b, with --dark-fiducials)")
+
+
+def _rgb(text: str) -> tuple[int, int, int]:
+    try:
+        rgb = tuple(int(v) for v in text.split(","))
+    except ValueError:
+        rgb = ()
+    if len(rgb) != 3 or not all(0 <= v <= 255 for v in rgb):
+        raise argparse.ArgumentTypeError(f"expected R,G,B with each 0 to 255, got {text!r}")
+    return rgb
+
+
 def _add_shape_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--shape", choices=["s-curve", "pipe", "cove"], default="s-curve")
     p.add_argument("--radius", type=float, default=30.0, help="radius for pipe/cove shapes, mm")
@@ -211,11 +237,9 @@ def _measure(args, spec: ChainSpec) -> int:
     if link is not None or args.pitch is not None or args.half_width is not None:
         source = "the chain card" if link is not None else "the command line"
         name = link.base if link is not None else args.chain.name
-        print(f"chain: {name}, pitch {spec.pitch_mm:g} mm, half width {spec.half_width_mm:g} mm "
+        channel = "" if spec.gray_channel == "luma" else f", channel {spec.gray_channel}"
+        print(f"chain: {name}, pitch {spec.pitch_mm:g} mm, half width {spec.half_width_mm:g} mm{channel} "
               f"(calibrated, from {source})")
-    if link is not None and link.gray_channel not in (None, "luma"):
-        print(f"note: the card asks for the {link.gray_channel} colour channel; this version measures "
-              "the photo's gray (luma), so the channel is not used yet")
     result = process_photo(args.photo, spec, args.out, focal_35mm=args.focal_35mm,
                            side=args.side, truth_path=args.truth, compare_truth=True)
     m = result.measurement
@@ -249,6 +273,8 @@ def _synth(args, spec: ChainSpec) -> int:
         if spec.fiducial_shade == "dark":
             raise ValueError("the realistic scenes (--env) draw the printed plaque, white on black; "
                              "leave out --dark-fiducials")
+        if args.rim_rgb or args.link_rgb or args.table_rgb:
+            raise ValueError("the realistic scenes (--env) are drawn in gray; leave out --rim-rgb, --link-rgb and --table-rgb")
         from splinewire.scene import render_scene
         env = _presets()[args.env]
         scene = render_scene(pins, spec, env, seed=args.seed)
@@ -256,8 +282,11 @@ def _synth(args, spec: ChainSpec) -> int:
         save_photo(photo, scene.image, env.focal_35mm, quality=97)   # the scene already went through JPEG
     else:
         photo = args.out / f"{args.shape}.jpg"
+        colours = {k: v for k, v in (("rim", args.rim_rgb), ("link", args.link_rgb), ("table", args.table_rgb)) if v}
+        if colours and not (args.rim_rgb or args.link_rgb):
+            raise ValueError("--table-rgb colours the table of a colour photo: give --rim-rgb or --link-rgb too")
         write_synthetic_photo(photo, pins, spec, (w, h), focal_35mm=args.focal_35mm,
-                              distance_mm=args.distance, tilt_deg=args.tilt, seed=args.seed)
+                              distance_mm=args.distance, tilt_deg=args.tilt, seed=args.seed, colours=colours or None)
     write_truth(truth, pins)
     print(f"wrote {photo} and {truth.name}")
     print(f"try: splinewire measure {photo} --truth {truth}")

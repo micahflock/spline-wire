@@ -43,20 +43,21 @@ test.afterEach(async () => {
  * (Settings): Chromium's fake camera scales its portrait file to the fast
  * stream's landscape 1920×1440, where a phone gives a portrait 1440×1920
  * (camera/stream.ts); `fast` streams a landscape scene and leaves Settings as they are. */
-async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false, liveView?: string, noPhoto = false): Promise<Page> {
-  const out = sceneDir(span, dark, tilt, fast);
+async function phoneAt(span: number, query = "", dark = false, tilt?: number, fast = false, liveView?: string, noPhoto = false,
+  colour: { orange?: boolean; channel?: string } = {}): Promise<Page> {
+  const out = sceneDir(span, dark, tilt, fast, colour.orange);
   fs.mkdirSync(out, { recursive: true });
   execFileSync("uv", ["run", "python", "web/e2e/camera_scene.py", out, fast ? "4032x3024" : "3024x4032", "snap", String(span), ...(dark ? ["dark"] : []),
-    ...(tilt !== undefined ? [`tilt=${tilt}`] : [])], { cwd: ROOT, stdio: "inherit" });
+    ...(tilt !== undefined ? [`tilt=${tilt}`] : []), ...(colour.orange ? ["orange"] : [])], { cwd: ROOT, stdio: "inherit" });
   browser = await chromium.launch({
     args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
       `--use-file-for-fake-video-capture=${path.join(out, "camera.y4m")}`],
   });
   const context = await browser.newContext({ ...devices["Pixel 7"], baseURL: BASE, permissions: ["camera"] });
   // The snap preset chosen, and the scene's focal length saved, as a person would have it.
-  await context.addInitScript(([shade, liveSize, liveView]) => localStorage.setItem("splinewire-phone:phone-settings",
-    JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize, ...(liveView ? { liveView } : {}) })),
-    [dark ? "dark" : "light", fast ? "fast" : "full", liveView ?? ""]);
+  await context.addInitScript(([shade, liveSize, liveView, channel]) => localStorage.setItem("splinewire-phone:phone-settings",
+    JSON.stringify({ savedFocal35: 24, chain: "snap", shade, liveSize, ...(liveView ? { liveView } : {}), ...(channel ? { channel } : {}) })),
+    [dark ? "dark" : "light", fast ? "fast" : "full", liveView ?? "", colour.channel ?? ""]);
   // takePhoto refused, as on the owner's iPhone with the fast stream (build 25).
   if (noPhoto) await context.addInitScript(() => {
     const IC = (globalThis as { ImageCapture?: { prototype: { takePhoto(): Promise<Blob> } } }).ImageCapture;
@@ -69,8 +70,8 @@ async function phoneAt(span: number, query = "", dark = false, tilt?: number, fa
   return page;
 }
 
-function sceneDir(span: number, dark = false, tilt?: number, fast = false): string {
-  return path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}${dark ? "-dark" : ""}${tilt !== undefined ? `-tilt${tilt}` : ""}${fast ? "-fast" : ""}`);
+function sceneDir(span: number, dark = false, tilt?: number, fast = false, orange = false): string {
+  return path.resolve(ROOT, `web/test-results/camera-scene-snap-${span}${dark ? "-dark" : ""}${tilt !== undefined ? `-tilt${tilt}` : ""}${fast ? "-fast" : ""}${orange ? "-orange" : ""}`);
 }
 
 const stats = (page: Page) => page.evaluate(() => (window as unknown as { phone: { camera: CameraStats } }).phone.camera);
@@ -153,6 +154,31 @@ test("dark rims on light links (Colours: dark): tracked in the worker, every rim
   expect(st.regions.track).toBeGreaterThan(0);
   await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
   await measured(page);
+});
+
+test("orange rims on off-white links: lost in gray, tracked through the blue channel (worker), the still taken and measured", async () => {
+  // Work queue item 13 (experiments/colour_channel/): gray, even with Colours dark, does not hold the chain on a dark table.
+  let page = await phoneAt(0.3, "?debug", true, undefined, false, undefined, false, { orange: true });
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await page.waitForTimeout(4000);
+  const gray = await stats(page);
+  log(`orange, gray: ${costs(gray)}; count ${await page.locator("#cam-count").textContent()}`);
+  await expect(page.locator("#cam-count")).not.toHaveText("13 / 13 pins");
+  expect(await page.locator("#photos .tile").count()).toBe(0);
+  await browser?.close();
+  page = await phoneAt(0.3, "?debug", true, undefined, false, undefined, false, { orange: true, channel: "b" });
+  await expect(page.locator("#s-channel")).toHaveValue("b");
+  await page.locator("#take-camera").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await expect(page.locator("#cam-count")).toHaveText("13 / 13 pins", { timeout: 30_000 });
+  const st = await stats(page);
+  log(`orange, blue: ${costs(st)}`);
+  expect(st.grab).toBe("worker");
+  expect(st.regions.track).toBeGreaterThan(0);
+  await expect(page.locator("#cam")).toBeHidden({ timeout: 30_000 });     // the coach took the still
+  await measured(page);                                                    // and it measured, through blue
+  await expect(page.locator("#r-meta")).toContainText("blue channel");
 });
 
 test("tilted 32 degrees: no still, and an arrow the way to move the phone", async () => {

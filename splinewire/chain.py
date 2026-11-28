@@ -18,6 +18,12 @@ CONTACTS = ("edge", "round")
 # the chains print by default) or "dark" (black on white links). Detection
 # reads a "dark" chain's photo inverted, which turns it into a "light" one.
 SHADES = ("light", "dark")
+# What of a photo's colour detection reads: "luma", the gray of the luma
+# weights (Pillow's convert("L"), as always), or one channel alone, "r", "g"
+# or "b", for a chain whose coloured fiducials stand out in one channel
+# (orange rims on off-white links: "b", where orange is about as dark as
+# black). The same names are a chain card's `ch` (D30 in docs/web-build.md).
+GRAY_CHANNELS = ("luma", "r", "g", "b")
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,7 @@ class ChainSpec:
     max_bend_deg: float = 80.0    # sharpest turn at a pin the ordering accepts, as seen in the photo
     contact: str = "edge"         # what touches the target: see CONTACTS
     fiducial_shade: str = "light"  # the fiducials lighter or darker than the links: see SHADES
+    gray_channel: str = "luma"     # what of the photo's colour detection reads: see GRAY_CHANNELS
 
     def __post_init__(self) -> None:
         if self.pitch_mm <= 0:
@@ -43,6 +50,8 @@ class ChainSpec:
             raise ValueError(f"contact must be one of {CONTACTS}, got {self.contact!r}")
         if self.fiducial_shade not in SHADES:
             raise ValueError(f"fiducial_shade must be one of {SHADES}, got {self.fiducial_shade!r}")
+        if self.gray_channel not in GRAY_CHANNELS:
+            raise ValueError(f"gray_channel must be one of {GRAY_CHANNELS}, got {self.gray_channel!r}")
         if self.fiducial_mm <= 0:
             raise ValueError(f"fiducial_mm must be positive, got {self.fiducial_mm}")
         if self.fiducial == "ring" and not 0 < self.ring_inner_mm < self.fiducial_mm:
@@ -124,6 +133,7 @@ def spec_from_dict(raw: dict) -> ChainSpec:
         max_bend_deg=float(raw.get("max_bend_deg") or ChainSpec.max_bend_deg),
         contact=str(raw.get("contact") or "edge"),
         fiducial_shade=str(raw.get("fiducial_shade") or "light"),
+        gray_channel=str(raw.get("gray_channel") or "luma"),
     )
 
 

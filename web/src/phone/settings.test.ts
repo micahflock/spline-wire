@@ -51,6 +51,20 @@ describe("settings", () => {
     expect(debugLeftovers({ ...DEFAULT_SETTINGS, chain: "oring", focalOverride35: 25, liveSize: "full", liveView: "chain" }, chains))
       .toEqual(["O-ring chain", "focal override 25 mm", "full-resolution live stream", "chain-only live view"]);
     expect(debugLeftovers({ ...DEFAULT_SETTINGS, liveView: "color" }, chains)).toEqual([]);  // colour is a setting for everyone
+    expect(debugLeftovers({ ...DEFAULT_SETTINGS, channel: "b" }, chains)).toEqual(["blue channel"]);
+    expect(debugLeftovers({ ...DEFAULT_SETTINGS, focalOverride35: 25, channel: "r" }, chains)).toEqual(["focal override 25 mm", "red channel"]);
+  });
+
+  it("keep the colour channel detection reads (gray unless chosen; anything else is gray)", () => {
+    const store = new MemoryStore();
+    expect(loadSettings(store).channel).toBe("luma");
+    for (const ch of ["r", "g", "b", "luma"] as const) {
+      saveSettings(store, { ...DEFAULT_SETTINGS, channel: ch });
+      expect(loadSettings(store).channel).toBe(ch);
+    }
+    store.set("phone-settings", JSON.stringify({ channel: "blue" }));
+    expect(loadSettings(store).channel).toBe("luma");
+    expect(chainSpec(chains, "snap", 7, "dark", "b")).toEqual({ ...chains.snap, n_pins: 7, fiducial_shade: "dark", gray_channel: "b" });
   });
 
   it("show the live camera grey by default, keeping a chain-only view chosen before (liveShows)", () => {
@@ -76,8 +90,8 @@ describe("settings", () => {
   });
 
   it("measure with the preset and the photo's pin count", () => {
-    expect(chainSpec(chains, "snap", 7)).toEqual({ ...chains.snap, n_pins: 7, fiducial_shade: "light" });
-    expect(chainSpec(chains, "snap", 7, "dark")).toEqual({ ...chains.snap, n_pins: 7, fiducial_shade: "dark" });
+    expect(chainSpec(chains, "snap", 7)).toEqual({ ...chains.snap, n_pins: 7, fiducial_shade: "light", gray_channel: "luma" });
+    expect(chainSpec(chains, "snap", 7, "dark")).toEqual({ ...chains.snap, n_pins: 7, fiducial_shade: "dark", gray_channel: "luma" });
     expect(chainSpec(chains, "gone", 7).pitch_mm).toBe(13);          // a preset this build lacks: the first, the default
     expect(presetKey(chains, "gone")).toBe("snap");
     expect(presetKey(chains, "default")).toBe("snap");                // saved before the rename: the default now

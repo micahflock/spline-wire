@@ -163,4 +163,7 @@ def test_chain_link_on_measure_is_checked(tmp_path, capsys):
     assert "not both" in capsys.readouterr().err
     assert main(["measure", photo, "--out", str(tmp_path / "res"),
                  "--chain-link", "#cal=1;base=snap;p=13;ch=b;k=" + check_character("1;base=snap;p=13;ch=b")]) == 0
-    assert "the card asks for the b colour channel" in capsys.readouterr().out     # stored, not used before item 13
+    assert "pitch 13 mm, half width 4.39 mm, channel b (calibrated, from the chain card)" in capsys.readouterr().out
+    assert main(["measure", photo, "--out", str(tmp_path / "res"), "--channel", "luma",       # --channel wins
+                 "--chain-link", "#cal=1;base=snap;p=13;ch=b;k=" + check_character("1;base=snap;p=13;ch=b")]) == 0
+    assert "half width 4.39 mm (calibrated" in capsys.readouterr().out

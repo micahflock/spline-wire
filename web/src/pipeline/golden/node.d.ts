@@ -8,3 +8,6 @@ declare module "node:zlib" {
   export function gunzipSync(data: Uint8Array): { toString(encoding: "utf-8"): string };
   export function inflateSync(data: Uint8Array): Uint8Array;
 }
+declare module "node:crypto" {
+  export function createHash(algorithm: "sha256"): { update(data: Uint8Array): { digest(encoding: "hex"): string } };
+}

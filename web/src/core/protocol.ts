@@ -23,8 +23,10 @@ export interface Commands {
   /** Decode a photo. Fails (kind "person") if it is not one. */
   /** With `previews`, also the copies the pages draw, for a photo the browser could
    * not decode (HEIC outside Safari); null for any other photo, which the page draws itself. */
+  /** `channel`: what of its colour to read (ChainSpec gray_channel, "luma" by default);
+   * a measure whose chain reads another decodes the photo again (the worker keeps its bytes). */
   open: {
-    args: { photo: string; name: string; data: ArrayBuffer; previews?: boolean };
+    args: { photo: string; name: string; data: ArrayBuffer; previews?: boolean; channel?: "luma" | "r" | "g" | "b" };
     result: { info: PhotoInfo; previews?: EnginePreviews | null };
   };
   /** Measure an open photo. A photo with no chain in it is a document with ok false, not a failure. */

@@ -20,16 +20,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from urllib.parse import unquote
 
-from splinewire.chain import SHADES, ChainSpec
+from splinewire.chain import GRAY_CHANNELS, SHADES, ChainSpec
 
 VERSION = 1
 PARAM = "cal"                 # the fragment parameter: #cal=... (beside #pair=...)
 PITCH_BAND = 0.02             # a link's pitch is within 2% of its preset's
 HALF_WIDTH_BAND = 0.10        # and its half width within 10%
 MIN_PINS, MAX_PINS = 3, 200
-# The colour channel the photo's gray image is made from (item 13's
-# gray_channel; its names are shared with it).
-CHANNELS = ("luma", "r", "g", "b")
+# The colour channel the photo's gray image is made from: the spec's
+# gray_channel (work queue item 13), the same names.
+CHANNELS = GRAY_CHANNELS
 ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 # The phone page a card opens. ?debug while chain cards are being tested
 # (work queue item 14): drop it once the feature is promoted.
@@ -277,13 +277,13 @@ def parse_link(text: str, presets: Mapping[str, ChainSpec]) -> ChainLink:
 # --- using it ----------------------------------------------------------------
 
 def apply_link(spec: ChainSpec, link: ChainLink) -> ChainSpec:
-    """The preset's spec with the link's numbers over it. The colour channel is
-    only carried (link.gray_channel) until the spec has one (work queue item 13)."""
+    """The preset's spec with the link's numbers and colours over it."""
     return replace(
         spec,
         pitch_mm=link.pitch_mm,
         half_width_mm=spec.half_width_mm if link.half_width_mm is None else link.half_width_mm,
         fiducial_shade=link.fiducial_shade or spec.fiducial_shade,
+        gray_channel=link.gray_channel or spec.gray_channel,
         n_pins=spec.n_pins if link.n_pins is None else link.n_pins,
     )
 

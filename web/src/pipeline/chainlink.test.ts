@@ -107,6 +107,6 @@ describe("chain card link", () => {
     const snap = specFromDict({ pitch_mm: 13, half_width_mm: 4.39, fiducial: "ring", fiducial_mm: 8.79, ring_inner_mm: 7.07, n_pins: 13, contact: "round", max_bend_deg: 110 });
     expect(applyLink(snap, { base: "snap", pitch_mm: 12.9 })).toEqual({ ...snap, pitch_mm: 12.9 });
     expect(applyLink(snap, { base: "snap", pitch_mm: 13.1, half_width_mm: 4.2, fiducial_shade: "dark", gray_channel: "b", n_pins: 20 }))
-      .toEqual({ ...snap, pitch_mm: 13.1, half_width_mm: 4.2, fiducial_shade: "dark", n_pins: 20 });
+      .toEqual({ ...snap, pitch_mm: 13.1, half_width_mm: 4.2, fiducial_shade: "dark", gray_channel: "b", n_pins: 20 });
   });
 });
