@@ -215,6 +215,16 @@ export class CameraView {
       "cam-fail-title", "cam-fail-text", "cam-switch", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
     this.video = $("cam-video") as VideoWithCallback;
     this.canvas = $("cam-overlay") as HTMLCanvasElement;
+    // The card takes the video's shape (phone.css, .cam-live.fit), so the picture fills it with no
+    // black bars. Kept from one opening to the next: the same camera opens at the same shape.
+    const fit = () => {
+      const v = this.video;
+      if (!v.videoWidth || !v.videoHeight) return;
+      this.el["cam-live"]!.style.setProperty("--cam-ar", String(v.videoWidth / v.videoHeight));
+      this.el["cam-live"]!.classList.add("fit");
+    };
+    this.video.addEventListener("loadedmetadata", fit);
+    this.video.addEventListener("resize", fit);         // the stream's size changed (another camera, turned)
     $("cam-close").onclick = () => this.close();
     $("cam-fail-close").onclick = () => this.close();
     this.el["cam-teach"]!.onclick = () => deps.teach();
