@@ -106,6 +106,10 @@ const TRIAL_FRAMES = 8;
  * prompt) may take to show again before the camera is given back, ms. */
 const VISIBLE_AGAIN_MS = 1500;
 
+/** The longest the view stays hidden waiting for the camera to settle at its final size (settled()):
+ * past this it is shown anyway, so a camera that never reports its size does not leave it waiting. */
+const SETTLE_MS = 2500;
+
 /** A video frame callback this late, with the video playing, means the browser
  * stopped giving them (as it may for a video covered by Settings' chain-only
  * view): frames are then taken on animation frames, as without the callback. */
@@ -215,16 +219,8 @@ export class CameraView {
       "cam-fail-title", "cam-fail-text", "cam-switch", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
     this.video = $("cam-video") as VideoWithCallback;
     this.canvas = $("cam-overlay") as HTMLCanvasElement;
-    // The card takes the video's shape (phone.css, .cam-live.fit), so the picture fills it with no
-    // black bars. Kept from one opening to the next: the same camera opens at the same shape.
-    const fit = () => {
-      const v = this.video;
-      if (!v.videoWidth || !v.videoHeight) return;
-      this.el["cam-live"]!.style.setProperty("--cam-ar", String(v.videoWidth / v.videoHeight));
-      this.el["cam-live"]!.classList.add("fit");
-    };
-    this.video.addEventListener("loadedmetadata", fit);
-    this.video.addEventListener("resize", fit);         // the stream's size changed (another camera, turned)
+    this.video.addEventListener("loadedmetadata", () => this.fit());
+    this.video.addEventListener("resize", () => this.fit());   // the stream's size changed (another camera, turned)
     $("cam-close").onclick = () => this.close();
     $("cam-fail-close").onclick = () => this.close();
     this.el["cam-teach"]!.onclick = () => deps.teach();
@@ -300,6 +296,9 @@ export class CameraView {
       debugKey.setAttribute("aria-expanded", "false");
     }
     document.documentElement.classList.add("cam-on");
+    // Not shown until the camera has settled (reveal): opening it switches lenses and sizes on the
+    // way, which drew one box after another. Meanwhile the Scan key shows it is starting (phone.css).
+    document.documentElement.classList.add("cam-starting");
     history.pushState({ camera: true }, "");
     this.say("Starting the camera…", "");
     this.setReady(false);
@@ -356,6 +355,9 @@ export class CameraView {
     if (now) this.deps.saveCamera(now);
     await this.resize();
     if (gen !== this.gen) return;
+    await this.settled();
+    if (gen !== this.gen) return;
+    this.reveal();
     this.session = new OverlaySession({
       chain: await this.deps.chain(),
       focalPx: () => this.focal()?.px ?? null,
@@ -371,6 +373,34 @@ export class CameraView {
     this.qr = new QrScan((text) => this.deps.code?.(text));
     this.setReady(true);
     this.loop(gen);
+  }
+
+  /** The card takes the video's shape (phone.css, .cam-live.fit), so the picture fills it with no
+   * black bars. Kept from one opening to the next: the same camera opens at the same shape. */
+  private fit(): void {
+    const v = this.video;
+    if (!v.videoWidth || !v.videoHeight) return;
+    this.el["cam-live"]!.style.setProperty("--cam-ar", String(v.videoWidth / v.videoHeight));
+    this.el["cam-live"]!.classList.add("fit");
+  }
+
+  /** Until the video shows frames at the size its track has settled on (after the lens switch and
+   * resize(); the video may be turned from the track's width and height), or SETTLE_MS at most. */
+  private async settled(): Promise<void> {
+    const v = this.video, until = performance.now() + SETTLE_MS;
+    const sides = (a: number, b: number) => `${Math.min(a, b)}x${Math.max(a, b)}`;
+    while (performance.now() < until) {
+      const set = this.track?.getSettings();
+      const want = set?.width && set?.height ? sides(set.width, set.height) : null;
+      if (v.readyState >= 2 && v.videoWidth && (!want || want === sides(v.videoWidth, v.videoHeight))) return;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  }
+
+  /** Show the view: the card (or why it failed) pops in, at its final shape. */
+  private reveal(): void {
+    this.fit();
+    document.documentElement.classList.remove("cam-starting");
   }
 
   /** Release the camera and hide the view. */
@@ -400,7 +430,7 @@ export class CameraView {
     this.workMode = null;
     this.trial = { gpu: [], cpu: [] };
     this.el["cam"]!.hidden = true;
-    document.documentElement.classList.remove("cam-on");
+    document.documentElement.classList.remove("cam-on", "cam-starting");
     if (fromButton && (history.state as { camera?: boolean } | null)?.camera) history.back();
   }
 
@@ -924,6 +954,7 @@ export class CameraView {
     this.stream = this.track = null;
     this.el["cam-live"]!.hidden = true;
     this.el["cam-fail"]!.hidden = false;
+    this.reveal();
     const [title, text] = why === "insecure"
       ? ["This page can't use the camera here.", "The live camera needs the site's https:// address."]
       : e?.name === "NotAllowedError" || e?.name === "SecurityError"
