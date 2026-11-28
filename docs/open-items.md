@@ -74,7 +74,7 @@ From [web-build.md](web-build.md) (Status, Open decisions, Work queue).
 Built behind `?debug` and promoted to the ordinary pages only after the owner has tried them on a phone. Details and sizes in [web-build.md](web-build.md), work queue items 13 and 14.
 
 - **Colour channel for detection** (item 13): Gray, Red, Green or Blue, so coloured rims (orange on off-white) are found. About one session.
-- **Per-chain calibration from a link** (item 14): a QR card per measured chain (serial, pitch, half width) sets up the phone page; the same setting typed by hand for home-printed chains; the serial travels with each curve to the desktop page and the Fusion add-in. Link syntax proposed as O12, to confirm. About two to three sessions.
+- **Per-chain calibration from a link** (item 14): a QR card per measured chain (pitch, half width, colours; no serial number, a chain is its numbers) sets up the phone page; the same setting typed by hand for home-printed chains; the desktop page measures with it too. Link syntax proposed as O12, to confirm. About two sessions.
 
 ## 5. End to end
 
