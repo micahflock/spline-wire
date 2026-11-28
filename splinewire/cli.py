@@ -7,6 +7,7 @@
     splinewire test-gauges             3D-printable contact gauges (STL) with known shapes
     splinewire fixed-chain             the snap-fit chain posed and fused into one print (STL), with its truth
     splinewire score PHOTO... --target T  test photos scored against a gauge or plaque (docs/real-world-tests.md)
+    splinewire chain-link --pitch P    a chain card's link and QR code from the chain's measured numbers (docs/chain-link.md)
 """
 from __future__ import annotations
 
@@ -17,7 +18,16 @@ from pathlib import Path
 
 import numpy as np
 
-from splinewire.chain import ChainSpec, default_chain_path, load_chain_spec, oring_chain_path
+from splinewire.chain import (
+    DEFAULT_PRESET,
+    SHADES,
+    ChainSpec,
+    chain_presets,
+    default_chain_path,
+    load_chain_spec,
+    oring_chain_path,
+)
+from splinewire.chainlink import CHANNELS, PHONE_PAGE
 from splinewire.process import process_photo
 from splinewire.synthetic import (
     circle_wrap_pins,
@@ -43,7 +53,14 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("measure", help="measure the chain in a photo")
     p.add_argument("photo", type=Path)
-    p.add_argument("--chain", type=Path, default=DEFAULT_CHAIN)
+    p.add_argument("--chain", type=Path, help=f"chain file (default: {DEFAULT_CHAIN.name}, the snap-fit chain)")
+    p.add_argument("--chain-link", metavar="URL",
+                   help="a chain card's link (its address, or the cal=... part): the chain's preset and "
+                        "calibrated numbers, instead of --chain (docs/chain-link.md)")
+    p.add_argument("--pitch", type=float, help="the chain's pitch, mm, measured over several links "
+                                               "(default: the chain file's or the card's)")
+    p.add_argument("--half-width", type=float, help="pin line to the contact edge, mm "
+                                                    "(default: the chain file's or the card's)")
     p.add_argument("--out", type=Path, default=Path("out"))
     p.add_argument("--focal-35mm", type=float,
                    help="35 mm-equivalent focal length; overrides EXIF")
@@ -65,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--focal-35mm", type=float, default=26.0)
     p.add_argument("--size", default="4000x3000", help="image size WxH")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--pitch", type=float, help="render the chain at this pitch, mm, instead of the chain "
+                                               "file's (a chain off its nominal pitch, for calibration tests)")
     p.add_argument("--env", choices=sorted(_presets()), metavar="PRESET",
                    help="realistic photo instead: a printed plaque in one of the simulated "
                         "environments (e.g. shadow, glare, clutter; see splinewire/scene.py). "
@@ -109,6 +128,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", type=Path, help="write every score to this JSON file")
     _add_shade_arg(p)
 
+    p = sub.add_parser("chain-link", help="make a chain card's link and QR code from the chain's measured numbers")
+    p.add_argument("--pitch", type=float, required=True, help="pitch measured over several links, mm (up to 3 decimals)")
+    p.add_argument("--half-width", type=float, help="half the sleeve's width across, mm (default: the preset's)")
+    p.add_argument("--shade", choices=SHADES, help="the fiducials' shade (default: the preset's, light)")
+    p.add_argument("--channel", choices=CHANNELS, help="the colour channel detection reads (default: the "
+                                                       "preset's, luma)")
+    p.add_argument("--pins", type=int, help="pins on the chain (default: the preset's)")
+    p.add_argument("--base", default=DEFAULT_PRESET, help=f"the chain's preset (default: {DEFAULT_PRESET})")
+    p.add_argument("--page", default=PHONE_PAGE, help=f"the phone page the card opens (default: {PHONE_PAGE})")
+    p.add_argument("--qr", type=Path, metavar="CARD.svg", help="also write the card: its QR code, numbers and link")
+
     args = parser.parse_args(argv)
     if args.command == "synth" and args.chain is None:
         args.chain = ORING_CHAIN if args.env else DEFAULT_CHAIN
@@ -118,7 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     # ValueErrors carry the program's own messages for people (a photo with no
     # chain in it, a setting out of range): show the message, not a traceback.
     try:
-        spec = load_chain_spec(args.chain)
+        if args.command == "chain-link":
+            return _chain_link(args)
+        spec = _chain_spec(args)
         if getattr(args, "dark_fiducials", False):
             spec = replace(spec, fiducial_shade="dark")
         return commands[args.command](args, spec)
@@ -127,6 +159,23 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError) as err:
         print(f"error: {err}", file=sys.stderr)
     return 1
+
+
+def _chain_spec(args) -> ChainSpec:
+    """The chain from --chain, or for measure from --chain-link (its preset with the card's numbers)."""
+    if args.command != "measure":
+        return load_chain_spec(args.chain)
+    if args.chain_link is None:
+        args.chain = args.chain or DEFAULT_CHAIN
+        return load_chain_spec(args.chain)
+    if args.chain is not None:
+        raise ValueError("give --chain or --chain-link, not both: a chain card's link names its chain")
+    from splinewire.chainlink import apply_link, parse_link, preset_specs
+    presets = preset_specs()
+    link = parse_link(args.chain_link, presets)
+    args.chain = chain_presets()[link.base]
+    args.link = link
+    return apply_link(presets[link.base], link)
 
 
 def _presets() -> dict:
@@ -154,6 +203,19 @@ def _shape(args, spec: ChainSpec) -> np.ndarray:
 def _measure(args, spec: ChainSpec) -> int:
     if args.pins is not None:
         spec = replace(spec, n_pins=args.pins)
+    if args.pitch is not None:
+        spec = replace(spec, pitch_mm=args.pitch)
+    if args.half_width is not None:
+        spec = replace(spec, half_width_mm=args.half_width)
+    link = getattr(args, "link", None)
+    if link is not None or args.pitch is not None or args.half_width is not None:
+        source = "the chain card" if link is not None else "the command line"
+        name = link.base if link is not None else args.chain.name
+        print(f"chain: {name}, pitch {spec.pitch_mm:g} mm, half width {spec.half_width_mm:g} mm "
+              f"(calibrated, from {source})")
+    if link is not None and link.gray_channel not in (None, "luma"):
+        print(f"note: the card asks for the {link.gray_channel} colour channel; this version measures "
+              "the photo's gray (luma), so the channel is not used yet")
     result = process_photo(args.photo, spec, args.out, focal_35mm=args.focal_35mm,
                            side=args.side, truth_path=args.truth, compare_truth=True)
     m = result.measurement
@@ -176,6 +238,8 @@ def _measure(args, spec: ChainSpec) -> int:
 
 def _synth(args, spec: ChainSpec) -> int:
     w, h = (int(v) for v in args.size.lower().split("x"))
+    if args.pitch is not None:
+        spec = replace(spec, pitch_mm=args.pitch)
     pins = _shape(args, spec)
     truth = args.out / f"{args.shape}-truth.json"
     if args.env:
@@ -197,6 +261,21 @@ def _synth(args, spec: ChainSpec) -> int:
     write_truth(truth, pins)
     print(f"wrote {photo} and {truth.name}")
     print(f"try: splinewire measure {photo} --truth {truth}")
+    return 0
+
+
+def _chain_link(args) -> int:
+    from splinewire.chainlink import ChainLink, card_svg, link_url, preset_specs
+    presets = preset_specs()
+    link = ChainLink(base=args.base, pitch_mm=args.pitch, half_width_mm=args.half_width,
+                     fiducial_shade=args.shade, gray_channel=args.channel, n_pins=args.pins)
+    url = link_url(link, presets, args.page)
+    print(url)
+    if args.qr:
+        from splinewire.chainlink import parse_link
+        args.qr.parent.mkdir(parents=True, exist_ok=True)
+        args.qr.write_text(card_svg(parse_link(url, presets), url, presets), encoding="utf-8")
+        print(f"wrote {args.qr} (print at 100% scale)")
     return 0
 
 

@@ -43,14 +43,23 @@ export function secretFromHash(hash: string): string | null {
   return isSecret(s) ? s : null;
 }
 
+/** `hash` without its `key` parameter, the others kept as written ("" if none is
+ * left). The pairing secret and a chain card's link (`cal`, pipeline/chainlink.ts)
+ * share the fragment, `#pair=…&cal=…`, and each reader strips only its own. */
+export function hashWithout(hash: string, key: string): string {
+  const kept = hash.replace(/^#/, "").split("&").filter((p) => p !== "" && p.split("=")[0] !== key);
+  return kept.length ? `#${kept.join("&")}` : "";
+}
+
 /** On the phone at page load: take a secret from the address if there is one
  * (a newly scanned code replaces the old pairing), else the stored one.
- * `clearHash` removes it from the address bar so it is not shared or bookmarked. */
-export function phoneSecret(store: KeyValueStore, hash: string, clearHash: () => void): string | null {
+ * `replaceHash` is given the fragment without the secret, so it is not shared or
+ * bookmarked, while anything else there (a chain card's `cal`) stays for its own reader. */
+export function phoneSecret(store: KeyValueStore, hash: string, replaceHash: (rest: string) => void): string | null {
   const fromLink = secretFromHash(hash);
   if (fromLink) {
     store.set(KEY, fromLink);
-    clearHash();
+    replaceHash(hashWithout(hash, PARAM));
     return fromLink;
   }
   return storedSecret(store);

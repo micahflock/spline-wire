@@ -57,7 +57,7 @@ What only the owner can check, on real hardware; the steps' exit criteria are in
 Built behind `?debug` and promoted to the ordinary pages only after the owner has tried them on a phone. Details and sizes in [web-build.md](web-build.md), work queue items 13 and 14.
 
 - **Colour channel for detection** (item 13): Gray, Red, Green or Blue, so coloured rims (orange on off-white) are found. About one session.
-- **Per-chain calibration from a link** (item 14): a QR card per measured chain (pitch, half width, colours; no serial number, a chain is its numbers) sets up the phone page; the same setting typed by hand for home-printed chains; the desktop page measures with it too. Link syntax: D30 (confirmed 2026-11-28). About two sessions.
+- **Per-chain calibration from a link** (item 14): a QR card per measured chain (pitch, half width, colours; no serial number, a chain is its numbers) sets up the phone page; the same setting typed by hand for home-printed chains; the desktop page measures with it too. Link syntax: D30 (confirmed 2026-11-28), in [chain-link.md](chain-link.md). Part A done 2026-11-28: the link in Python and TypeScript, `splinewire chain-link` (link and card), `measure --chain-link`/`--pitch`, `synth --pitch`. Part B (the phone and desktop pages, debug mode) follows item 13's merge; about one session.
 
 ## 5. End to end
 
