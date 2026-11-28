@@ -81,7 +81,7 @@ export function errorAdvice(message: string, fixable: boolean, input: Input = "t
   const byHand = fixable ? ` Or ${tap(input)} each pin on the photo.` : "";
   if (/fiducials|detections to find a chain/.test(message)) {
     return "Get the whole chain in the frame with the dots facing up, in focus and without glare, and take the photo again." + byHand
-      + ` If the chain's dots or rims are darker than its links, choose that under ${input === "mouse" ? "Colours" : "Colors in Settings"}.`;
+      + ` If the chain's dots or rims are darker than its links, choose that under ${input === "mouse" ? "Colors" : "Colors in Settings"}.`;
   }
   if (/pins in a row|links to rectify/.test(message)) {
     return "Glare or a shadow may be hiding some dots: move the lamp or turn the chain and take it again." + byHand;

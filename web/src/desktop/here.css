@@ -22,35 +22,32 @@
 .here .ov-edge { stroke: var(--curve); stroke-width: 3px; stroke-linejoin: round; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1.5px #fff); }
 .here .ov-link { stroke: #fff; opacity: .55; }
 .here .ov-side { fill: var(--curve); stroke: #fff; }
+/* Swap side: the phone's white key with an ink edge, floating at the photo's bottom left (the only side control). */
+.here .stage .swap { position: absolute; left: 10px; bottom: 10px; z-index: 1; min-height: 34px; border: 1.5px solid #151515; background: #fff; color: #151515;
+  border-radius: 2px; padding: 4px 10px 4px 8px; font: 600 13px/1 var(--f-ui); display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 0 #151515; }
+.here .stage .swap:hover { background: #ececea; }
+.here .stage .swap:active { transform: translateY(1px); box-shadow: none; }
+.here .stage .swap:disabled { opacity: .6; cursor: default; transform: none; }
+.here .stage .swap svg { width: 17px; height: 17px; }
 .here .tools { display: flex; align-items: center; gap: 6px; padding: 8px 16px 14px; }
 .here .hint { font-size: 12.5px; color: var(--muted); }
 
 .here .read .scroll { padding-top: 2px; }
-.here .field-block { margin: 10px 16px 8px; }
-.here .label { font-size: 14px; margin-bottom: 6px; }
-.here .label .muted { color: var(--muted); font-size: 12.5px; }
-.here .label .muted:not(:empty)::before { content: ": "; }
-/* Object side: keys side by side, the one on in ink. */
-.here .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-2); border-radius: 2px; overflow: hidden; }
-.here .seg button { border: none; background: var(--key); padding: 7px 4px; font-size: 13px; min-height: 34px; }
-.here .seg button:hover { background: var(--key-2); }
-.here .seg button + button { border-left: 1px solid var(--rule-2); }
-.here .seg button[aria-pressed="true"] { background: var(--ink-key); color: var(--ink-key-ink); font-weight: 600; }
 /* Label left, control right, on hairlines (the phone's Settings rows). */
 .here .field { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 16px; min-height: 46px; padding: 4px 0;
   border-bottom: 1px solid var(--rule); font-size: 13.5px; }
-.here .field-block + .field { border-top: 1px solid var(--rule); }
 .here .field > span:first-child { min-width: 0; }
-.here select, .here input.num { min-height: 32px; border: 1px solid var(--rule-2); border-radius: 2px; background: var(--card); padding: 4px 8px; font: inherit; font-size: 13px; color: inherit; }
+.here select, .here input.num { min-height: 32px; border: 1px solid var(--rule-2); border-radius: 2px; background-color: var(--card); padding: 4px 8px; font: inherit; font-size: 13px; color: inherit; }
 .here select { max-width: 60%; }
 .here input.num { width: 72px; text-align: right; font-family: var(--f-data); flex: none; }
-/* The pins stepper: a well and two keys, as the phone's header. */
+/* The pins stepper: a well then + and −, as the phone's (13 [+] [−]). */
 .here .stepper { display: flex; align-items: stretch; flex: none; }
-.here .stepper button { width: 32px; min-height: 32px; border: 1px solid var(--rule-2); background: var(--key); font: 500 16px/1 var(--f-data); padding: 0; }
+.here .stepper button { width: 34px; min-height: 34px; border: 1px solid var(--rule-2); background: var(--key); font: 500 16px/1 var(--f-data); padding: 0; }
 .here .stepper button:hover { background: var(--key-2); }
-.here .stepper button:first-child { border-radius: 2px 0 0 2px; }
+.here .stepper button:active { background: var(--key-2); }
+.here .stepper button + button { border-left: 0; }
 .here .stepper button:last-child { border-radius: 0 2px 2px 0; }
-.here .stepper input { width: 46px; min-height: 32px; border: 1px solid var(--rule-2); border-inline: 0; background: var(--well); text-align: center;
+.here .stepper input { width: 46px; min-height: 34px; border: 1px solid var(--rule-2); border-right: 0; border-radius: 2px 0 0 2px; background: var(--well); text-align: center;
   font: 500 15px var(--f-data); -moz-appearance: textfield; appearance: textfield; padding: 0; }
 .here .stepper input::-webkit-inner-spin-button, .here .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .here .bad-text { color: var(--bad-text); font-size: 12.5px; margin: 6px 16px; }
