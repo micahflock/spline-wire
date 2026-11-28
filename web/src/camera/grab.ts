@@ -1,5 +1,5 @@
 // Where the live view grabs its frames: in a worker when the browser can, else
-// on the page (docs/open-items.md, live view resolution, step 3).
+// on the page (experiments/live_view/README.md, Findings: the grab in a worker).
 //
 // Measured in headless Chromium (no GPU) with a 12 MP camera: drawing a
 // region of the video into a canvas and reading it back costs the page ~40 ms

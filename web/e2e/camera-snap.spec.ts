@@ -6,7 +6,7 @@
 // all 13 rims, hold, take the still by itself, and the still must measure.
 //
 // At three distances (span: the chain's extent plus a link's width over the
-// frame's short side; docs/open-items.md, live view resolution):
+// frame's short side; experiments/live_view/README.md, Findings):
 //   0.55  close, as before;
 //   0.30  where the old 800 px work frame found none of the rims: the live
 //         view tracks the chain in a region drawn finer (overlay/region.ts),
