@@ -529,7 +529,7 @@ let previewUrl: string | null = null;
 const svg = $("photo") as unknown as SVGSVGElement;
 // A double tap fits the chain to the view; a single tap edits once the double-tap window has passed (taps.ts).
 const taps = new TapFilter(tap, () => editor.frame());
-const editor = new PhotoEditor(svg, (p, slack, kind) => taps.tap(p, slack, kind));
+const editor = new PhotoEditor(svg, (p, slack, kind) => taps.tap(p, slack, kind), { wholePhoto: "width" });   // no chain: the width across
 // The view changes size (the phone turned, the window resized): keep the same part in view.
 new ResizeObserver(() => editor.refit()).observe(svg);
 
@@ -1704,6 +1704,22 @@ debug.cameraView = cameraView;
 debug.camera = cameraView.stats;
 $("take-camera").onclick = () => void cameraView.start();
 
+// Upload stays pressed while the phone's photo menu is open: from the tap until a photo is chosen, the menu is
+// cancelled, or the page has the focus again (browsers without the cancel event), or failing all of those the
+// next tap anywhere.
+{
+  const key = $("upload"), input = $<HTMLInputElement>("choose");
+  const release = () => key.classList.remove("held");
+  input.addEventListener("click", () => {
+    key.classList.add("held");
+    setTimeout(() => {
+      addEventListener("focus", release, { once: true });
+      document.addEventListener("pointerdown", release, { once: true });
+    }, 0);
+  });
+  input.addEventListener("cancel", release);
+  input.addEventListener("change", release);
+}
 for (const [id, via] of [["take", "take"], ["choose", "choose"]] as const) {
   const input = $<HTMLInputElement>(id);
   input.onchange = () => {

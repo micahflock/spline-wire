@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PhotoView } from "../core/types";
 import { EditHistory, describe as say, editsAfterTap, hitTest } from "./edits";
 import { Gestures, wheelFactor, type PointerInput } from "./gestures";
-import { chainBox, fit, keepPhotoInView, pinch, toPhoto, toScreen, zoomAt, zoomLimits, type ViewBox } from "./viewport";
+import { chainBox, fit, fitWidth, keepPhotoInView, pinch, toPhoto, toScreen, zoomAt, zoomLimits, type ViewBox } from "./viewport";
 
 const el = { width: 400, height: 300 };
 const photo = { width: 4000, height: 3000 };
@@ -145,5 +145,14 @@ describe("edits", () => {
     h.rollback();
     expect(h.undo()).toEqual(a);
     expect(h.canUndo).toBe(false);
+  });
+});
+
+describe("fitWidth", () => {
+  it("puts the photo's width across the element and centres it top to bottom, past the element's ends", () => {
+    // A portrait photo in a landscape element: the middle band, full width.
+    expect(fitWidth({ width: 3000, height: 4000 }, { width: 400, height: 300 })).toEqual({ x: 0, y: 875, w: 3000, h: 2250 });
+    // A landscape photo in a taller element: full width, with room above and below.
+    expect(fitWidth({ width: 4000, height: 3000 }, { width: 400, height: 400 })).toEqual({ x: 0, y: -500, w: 4000, h: 4000 });
   });
 });

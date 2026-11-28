@@ -12,7 +12,7 @@ import type { PhotoView } from "../core/types";
 import { MIN_TARGET_PX } from "../editor/edits";
 import { Gestures, wheelFactor, type Intent, type PointerInput, type PointerKind } from "../editor/gestures";
 import {
-  chainBox, fit, keepPhotoInView, scale, toPhoto, zoomAt, zoomLimits, type Pt, type Size, type ViewBox,
+  chainBox, fit, fitWidth, keepPhotoInView, scale, toPhoto, zoomAt, zoomLimits, type Pt, type Size, type ViewBox,
 } from "../editor/viewport";
 import { overlaySvg, type Extra } from "./draw";
 
@@ -29,8 +29,11 @@ export class PhotoEditor {
   private readonly layer: SVGGElement;
   private readonly gestures: Gestures;
 
-  /** `svg` holds an <image> and a <g> for the markers. */
-  constructor(private readonly svg: SVGSVGElement, private readonly onTap: TapHandler) {
+  /** `svg` holds an <image> and a <g> for the markers. `wholePhoto`: how a photo with no chain in it is framed.
+   * "contain" (the desktop page): the stray dots found, else all of the photo. "width" (the phone): the photo's
+   * width across the view, whatever strays were found (framing them ran past the photo's edge). */
+  constructor(private readonly svg: SVGSVGElement, private readonly onTap: TapHandler,
+    private readonly opts: { wholePhoto?: "contain" | "width" } = {}) {
     this.image = svg.querySelector("image")!;
     this.layer = svg.querySelector("g")!;
     this.gestures = new Gestures(() => this.box ?? { x: 0, y: 0, w: 1, h: 1 }, () => this.el(), () => this.limits());
@@ -88,12 +91,14 @@ export class PhotoEditor {
     if (view && (!had || !this.box)) this.frame();
   }
 
-  /** Frame the chain (or the whole photo before there is one). */
+  /** Frame the chain (without one, see wholePhoto). */
   frame(): void {
     const size = this.size();
     if (!size) return;
     const v = this.view;
-    this.box = fit(v && (v.pins.length || v.unused.length) ? chainBox(v) : { x: 0, y: 0, w: size.width, h: size.height }, this.el());
+    this.box = this.opts.wholePhoto === "width" && !v?.pins.length ? fitWidth(size, this.el())
+      : v && (v.pins.length || v.unused.length) ? fit(chainBox(v), this.el())
+      : fit({ x: 0, y: 0, w: size.width, h: size.height }, this.el());
     this.apply();
   }
 

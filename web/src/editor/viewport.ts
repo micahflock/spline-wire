@@ -63,6 +63,13 @@ export function fit(box: ViewBox, el: Size): ViewBox {
   return { x, y, w, h };
 }
 
+/** The whole photo's width across the element, centred top to bottom: a photo taller than the element
+ * runs past its top and bottom rather than leaving bars at its sides (the phone, a photo with no chain). */
+export function fitWidth(photo: Size, el: Size): ViewBox {
+  const h = photo.width * (el.height / el.width);
+  return { x: 0, y: (photo.height - h) / 2, w: photo.width, h };
+}
+
 /** Zoom by `factor` (>1 zooms out) keeping the photo point under `at` (screen px) where it is. */
 export function zoomAt(box: ViewBox, el: Size, at: Pt, factor: number, limits: ZoomLimits): ViewBox {
   const w = clampWidth(box.w * factor, limits);
