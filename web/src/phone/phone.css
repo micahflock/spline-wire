@@ -28,7 +28,7 @@
     --ink-key: #ededea; --ink-key-ink: #111111; --photo-bg: #2a2a2a; --screen: #2a2a2a; --ca-pale: #5a5a56; --ca-pale-2: #454542; color-scheme: dark; }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; background: var(--page); }
 body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.4 var(--f-ui); overflow-x: hidden;
   padding-bottom: max(16px, env(safe-area-inset-bottom)); }
 button, input, select { font: inherit; color: inherit; }
@@ -242,6 +242,10 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
 #result .fl.tr, .vp .fl.tr { view-transition-name: x-tr; }
 #result .fl.bl, .vp .fl.bl { view-transition-name: x-bl; }
 #result .fl.br, .vp .fl.br { view-transition-name: x-br; }
+/* The transition's own layer, sized by the browser to the screen above Safari's bottom toolbar: the strip under the
+   toolbar, where the page shows through, was left black while it ran (owner's iPhone recording). It is now as tall as
+   the largest viewport (lvh: the toolbar retracted) and in the page's colour, so that strip keeps the page's colour. */
+::view-transition { background: var(--page); min-height: 100vh; min-height: 100lvh; }
 ::view-transition-group(*) { animation-duration: 280ms; animation-timing-function: cubic-bezier(.3, 0, 0, 1); }
 ::view-transition-image-pair(x-photo) { overflow: clip; }
 ::view-transition-old(x-photo), ::view-transition-new(x-photo) { width: 100%; height: 100%; object-fit: none;
