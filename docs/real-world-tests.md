@@ -6,7 +6,7 @@ A plan for measuring real-world accuracy with the snap-fit chain and the website
 
 ## Where it stands (2026-11-19)
 
-**Paused: the printed chain twists** (the owner is diagnosing it separately), and it does not sit fully against the concave gauges' walls. Anything that measures the chain itself waits for a sound chain.
+**Paused: the printed chain twists**, and it does not sit fully against the concave gauges' walls. Anything that measures the chain itself waits for a sound chain. *2026-11-28: the owner has an updated chain that prints with an acceptable twist and bow (open-items.md item 2); the series resumes with it.*
 
 Done and standing:
 - **Phase 0, calipers.** Printer scale −0.01%; edges shrink ~0.1 mm each; plaque rims ~8.55 mm across. The chain's pitch (12.98 mm) was measured on the twisting chain: measure again on the fixed one.
@@ -14,7 +14,7 @@ Done and standing:
 - **Focal length: provisional.** At steep tilt the EXIF's 24 mm can be clearly wrong for the page's camera; ~25 mm is a working override, not a calibration (half-size uploads, one phone, plaque flatness unchecked). Near straight on it hardly matters.
 
 To redo or still to do:
-1. **Fix the chain**, then measure its pitch again (10-link span, rim 1 to rim 11) and set it on the test page.
+1. **Fix the chain** (an updated chain prints acceptably, 2026-11-28), then measure its pitch again (10-link span, rim 1 to rim 11) and set it on the test page.
 2. **Check the plaques are flat** (they should not rock on glass or a flat desk) before trusting any focal fit.
 3. **Phase 2, redo** (session 2's gauge photos describe the twisting chain, not the system): the three gauges on a hard, flat surface, every link pressed to the wall, at ≤10° tilt, 2 each, then once each at 20°.
 4. **Phase 3** (wrap, lift, lay flat), **creep** and **lens distortion** (plaque in the corners): sessions 4–5 below.
