@@ -118,8 +118,11 @@ button { cursor: pointer; touch-action: manipulation; }
 .outbox .btn { flex: none; min-height: 36px; padding: 4px 0 4px 6px; font-size: 13px; }
 
 /* The working curve card: the photo cropped to the chain, the curve over it. */
-.work { position: relative; margin-top: 12px; border: 1px solid var(--rule-2); border-radius: 3px; overflow: hidden; background: var(--photo-bg); aspect-ratio: 1.8; }
-.work.chk { border: 2px solid var(--chk); } .work.bad { border: 2px solid var(--bad); }
+.work { position: relative; margin-top: 12px; border-radius: 3px; overflow: hidden; background: var(--photo-bg); aspect-ratio: 1.8; }
+/* The photo's frame, on the card and in the expanded view: an element of its own over the picture (not the picture's
+   border), so the view transition can morph it between the two (x-frame below). Check or Failed colour it. */
+.frame { position: absolute; inset: 0; border: 1px solid var(--rule-2); border-radius: 3px; pointer-events: none; }
+.work.chk .frame, .xv.chk .vp .frame { border: 2px solid var(--chk); } .work.bad .frame, .xv.bad .vp .frame { border: 2px solid var(--bad); }
 .work.gone { background: var(--card); }
 .work .pic, .work .pic > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .ov-curve { fill: none; stroke: var(--curve); stroke-width: 3px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
@@ -224,13 +227,12 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
 /* The photo's box: its size from the page's width, at most most of the small viewport (svh, which stays put as a
    browser's toolbar comes and goes), so it keeps its size while the page scrolls. */
 .vp { position: relative; aspect-ratio: 9 / 10; max-height: 75vh; max-height: 75svh; margin: 0 6px; }
-.xv.chk .vp { outline: 2px solid var(--chk); } .xv.bad .vp { outline: 2px solid var(--bad); }
-.vp .photo-svg { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--photo-bg); border-color: var(--rule-2); }
+.vp .photo-svg { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--photo-bg); border: 0; }
 /* The shared markers (photo.css) in this page's colours: the curve blue over a white halo, the links faint white. */
 .vp .ov-edge { stroke: var(--curve); stroke-width: 3px; stroke-linejoin: round; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1.5px #fff); }
 .vp .ov-link { stroke: #fff; opacity: .55; }
 .vp .ov-side { fill: var(--curve); stroke: #fff; }
-.vp .drawing, .vp .drawing > svg { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--card); border: 1px solid var(--rule-2); }
+.vp .drawing, .vp .drawing > svg { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--card); border-radius: 3px; }
 .sheet { padding: 8px var(--gutter-r) max(16px, env(safe-area-inset-bottom)) var(--gutter-l); }
 /* Opening and closing the view (main.ts, switchView): the browser's view transition morphs the card's photo box
    into the view's and back, with the keys in its corners, and crossfades the rest. Only one of each pair is ever
@@ -260,11 +262,14 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
    here ran only on the first transition in Safari. Clipped to their own place, so they come out of the photo's
    bottom edge, with the photo and its keys drawn over them. */
 .sheet { view-transition-name: x-sheet; }
-/* No frames during the transition: the card's border and the view's photo (or drawing) border, and their Check or
-   Failed colours, would be drawn into the snapshots and stand round the moving picture (on closing, the view's
-   frame stayed solid inside the shrinking box to the end). html.vt is set before the snapshots are taken. */
-html.vt #result, html.vt .vp .photo-svg, html.vt .vp .drawing, html.vt .vp .drawing > svg { border-color: transparent; }
-html.vt .xv .vp { outline-color: transparent; }
+/* The frame morphs with the box: the browser's group for it moves and resizes from the card's frame to the view's,
+   and draws the border itself (a snapshot of a 1 px border would be stretched), in the photo's Check or Failed colour
+   (html.vt-chk, vt-bad, set by main.ts while it runs); its snapshots are not shown. Over the picture, under the keys. */
+#result .frame, .vp .frame { view-transition-name: x-frame; }
+::view-transition-group(x-frame) { box-sizing: border-box; border: 1px solid var(--rule-2); border-radius: 3px; z-index: 1; }
+html.vt-chk::view-transition-group(x-frame) { border: 2px solid var(--chk); }
+html.vt-bad::view-transition-group(x-frame) { border: 2px solid var(--bad); }
+::view-transition-old(x-frame), ::view-transition-new(x-frame) { animation: none; opacity: 0; }
 ::view-transition-group(x-photo), ::view-transition-group(x-tl), ::view-transition-group(x-tr),
 ::view-transition-group(x-bl), ::view-transition-group(x-br) { z-index: 1; }
 ::view-transition-image-pair(x-sheet) { overflow: clip; }

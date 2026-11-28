@@ -987,6 +987,7 @@ function switchView(animate: boolean): void {
   const r = selected ? records.get(selected) : undefined;
   root.classList.add("vt");                       // while it runs (the end-to-end tests wait for it)
   root.classList.toggle("vt-drawing", !!r?.photoDeleted);
+  for (const c of ["chk", "bad"]) root.classList.toggle(`vt-${c}`, $("result").classList.contains(c));   // the frame's colour
   const opening = expanded, from = placeOf(pictureOf(!expanded));     // the picture shown before the switch
   let to: Placed | null = null;
   const t = document.startViewTransition(() => {
@@ -1001,7 +1002,7 @@ function switchView(animate: boolean): void {
   }, () => {});
   void t.finished.finally(() => {
     for (const a of pictures) a.cancel();
-    root.classList.remove("vt", "vt-drawing", "vt-old-over");
+    root.classList.remove("vt", "vt-drawing", "vt-old-over", "vt-chk", "vt-bad");
   });
 }
 
