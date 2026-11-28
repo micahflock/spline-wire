@@ -61,6 +61,8 @@ export interface CameraDeps {
   chain(): Promise<ChainSpec>;
   settings(): Settings;
   saveCamera(camera: CameraInfo): void;
+  /** The phone's cameras as the view last found them (Settings, Camera, lists the back ones). */
+  camerasListed?(devices: CameraInfo[]): void;
   engineReady(): boolean;
   analyse(points: FramePoints): Promise<FrameAnalysis>;
   /** The still, after the camera has been released. */
@@ -216,12 +218,22 @@ export class CameraView {
     void uaData().then((d) => (this.ua = d));
     const $ = (id: string) => document.getElementById(id) as HTMLElement;
     this.el = Object.fromEntries(["cam", "cam-say-title", "cam-say-detail", "cam-count", "cam-info", "cam-fail",
-      "cam-fail-title", "cam-fail-text", "cam-switch", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
+      "cam-fail-title", "cam-fail-text", "cam-teach", "cam-live"].map((id) => [id, $(id)]));
     this.video = $("cam-video") as VideoWithCallback;
     this.canvas = $("cam-overlay") as HTMLCanvasElement;
     this.video.addEventListener("loadedmetadata", () => this.fit());
     this.video.addEventListener("resize", () => this.fit());   // the stream's size changed (another camera, turned)
-    $("cam-close").onclick = () => this.close();
+    // A tap on the page round the card closes the view (there is no close key). Not while the camera starts:
+    // nothing is shown then, and a second tap on Scan would only cancel it.
+    const cam = this.el["cam"]!;
+    cam.addEventListener("click", (e) => {
+      if (e.target === cam && !document.documentElement.classList.contains("cam-starting")) this.close();
+    });
+    // The page behind does not scroll: overflow: hidden (phone.css, html.cam-on) is not enough for touch on iOS.
+    // Only the failure card and the diagnostics, which may be longer than the screen, scroll themselves.
+    cam.addEventListener("touchmove", (e) => {
+      if (!(e.target as Element).closest(".cam-fail, .cam-info")) e.preventDefault();
+    }, { passive: false });
     $("cam-fail-close").onclick = () => this.close();
     this.el["cam-teach"]!.onclick = () => deps.teach();
     $("cam-fail-system").onclick = () => {
@@ -238,11 +250,6 @@ export class CameraView {
       const on = this.el["cam-info"]!.hidden;
       this.el["cam-info"]!.hidden = !on;
       debugKey.setAttribute("aria-expanded", String(on));
-    };
-    (this.el["cam-switch"] as HTMLSelectElement).onchange = (e) => {
-      const id = (e.target as HTMLSelectElement).value;
-      const label = (e.target as HTMLSelectElement).selectedOptions[0]?.textContent ?? "";
-      void this.switchTo({ deviceId: id, label }, true);
     };
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Escape" && this.open) this.close();
@@ -347,10 +354,10 @@ export class CameraView {
     if (best?.deviceId && best.deviceId !== this.current()?.deviceId) {
       // facingMode opened another camera: the virtual triple camera on iPhone,
       // the ultra-wide on a Galaxy S23 Ultra (S3).
-      await this.switchTo(best, false);
+      await this.switchTo(best);
     }
     if (gen !== this.gen) return;
-    this.fillSwitcher(devices);
+    this.listed(devices);
     const now = this.current();
     if (now) this.deps.saveCamera(now);
     await this.resize();
@@ -513,7 +520,7 @@ export class CameraView {
     this.stats.camera = track.label;
   }
 
-  private async switchTo(camera: CameraInfo, chosen: boolean): Promise<void> {
+  private async switchTo(camera: CameraInfo): Promise<void> {
     if (!camera.deviceId || camera.deviceId === this.current()?.deviceId) return;
     const before = this.current();
     this.switching = true;
@@ -526,7 +533,6 @@ export class CameraView {
         return;
       }
       await this.attach(stream);
-      if (chosen) this.deps.saveCamera(this.current() ?? camera);
     } catch {
       // Keep the camera that is open (iOS may have stopped it: then open it again).
       if (this.track?.readyState === "ended" && before) {
@@ -540,16 +546,13 @@ export class CameraView {
     } finally {
       this.switching = false;
     }
-    this.fillSwitcher(await cameras());
+    this.listed(await cameras());
   }
 
-  private fillSwitcher(devices: CameraInfo[]): void {
-    const rear = rearCameras(devices).filter((d) => d.deviceId);
-    this.rearCount = rear.length;
-    const select = this.el["cam-switch"] as HTMLSelectElement;
-    select.hidden = rear.length < 2;
-    const now = this.current();
-    select.replaceChildren(...rear.map((d, i) => new Option(d.label || `Camera ${i + 1}`, d.deviceId, false, d.deviceId === now?.deviceId)));
+  /** The cameras found, for Settings (the camera is chosen there, not in the view). */
+  private listed(devices: CameraInfo[]): void {
+    this.rearCount = rearCameras(devices).filter((d) => d.deviceId).length;
+    this.deps.camerasListed?.(devices);
   }
 
   // ---- frames ----
@@ -1075,7 +1078,8 @@ export class CameraView {
   }
 }
 
-async function cameras(): Promise<CameraInfo[]> {
+/** The video inputs, with labels once the camera has been allowed (Chrome remembers that; Safari asks each visit). */
+export async function cameras(): Promise<CameraInfo[]> {
   try {
     return (await navigator.mediaDevices.enumerateDevices())
       .filter((d) => d.kind === "videoinput")

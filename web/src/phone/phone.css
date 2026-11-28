@@ -209,12 +209,12 @@ input.rename { font: 500 13px/1 var(--f-data); background: rgba(255, 255, 255, .
 .row .v.ok { color: var(--link); } .row .v.chk { color: var(--chk); }
 select, input.num { min-height: 40px; border: 1px solid var(--rule-2); border-radius: 2px; background: var(--card); padding: 4px 8px; font-size: 13.5px; }
 /* The menus' arrow drawn here (the browsers' own sits a few px from the edge, wherever the padding is): a chevron
-   12 px in from the right edge, in the ink colour; the text stops clear of it. Not the camera view's lens menu (its own look). */
-select:not(.cam-switch) { appearance: none; -webkit-appearance: none; padding-right: 34px; background-repeat: no-repeat; background-position: right 12px center;
+   12 px in from the right edge, in the ink colour; the text stops clear of it. */
+select { appearance: none; -webkit-appearance: none; padding-right: 34px; background-repeat: no-repeat; background-position: right 12px center;
   background-size: 12px 8px; text-overflow: ellipsis;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' fill='none' stroke='%23151515' stroke-width='2'/%3E%3C/svg%3E"); }
 @media (prefers-color-scheme: dark) {
-  select:not(.cam-switch) { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' fill='none' stroke='%23ededea' stroke-width='2'/%3E%3C/svg%3E"); }
+  select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' fill='none' stroke='%23ededea' stroke-width='2'/%3E%3C/svg%3E"); }
 }
 .row select { max-width: 60%; }
 input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: none; }
@@ -358,12 +358,8 @@ html.cam-starting .cam-live > :not(video) { visibility: hidden; }   /* at .01 Ch
    a hidden video may stop giving frames (Safari pauses one it thinks is not seen), and the frames are read from it. */
 .cam.chain-only canvas { background: #000; }
 .cam.chain-only.flash canvas { background: #444; transition: background .1s; }
-.cam-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 10px;
-  padding: var(--cam-pad) var(--cam-pad) 10px; background: linear-gradient(rgba(0, 0, 0, .6), transparent); }
-.cam-btn { width: 44px; height: 44px; border: none; border-radius: 50%; background: rgba(0, 0, 0, .5); color: #fff; font-size: 20px; flex: none; }
-.cam-switch { max-width: 50%; min-height: 40px; background: rgba(0, 0, 0, .5); color: #fff; border: 1px solid rgba(255, 255, 255, .4); border-radius: 2px;
-  font: 500 12px/1 var(--f-data); padding: 0 6px; }
-.cam-say { position: absolute; left: var(--cam-pad); right: var(--cam-pad); top: calc(var(--cam-pad) + 58px);
+/* No keys at the top: a tap round the card closes it, and the camera is chosen in Settings. */
+.cam-say { position: absolute; left: var(--cam-pad); right: var(--cam-pad); top: calc(var(--cam-pad) + 10px);
   text-align: center; text-shadow: 0 1px 4px #000; pointer-events: none; }
 .cam-say .cam-count { display: block; min-height: 1.25em; font: 600 14px/1 var(--f-data); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .cam-say .cam-count i { font-style: normal; color: #2fc46e; }
@@ -379,11 +375,11 @@ html.cam-starting .cam-live > :not(video) { visibility: hidden; }   /* at .01 Ch
 /* The camera view's diagnostics, behind Debug: one item a line, each cut short rather than
    wrapped, but the last (where frames are grabbed, and why), which wraps. */
 .cam-info { position: absolute; left: 10px; right: 10px; bottom: 70px; z-index: 1; margin: 0; background: rgba(0, 0, 0, .82); border: 1px solid rgba(255, 255, 255, .25);
-  padding: 8px 10px; font-size: 10.5px; line-height: 1.45; color: #d9d9d4; text-align: left; }
+  padding: 8px 10px; font-size: 10.5px; line-height: 1.45; color: #d9d9d4; text-align: left; max-height: 60%; overflow-y: auto; overscroll-behavior: contain; }
 .cam-info > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cam-info > div:last-child { white-space: normal; overflow-wrap: anywhere; }
 .cam-fail { display: flex; flex-direction: column; justify-content: center; gap: 12px;
-  padding: 24px 20px; background: var(--page); color: var(--ink); font-size: 15px; }
+  padding: 24px 20px; background: var(--page); color: var(--ink); font-size: 15px; overflow-y: auto; overscroll-behavior: contain; }
 .cam-fail > b { font-size: 20px; }
 .cam-fail p { margin: 0; }
 .cam-fail .ck { min-height: 64px; }
