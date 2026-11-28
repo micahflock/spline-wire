@@ -96,9 +96,10 @@ button { cursor: pointer; touch-action: manipulation; }
   background: var(--card); padding: 6px 14px; text-align: left; }
 .lamp { width: 10px; height: 10px; border-radius: 50%; background: var(--rule-2); flex: none; }
 .lamp.ok { background: var(--link); box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 22%, transparent); }
-.lamp.chk { background: var(--chk); animation: blink 1.2s steps(2) infinite; }
+/* Waiting: a smooth breath (was a two-frame blink, steps(2)), opacity only so the compositor runs it. */
+.lamp.chk { background: var(--chk); animation: pulse .8s cubic-bezier(.45, 0, .55, 1) infinite alternate; will-change: opacity; }
 .lamp.bad { background: var(--bad); }
-@keyframes blink { 50% { opacity: .25; } }
+@keyframes pulse { from { opacity: 1; } to { opacity: .25; } }
 .pill .who { font: 600 13px/1.2 var(--f-data); white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .pill .who:empty { display: none; }
 .pill .st { font-size: 13.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }

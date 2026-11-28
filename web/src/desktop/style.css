@@ -82,9 +82,10 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .link-state #link-wait:empty { display: none; }
 .lamp { width: 9px; height: 9px; border-radius: 50%; background: var(--rule-2); flex: none; }
 .lamp.ok { background: var(--link); box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 22%, transparent); }
-.lamp.wait { background: var(--chk); animation: blink 1.2s steps(2) infinite; }
+/* Waiting: a smooth breath (was a two-frame blink, steps(2)), opacity only so the compositor runs it. */
+.lamp.wait { background: var(--chk); animation: pulse .8s cubic-bezier(.45, 0, .55, 1) infinite alternate; will-change: opacity; }
 .lamp.bad { background: var(--bad); }
-@keyframes blink { 50% { opacity: .25; } }
+@keyframes pulse { from { opacity: 1; } to { opacity: .25; } }
 .banner { margin: 0; padding: 8px 16px; border-bottom: 1px solid var(--rule); border-left: 4px solid var(--chk); background: var(--card); font-size: 13px; }
 .banner.bad { border-left-color: var(--bad); }
 
