@@ -923,7 +923,7 @@ function showExpanded(): void {
 }
 
 /** The view transition's length and easing: as phone.css gives its groups. */
-const VT_MS = 380, VT_EASE = "cubic-bezier(.3, 0, 0, 1)";
+const VT_MS = 280, VT_EASE = "cubic-bezier(.3, 0, 0, 1)";
 
 /** The picture in the card or in the view (the photo, or the drawing once the photo is deleted). */
 function pictureOf(inView: boolean): SVGSVGElement | null {
