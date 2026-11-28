@@ -24,8 +24,8 @@ import type { Pt } from "../editor/viewport";
 import { curveFrom } from "../phone/curve";
 import { Measurer, type Update } from "../phone/measurer";
 import type { Status } from "../phone/photos";
-import { SHADE_TEXT, chainLabel, chainSpec, defaultPins, loadSettings, parseFocal, parsePins, presetKey, saveSettings, type Settings,
-  type Shade } from "../phone/settings";
+import { CHANNEL_TEXT, GRAY_CHANNELS, SHADE_TEXT, chainLabel, chainSpec, debugFromQuery, defaultPins, loadSettings, parseFocal,
+  parsePins, presetKey, saveSettings, type GrayChannel, type Settings, type Shade } from "../phone/settings";
 import { ENGINE_STAGE, errorAdvice, errorTitle, failureText, numbers, readNote, readWarning } from "../phone/wording";
 import { greyCopy, previews, type Previews } from "../photo/preview";
 import { PhotoEditor } from "../photo/view";
@@ -141,6 +141,10 @@ export class Draft {
   private settings: Settings;
   private chains: Record<string, ChainSpec> = {};
   private chain: string;
+  /** The colour channel this photo is read with (ChainSpec gray_channel), kept with it as its chain style is. */
+  private channel: GrayChannel;
+  /** The Channel choice is for testing coloured rims: shown with ?debug in the page's address. */
+  private readonly debug = debugFromQuery(location.search) === true;
   private pins: number;
   private side: Side;
   private edits: Edits = NO_EDITS;
@@ -159,6 +163,7 @@ export class Draft {
     this.name = file.name || "photo.jpg";
     this.settings = loadSettings(host.store);
     this.chain = this.settings.chain;
+    this.channel = this.settings.channel;
     this.pins = this.settings.pins ?? 13;
     this.side = this.settings.side;
     this.root = document.createElement("div");
@@ -229,7 +234,7 @@ export class Draft {
 
   private options(): MeasureOptions {
     return {
-      chain: chainSpec(this.chains, this.chain, this.pins, this.settings.shade), side: this.side, edits: this.edits,
+      chain: chainSpec(this.chains, this.chain, this.pins, this.settings.shade, this.channel), side: this.side, edits: this.edits,
       saved_focal_35mm: this.settings.savedFocal35,
     };
   }
@@ -311,7 +316,7 @@ export class Draft {
     this.render();
     try {
       const out = await this.outputs();
-      const spec = chainSpec(this.chains, this.chain, this.pins, this.settings.shade);
+      const spec = chainSpec(this.chains, this.chain, this.pins, this.settings.shade, this.channel);
       const curve = curveFrom(doc, { chainName: chainLabel(this.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm,
         n_pins: this.pins }, await pack(out.files));
       if (!curve) return;
@@ -394,6 +399,11 @@ export class Draft {
     });
     this.q<HTMLSelectElement>("[data-field=shade]").addEventListener("change", (ev) => {
       this.saveSettings({ shade: (ev.target as HTMLSelectElement).value as Shade });
+      this.remeasure();
+    });
+    this.q<HTMLSelectElement>("[data-field=channel]").addEventListener("change", (ev) => {
+      this.channel = (ev.target as HTMLSelectElement).value as GrayChannel;
+      this.saveSettings({ channel: this.channel });                       // and for the next photo
       this.remeasure();
     });
     this.q<HTMLInputElement>("[data-field=pins]").addEventListener("change", (ev) => this.setPins(Number((ev.target as HTMLInputElement).value)));
@@ -485,6 +495,9 @@ export class Draft {
     }
     chainSel.value = this.chain;
     this.q<HTMLSelectElement>("[data-field=shade]").value = this.settings.shade;
+    // With ?debug, or while another channel than gray is in use (so the page never hides one that applies).
+    this.q("[data-out=channel]").hidden = !this.debug && this.channel === "luma";
+    this.q<HTMLSelectElement>("[data-field=channel]").value = this.channel;
     const pinsInput = this.q<HTMLInputElement>("[data-field=pins]");
     if (document.activeElement !== pinsInput) pinsInput.value = String(this.pins);
     const focal = this.q<HTMLInputElement>("[data-field=focal]");
@@ -537,6 +550,8 @@ function layout(name: string): string {
       <label class="field"><span>Chain style</span><select data-field="chain"></select></label>
       <label class="field"><span>Colors</span><select data-field="shade">
         <option value="light">${SHADE_TEXT.light}</option><option value="dark">${SHADE_TEXT.dark}</option></select></label>
+      <label class="field" data-out="channel" hidden><span>Channel</span><select data-field="channel">
+        ${GRAY_CHANNELS.map((c) => `<option value="${c}">${CHANNEL_TEXT[c]}</option>`).join("")}</select></label>
       <div class="field"><span>Pins in the chain</span>
         <span class="stepper"><input type="number" data-field="pins" min="3" max="999" aria-label="Pins in the chain"><button
           type="button" data-here="more" aria-label="One pin more">+</button><button type="button" data-here="fewer" aria-label="One pin fewer">−</button></span></div>

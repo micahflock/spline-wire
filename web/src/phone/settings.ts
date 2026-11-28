@@ -10,8 +10,9 @@
 // camera's (lenses.savedFocal).
 //
 // Settings for testing, not for using the page, are shown only in debug mode
-// (`?debug`, remembered until Leave debug mode): the chain preset, the live
-// stream's size, the focal override and the chain-only live view.
+// (`?debug`, remembered until Leave debug mode): the chain preset, the colour
+// channel detection reads, the live stream's size, the focal override and the
+// chain-only live view.
 
 import type { CameraInfo } from "../camera/choose";
 import type { ChainSpec, Side } from "../core/types";
@@ -35,6 +36,9 @@ export interface Settings extends LensState {
   /** The chain's colours: light dots or rims on dark links (as the presets print),
    * or dark ones on light links (ChainSpec fiducial_shade). */
   shade: Shade;
+  /** What of a photo's colour detection reads (ChainSpec gray_channel): the gray (luma),
+   * or red, green or blue alone, for coloured rims (debug mode). */
+  channel: GrayChannel;
   /** The live camera's stream: "fast" (1440×1920 once the camera's focal length
    * is known, camera/stream.ts) or always the "full" sensor. */
   liveSize: "fast" | "full";
@@ -66,6 +70,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cameras: {},
   camera: null,
   shade: "light",
+  channel: "luma",
   liveSize: "fast",
   fullStreamCameras: [],
   liveView: "grey",
@@ -112,6 +117,7 @@ export function loadSettings(store: KeyValueStore): Settings {
   s.camera = cam && typeof cam === "object" && typeof cam.deviceId === "string" && typeof cam.label === "string"
     ? { deviceId: cam.deviceId, label: cam.label } : null;
   if (raw.shade === "dark") s.shade = "dark";
+  if (isChannel(raw.channel)) s.channel = raw.channel;
   if (raw.liveSize === "full") s.liveSize = "full";
   // Builds 31-32 kept `liveShows` ("video" or "chain"), saved whether chosen or not:
   // only a "chain" was chosen, so "video" takes the new default.
@@ -144,6 +150,7 @@ export function debugLeftovers(s: Settings, chains: Record<string, ChainSpec>): 
   if (s.focalOverride35 !== null) out.push(`focal override ${s.focalOverride35} mm`);
   if (s.liveSize === "full") out.push("full-resolution live stream");
   if (s.liveView === "chain") out.push("chain-only live view");
+  if (s.channel !== "luma") out.push(`${CHANNEL_TEXT[s.channel].toLowerCase()} channel`);
   return out;
 }
 
@@ -174,11 +181,23 @@ export function defaultPins(s: Settings, chains: Record<string, ChainSpec>): num
 }
 
 /** The chain the core measures a photo with: the preset, with the photo's pin
- * count and colours (a photo stored before the colours could be chosen is light on dark). */
-export function chainSpec(chains: Record<string, ChainSpec>, preset: string, pins: number, shade: Shade = "light"): ChainSpec {
+ * count, colours and channel (a photo stored before the colours could be chosen
+ * is light on dark, and one stored before the channel could be, gray). */
+export function chainSpec(chains: Record<string, ChainSpec>, preset: string, pins: number, shade: Shade = "light",
+  channel: GrayChannel = "luma"): ChainSpec {
   const spec = chains[presetKey(chains, preset)];
   if (!spec) throw new Error("no chain presets in this build (chains.json is empty)");
-  return { ...spec, n_pins: pins, fiducial_shade: shade };
+  return { ...spec, n_pins: pins, fiducial_shade: shade, gray_channel: channel };
+}
+
+export type GrayChannel = NonNullable<ChainSpec["gray_channel"]>;
+export const GRAY_CHANNELS: readonly GrayChannel[] = ["luma", "r", "g", "b"];
+
+/** How the channels are called on the page. */
+export const CHANNEL_TEXT: Record<GrayChannel, string> = { luma: "Gray", r: "Red", g: "Green", b: "Blue" };
+
+function isChannel(v: unknown): v is GrayChannel {
+  return (GRAY_CHANNELS as readonly unknown[]).includes(v);
 }
 
 /** How the colours are called on the page. */

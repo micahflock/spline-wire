@@ -3,7 +3,7 @@
 //
 // The page hands over the video's current frame as a VideoFrame (taking it
 // costs the page nothing), with the region to draw (overlay/region.ts). Here
-// it is drawn small, read back, turned gray and searched for the chain's
+// it is drawn small, read back, turned gray (the chain's channel) and searched for the chain's
 // fiducials: the work that, on the page's thread, took a 12 MP frame's
 // conversion (~40 ms in headless Chromium) plus the detector.
 //
@@ -52,7 +52,7 @@ scope.onmessage = (e) => {
     frame.close();
     const n = r.workWidth * r.workHeight;
     if (gray.length < n) gray = new Uint8Array(n);
-    const work = toGray(g.getImageData(0, 0, r.workWidth, r.workHeight).data, r.workWidth, r.workHeight, gray);
+    const work = toGray(g.getImageData(0, 0, r.workWidth, r.workHeight).data, r.workWidth, r.workHeight, gray, shape.channel);
     const t1 = performance.now();
     trial.record(kind, t1 - t0);
     // The other kind's canvas goes once the choice is made.

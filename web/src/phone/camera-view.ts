@@ -632,7 +632,8 @@ export class CameraView {
     work.g.drawImage(v, -r.x / r.scaleX, -r.y / r.scaleY, v.videoWidth / r.scaleX, v.videoHeight / r.scaleY);
     const n = r.workWidth * r.workHeight;
     if (this.gray.length < n) this.gray = new Uint8Array(n);
-    const gray = toGray(work.g.getImageData(0, 0, r.workWidth, r.workHeight).data, r.workWidth, r.workHeight, this.gray);
+    const gray = toGray(work.g.getImageData(0, 0, r.workWidth, r.workHeight).data, r.workWidth, r.workHeight, this.gray,
+      this.session.shape.channel);
     const t1 = performance.now();
     if (check) this.check(check, r, gray.data.slice());
     if (!this.workMode) {

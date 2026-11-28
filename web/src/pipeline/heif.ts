@@ -3,7 +3,7 @@
 // libheif-js build, libheif 1.23), as splinewire.pipeline.load_photo gets
 // them through pillow-heif (libheif 1.23.4): the primary image, decoded to
 // RGB with the container's own rotation, mirroring and crop applied
-// (irot/imir/clap), then gray by Pillow's formula. pillow-heif sets the
+// (irot/imir/clap), then gray by Pillow's formula (or one channel alone). pillow-heif sets the
 // EXIF orientation to 1 after applying those, so the EXIF orientation of a
 // HEIF photo turns nothing here either.
 //
@@ -20,6 +20,8 @@
 
 import type { Gray } from "./cv";
 import { PipelineError } from "./errors";
+import { CHANNEL_OFFSET } from "./decode";
+import type { GrayChannel } from "./types";
 import { boxDownscale, type Rgba } from "../photo/downscale";
 
 // The parts of libheif-js used here (its own types leave out the JS wrapper).
@@ -42,22 +44,32 @@ interface Libheif {
  * (compiled synchronously, which a worker allows); onRuntimeInitialized says so either way. */
 export type LibheifFactory = (options: { wasmBinary: ArrayBuffer | Uint8Array; onRuntimeInitialized?: () => void }) => Libheif;
 
-/** Gray from interleaved RGB rows (with padding), as Pillow converts RGB to L. */
-export function grayFromRgbRows(rgb: Uint8Array, width: number, height: number, stride: number): Gray {
+/** Gray from interleaved RGB rows (with padding), as Pillow converts RGB to
+ * L; or, with `channel` r, g or b (ChainSpec gray_channel), that channel alone. */
+export function grayFromRgbRows(rgb: Uint8Array, width: number, height: number, stride: number,
+  channel: GrayChannel = "luma"): Gray {
   const data = new Uint8Array(width * height);
-  for (let y = 0, i = 0; y < height; y++) {
-    for (let j = y * stride, end = j + 3 * width; j < end; j += 3, i++) {
-      data[i] = (rgb[j]! * 19595 + rgb[j + 1]! * 38470 + rgb[j + 2]! * 7471 + 0x8000) >>> 16;
+  if (channel === "luma") {
+    for (let y = 0, i = 0; y < height; y++) {
+      for (let j = y * stride, end = j + 3 * width; j < end; j += 3, i++) {
+        data[i] = (rgb[j]! * 19595 + rgb[j + 1]! * 38470 + rgb[j + 2]! * 7471 + 0x8000) >>> 16;
+      }
+    }
+  } else {
+    const k = CHANNEL_OFFSET[channel];
+    for (let y = 0, i = 0; y < height; y++) {
+      for (let j = y * stride + k, end = y * stride + 3 * width; j < end; j += 3, i++) data[i] = rgb[j]!;
     }
   }
   return { width, height, data };
 }
 
-/** Decode a HEIF photo's primary image to gray, upright. `name` is for messages.
+/** Decode a HEIF photo's primary image to gray (its `channel`), upright. `name` is for messages.
  * With `previewSize` (from photo/preview.ts's previewSizeOf, given the upright
  * size), also the colour copy the pages draw, which their browser cannot make. */
 export async function decodeHeif(bytes: Uint8Array, name: string, factory: LibheifFactory, wasm: ArrayBuffer | Uint8Array,
-  previewSize?: (pixels: { width: number; height: number }) => { width: number; height: number }): Promise<{ gray: Gray; preview: Rgba | null }> {
+  previewSize?: (pixels: { width: number; height: number }) => { width: number; height: number },
+  channel: GrayChannel = "luma"): Promise<{ gray: Gray; preview: Rgba | null }> {
   let ready!: () => void;
   const initialized = new Promise<void>((resolve) => (ready = resolve));
   const lib = factory({ wasmBinary: wasm, onRuntimeInitialized: () => ready() });
@@ -72,7 +84,7 @@ export async function decodeHeif(bytes: Uint8Array, name: string, factory: Libhe
     try {
       const ch = out.channels.find((c) => c.id === lib.heif_channel.heif_channel_interleaved);
       if (!ch) throw new PipelineError(`could not read the photo ${name}: the HEIF image has no RGB pixels`);
-      const gray = grayFromRgbRows(ch.data, ch.width, ch.height, ch.stride);
+      const gray = grayFromRgbRows(ch.data, ch.width, ch.height, ch.stride, channel);
       let preview: Rgba | null = null;
       if (previewSize) {
         const size = previewSize({ width: ch.width, height: ch.height });

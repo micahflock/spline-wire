@@ -64,7 +64,9 @@ export class CoreClient {
       if (!(err instanceof CoreError) || err.failure.kind !== "closed") throw err;
     }
     const data = await source.bytes();
-    const opened = await this.call("open", { photo, name: source.name, data, previews: !!this.onPreviews }, [data]);
+    const opened = await this.call("open", {
+      photo, name: source.name, data, previews: !!this.onPreviews, channel: options.chain.gray_channel ?? "luma",
+    }, [data]);
     if (opened.previews) this.onPreviews?.(photo, opened.previews);
     return this.call("measure", { photo, options });
   }

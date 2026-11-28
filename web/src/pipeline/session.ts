@@ -22,7 +22,7 @@ import { fixed, median, type Vec2 } from "./numeric";
 import { csvText, fusionCsvText, jsonText, pointsTsv, pyRound, svgText } from "./output";
 import { pyFloat } from "./pyjson";
 import { compareToTruth, type TruthComparison } from "./truth";
-import type { ChainSpec, Fiducial, Side } from "./types";
+import type { ChainSpec, Fiducial, GrayChannel, Side } from "./types";
 
 export const SCHEMA = "spline-wire/measurement@1";
 // Pins this far off the truth file after fitting position, angle and scale
@@ -142,12 +142,28 @@ export class PhotoSession {
   lastError: string | null = null;
   private edits: Edits = { add_px: [], remove_px: [] };
 
+  /** `image` is the photo's `channel` (ChainSpec gray_channel), upright. */
   constructor(
     readonly name: string,
-    readonly image: Gray,
+    public image: Gray,
     readonly exifFocalPx: number | null,
     readonly info: PhotoInfo,
+    public channel: GrayChannel = "luma",
   ) {}
+
+  /** The photo read through another channel (PhotoSession.use_channel, which
+   * decodes it again itself; here the caller decodes, decode.ts being async):
+   * its detections are found again. */
+  useImage(image: Gray, channel: GrayChannel): void {
+    if (image.width !== this.image.width || image.height !== this.image.height) {
+      throw new Error(`the photo's ${channel} is ${image.width}×${image.height}, not ${this.image.width}×${this.image.height}`);
+    }
+    this.image = image;
+    this.channel = channel;
+    this.detected = this.detectedFor = null;
+    this.regionDetected = this.regionFor = null;
+    this.grayf = undefined;
+  }
 
   get size(): [number, number] {
     return [this.image.width, this.image.height];
@@ -178,6 +194,10 @@ export class PhotoSession {
 
   /** Measure with these options; throws PipelineError with a message for the person. */
   run(options: Options): Measured {
+    if (options.spec.gray_channel !== this.channel) {
+      // A bug: the engine decodes the photo again for the chain's channel before measuring it.
+      throw new Error(`the photo was read as its ${this.channel}, the chain reads its ${options.spec.gray_channel}`);
+    }
     const size = this.size;
     let focalPx = this.exifFocalPx;
     let source: FocalSource = focalPx !== null ? "exif" : "estimated";

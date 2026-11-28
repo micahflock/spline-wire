@@ -18,6 +18,8 @@ export interface ChainSpec {
   contact?: "edge" | "round";
   /** The fiducials lighter than the links ("light", the default) or darker. */
   fiducial_shade?: "light" | "dark";
+  /** What of the photo's colour detection reads: "luma" (the default), or "r", "g", "b" alone. */
+  gray_channel?: "luma" | "r" | "g" | "b";
 }
 
 /** Pins a person removed or added by tapping the photo, in photo pixels. */

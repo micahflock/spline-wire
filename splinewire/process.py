@@ -61,14 +61,16 @@ def process_photo(
     on the object's side of the chain (see measure).
     edits: pins removed or added by hand (splinewire.edits). loaded and
     detected: what load_photo and detect_fiducials already returned for this
-    photo, to measure it again without repeating them (e.g. after an edit).
+    photo (read in spec.gray_channel), to measure it again without repeating
+    them (e.g. after an edit).
     compare_truth: with truth_path, True compares whenever the pin counts
     match, False never, None (auto) only when the shape matches too, so a
     leftover truth file does not score photos of something else.
     """
     photo = Path(photo)
-    image, focal = loaded if loaded is not None else load_photo(photo)
-    session = PhotoSession(photo.name, image, focal, photo_info(photo), detected=detected)
+    image, focal = loaded if loaded is not None else load_photo(photo, spec.gray_channel)
+    session = PhotoSession(photo.name, image, focal, photo_info(photo), detected=detected,
+                           channel=spec.gray_channel)
     truth = None
     if truth_path is not None:
         truth_path = Path(truth_path)
