@@ -101,6 +101,8 @@
 
     <div class="grp">
       <h3>Camera</h3>
+      <div class="row"><label for="s-cam">Camera</label><select id="s-cam"></select></div>
+      <p class="small" id="s-cam-note"></p>
       <div class="row"><label for="s-view">Live view</label><select id="s-view">
         <option value="grey">Grey, dimmed</option>
         <option value="color">In color</option>
@@ -220,11 +222,6 @@
   <div class="cam-live" id="cam-live">
     <video id="cam-video" playsinline muted autoplay></video>
     <canvas id="cam-overlay" aria-hidden="true"></canvas>
-    <div class="cam-top">
-      <button type="button" class="cam-btn" id="cam-close" aria-label="Close the camera">✕</button>
-      <span class="spacer"></span>
-      <select id="cam-switch" class="cam-switch" aria-label="Camera" hidden></select>
-    </div>
     <div class="cam-say" role="status" aria-live="polite"><span class="cam-count mono" id="cam-count" aria-live="off"></span><b id="cam-say-title"></b><span id="cam-say-detail"></span></div>
     <div class="cam-info mono" id="cam-info" hidden></div>
     <div class="cam-bottom">

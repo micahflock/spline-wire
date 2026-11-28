@@ -70,6 +70,7 @@ test("the live camera pairs with the computer whose code it sees, and stays open
   expect(page.url()).toBe(`${BASE}phone/`);                          // and the address is left alone
   const st = await page.evaluate(() => (window as unknown as { phone: { camera: CameraStats } }).phone.camera);
   console.log("[camera-qr]", `qr: ${st.qr}; page ${st.pageMs.length ? Math.max(...st.pageMs).toFixed(1) : "–"} ms a frame at most`);
-  await page.locator("#cam-close").click();
+  await expect(page.locator("html")).not.toHaveClass(/cam-starting/);
+  await page.locator("#cam").click({ position: { x: 4, y: 4 } });      // a tap round the card closes it
   await expect(page.locator("#pair-text")).toContainText("Paired");
 });

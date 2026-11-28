@@ -6,7 +6,7 @@
 
 import "./phone.css";
 import "../photo/photo.css";
-import type { CameraInfo } from "../camera/choose";
+import { labelled, rearCameras, type CameraInfo } from "../camera/choose";
 import { fovRatio, stillSearchBox } from "../camera/focal";
 import { CoreClient, type PhotoSource } from "../core/client";
 import { makeCoreWorker } from "../core/make-worker";
@@ -28,7 +28,7 @@ import { Outbox } from "../relay/outbox";
 import { codeMeaning } from "../camera/qr";
 import { forgetPairing, phoneSecret, secretFromHash } from "../relay/pairing";
 import { LocalStore } from "../relay/store";
-import { CameraView, type Still } from "./camera-view";
+import { CameraView, cameras, type Still } from "./camera-view";
 import { curveFrom } from "./curve";
 import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg, type Box } from "./drawings";
 import { TapFilter } from "./taps";
@@ -1513,6 +1513,7 @@ function renderSettings(): void {
   // The chain-only view is for debugging; one chosen there stays shown, so the menu tells the truth.
   $("s-view-chain").hidden = !settings.debug && settings.liveView !== "chain";
   $<HTMLSelectElement>("s-view").value = settings.liveView;
+  renderCameraChoice();
   $("debug-box").hidden = !settings.debug;
   const leftovers = settings.debug ? [] : debugLeftovers(settings, chains);
   $("debug-note").hidden = !leftovers.length;
@@ -1533,6 +1534,35 @@ function renderSettings(): void {
     ? [el("span", { textContent: shown.camera }), el("b", { textContent: shown.focal })]
     : [el("span", { textContent: "None yet" })]));
 }
+
+// Settings, Camera: which back camera Scan opens (it was a menu in the camera view). The phone names its cameras
+// only once the camera has been allowed (Safari: once Scan has opened it in this visit); until then the menu
+// holds the one remembered. Automatic: the main lens, as chooseCamera ranks them; the camera the view then
+// opens is remembered, and shown here, as before.
+let phoneCameras: CameraInfo[] = [];
+function listCameras(devices: CameraInfo[]): void {
+  phoneCameras = labelled(devices) ? rearCameras(devices).filter((d) => d.deviceId) : [];
+  renderCameraChoice();
+}
+function renderCameraChoice(): void {
+  const select = $<HTMLSelectElement>("s-cam"), chosen = settings.camera;
+  const list = [...phoneCameras];
+  if (chosen?.deviceId && !list.some((d) => d.deviceId === chosen.deviceId || d.label === chosen.label)) list.unshift(chosen);
+  const at = chosen ? list.find((d) => d.deviceId === chosen.deviceId) ?? list.find((d) => d.label === chosen.label) : undefined;
+  select.replaceChildren(new Option("Automatic (the main lens)", ""),
+    ...list.map((d, i) => new Option(d.label || `Camera ${i + 1}`, d.deviceId)));
+  select.value = at?.deviceId ?? "";
+  $("s-cam-note").textContent = phoneCameras.length ? ""
+    : "The phone lists its cameras once Scan has opened the camera.";
+}
+$<HTMLSelectElement>("s-cam").onchange = (e) => {
+  const id = (e.target as HTMLSelectElement).value;
+  const camera = [...phoneCameras, ...(settings.camera ? [settings.camera] : [])].find((d) => d.deviceId === id) ?? null;
+  setSettings({ ...settings, camera });
+  toast(camera ? `Scan opens ${camera.label || "that camera"}.` : "Scan opens the main lens.");
+};
+void cameras().then(listCameras);
+navigator.mediaDevices?.addEventListener?.("devicechange", () => void cameras().then(listCameras));
 
 function setSettings(next: Settings, measureAgain = false): void {
   settings = next;
@@ -1682,6 +1712,7 @@ const cameraView = new CameraView({
     return chainSpec(chains, presetKey(chains, settings.chain), defaultPins(settings, chains), settings.shade);
   },
   settings: () => settings,
+  camerasListed: listCameras,
   saveCamera: (camera: CameraInfo) => {
     if (camera.deviceId !== settings.camera?.deviceId || camera.label !== settings.camera?.label) setSettings({ ...settings, camera });
   },

@@ -116,8 +116,14 @@ async function openCamera(): Promise<void> {
   await expect(page.locator("#cam-live")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
 }
 
+/** A tap on the page round the card: the view has no close key. Once it shows (taps are ignored while it starts). */
+async function tapBackdrop(): Promise<void> {
+  await expect(page.locator("html")).not.toHaveClass(/cam-starting/, { timeout: 20_000 });
+  await page.locator("#cam").click({ position: { x: 4, y: 4 } });
+}
+
 async function closeCamera(): Promise<void> {
-  await page.locator("#cam-close").click();
+  await tapBackdrop();
   await expect(page.locator("#cam")).toBeHidden();
   expect(await liveTracks()).toBe(0);
 }
@@ -293,8 +299,27 @@ test("Scan opens the camera and closing it gives it back; Upload never opens it;
   expect(await page.evaluate(() => (window as unknown as PhoneWindow).__streams.length)).toBe(opened + 1);
   await expect(page.locator("#cam-info")).toBeHidden();
   await expect(page.locator("#cam-debug")).toBeHidden();               // only in debug mode
-  await page.locator("#cam-close").click();
+  // The page behind does not scroll: a touch drag over the view is refused, a tap on the card leaves it open.
+  await expect(page.locator("html")).not.toHaveClass(/cam-starting/, { timeout: 20_000 });
+  expect(await page.locator("#cam").evaluate((cam) => {
+    const t = new Touch({ identifier: 1, target: cam, clientX: 4, clientY: 300 });
+    const e = new TouchEvent("touchmove", { touches: [t], cancelable: true, bubbles: true });
+    cam.dispatchEvent(e);
+    return e.defaultPrevented;
+  })).toBe(true);
+  await page.locator("#cam-live").click();
+  await expect(page.locator("#cam")).toBeVisible();
+  await tapBackdrop();
   await expect(page.locator("#cam")).toBeHidden();
+  // The camera is chosen in Settings, Camera (not in the view): the one the view opened is remembered and shown
+  // there (this test's camera is a canvas stream, so the browser names no cameras: the menu holds that one).
+  const savedCamera = () => page.evaluate(() => (JSON.parse(localStorage.getItem("splinewire-phone:phone-settings") ?? "{}") as { camera?: { deviceId: string } | null }).camera ?? null);
+  expect(await page.locator("#s-cam option").count()).toBeGreaterThanOrEqual(2);     // Automatic, and the camera
+  const camId = await page.locator("#s-cam").inputValue();
+  expect(camId).not.toBe("");
+  expect((await savedCamera())?.deviceId).toBe(camId);
+  await page.locator("#s-cam").selectOption("");                                     // Automatic
+  expect(await savedCamera()).toBeNull();
   await page.goto("phone/?debug");
   await page.locator("#take-camera").click();
   await expect(page.locator("#cam")).toBeVisible();
@@ -306,7 +331,7 @@ test("Scan opens the camera and closing it gives it back; Upload never opens it;
   await page.screenshot({ path: path.join(SHOTS, "camera-debug.png") });
   await page.locator("#cam-debug").click();
   await expect(page.locator("#cam-info")).toBeHidden();
-  await page.locator("#cam-close").click();
+  await tapBackdrop();
   await expect(page.locator("#cam")).toBeHidden();
   expect(await liveTracks()).toBe(0);
   // A reload opens no camera; Upload opens the library picker, not the camera.
