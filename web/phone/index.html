@@ -143,6 +143,13 @@
     <div class="grp debug" id="debug-box" hidden>
       <h3>Debug</h3>
       <div class="row"><label for="s-chain">Chain</label><select id="s-chain"></select></div>
+      <div class="row"><label for="s-cal-pitch">Type a pitch, mm</label><span class="cal-type">
+        <input id="s-cal-pitch" class="num" inputmode="decimal" placeholder="pitch" aria-label="Pitch, mm">
+        <input id="s-cal-half" class="num" inputmode="decimal" placeholder="½ width" aria-label="Half width, mm (optional)">
+        <button type="button" class="btn" id="s-cal-add">Use</button></span></div>
+      <p class="small">A chain measured with calipers: its pitch over several links and, if measured, half its sleeve
+        across. A chain card's QR code sets it up too.</p>
+      <div class="acts"><button type="button" class="btn" id="s-cal-forget" hidden>Forget this chain</button></div>
       <div class="row"><label for="s-live">Live stream</label><select id="s-live">
         <option value="fast">Fast (1440×1920)</option>
         <option value="full">Full sensor</option></select></div>

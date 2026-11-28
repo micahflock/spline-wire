@@ -22,6 +22,7 @@ import type { Exif } from "./exif";
 import type { Corners, Name, Star } from "../relay/sync";
 import type { CurveSync } from "./send";
 import type { GrayChannel, Shade } from "./settings";
+import type { PhotoCalibration } from "./calibration";
 
 export type Status = "queued" | "loading" | "measuring" | "done" | "error";
 export type BlobKind = "original" | "preview" | "thumb" | "outputs";
@@ -56,6 +57,8 @@ export interface PhotoRecord {
   shade?: Shade;
   /** Its chain's colour channel (settings.GrayChannel); absent on photos from before it could be chosen: gray. */
   channel?: GrayChannel;
+  /** A calibrated chain's numbers over the preset's (calibration.ts); absent: the preset's nominal ones. */
+  cal?: PhotoCalibration;
   side: Side | Point;
   edits: Edits;
   status: Status;

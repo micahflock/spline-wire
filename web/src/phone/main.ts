@@ -26,7 +26,9 @@ import { pointsTsv, type Message } from "../relay/messages";
 import { DeletedIds } from "../relay/sync";
 import { Outbox } from "../relay/outbox";
 import { codeMeaning } from "../camera/qr";
-import { forgetPairing, phoneSecret, secretFromHash } from "../relay/pairing";
+import { forgetPairing, hashWithout, phoneSecret, secretFromHash } from "../relay/pairing";
+import { ChainLinkError, hasLink, parseLink } from "../pipeline/chainlink";
+import { calLabel, findChain, forgetChain, linkText, photoCalibration, typedChain, type Calibration } from "./calibration";
 import { LocalStore } from "../relay/store";
 import { CameraView, cameras, type Still } from "./camera-view";
 import { curveFrom } from "./curve";
@@ -41,8 +43,8 @@ import {
 import { applyState, curveKey, delivery, deliveryText, displayName, nameOf, nextRevision, phoneState, sendOffer, setName, setStar, starOf, syncOf } from "./send";
 import { renamedFile } from "../desktop/names";
 import {
-  KEEP_PHOTO_CHOICES, chainLabel, chainSpec, debugFromQuery, debugLeftovers, defaultPins, loadSettings, parseFocal, parsePins, presetKey,
-  saveSettings,
+  KEEP_PHOTO_CHOICES, activeChain, chainLabel, chainSpec, debugFromQuery, debugLeftovers, defaultPins, loadSettings, newPhotoChain,
+  parseFocal, parsePins, presetKey, saveSettings, settingsChainLabel, useChain,
   CHANNEL_TEXT, type GrayChannel, type Settings, type Shade,
 } from "./settings";
 import {
@@ -93,13 +95,23 @@ function focalKey(): string {
   return JSON.stringify([savedFocal(settings)?.focal35 ?? null, settings.focalOverride35]);
 }
 
+/** The chain a photo is measured with: its preset, pins, colours and channel, and its calibration's numbers. */
+function specOf(r: PhotoRecord): ChainSpec {
+  return chainSpec(chains, r.chain, r.pins, r.shade, r.channel, r.cal ?? null);
+}
+
+/** What the page calls a photo's chain. */
+function photoChainLabel(r: PhotoRecord): string {
+  return r.cal ? calLabel({ base: r.chain, ...r.cal }, chains) : chainLabel(r.chain);
+}
+
 function options(id: string): MeasureOptions | null {
   const r = records.get(id);
   if (!r) return null;
   // A photo from the live camera: look for the chain where the live view last saw it first (much faster on 12 MP).
   const search = r.camera && r.pixels ? stillSearchBox(r.camera.frameChain, r.camera.frameSize, r.pixels) : null;
   return {
-    chain: chainSpec(chains, r.chain, r.pins, r.shade, r.channel), side: r.side, edits: r.edits,
+    chain: specOf(r), side: r.side, edits: r.edits,
     saved_focal_35mm: savedFocal(settings)?.focal35 ?? null, focal_override_35mm: settings.focalOverride35 ?? r.focal?.focal35 ?? null,
     ...(search ? { search_px: search } : {}),
   };
@@ -184,7 +196,7 @@ async function addFiles(files: File[], via: PhotoRecord["via"], still: Still | n
     const focal = learnFrom(exif, made?.pixels ?? null, still);
     const r: PhotoRecord = {
       id, name: file.name || "photo.jpg", type: file.type, size: file.size, added: Date.now() + i, via,
-      chain: presetKey(chains, settings.chain), pins: defaultPins(settings, chains), shade: settings.shade,
+      ...newPhotoChain(settings, chains), pins: defaultPins(settings, chains), shade: settings.shade,
       ...(settings.channel !== "luma" ? { channel: settings.channel } : {}), side: settings.side, edits: NO_EDITS,
       status: "queued", doc: null, failure: null, pixels: made?.pixels ?? null, preview: made?.previewSize ?? null, autoSend: paired(),
       measuredWith: null, exif, focal,
@@ -633,15 +645,38 @@ const photoPins = stepper($("r-pins"), () => (selected ? records.get(selected)?.
 /** The chain style of this photo only (the default for new photos stays in Settings): a new chain brings its own pin count. */
 $<HTMLSelectElement>("r-chain").onchange = (e) => {
   const r = selected ? records.get(selected) : undefined;
-  const chain = (e.target as HTMLSelectElement).value;
-  if (!r || r.photoDeleted || !(chain in chains) || chain === presetKey(chains, r.chain)) return;
-  r.chain = chain;
-  r.pins = chains[chain]!.n_pins;
+  const value = (e.target as HTMLSelectElement).value;
+  if (!r || r.photoDeleted) return;
+  if (value.startsWith("cal:")) {
+    const c = findChain(settings.chains, value.slice(4), chains);
+    if (!c || value.slice(4) === r.cal?.key) return;
+    r.chain = c.base;
+    r.cal = photoCalibration(c, chains);
+    r.pins = c.n_pins ?? chains[c.base]!.n_pins;
+    if (c.fiducial_shade) r.shade = c.fiducial_shade;
+    if (c.gray_channel) r.channel = c.gray_channel;
+  } else {
+    if (!(value in chains) || (value === presetKey(chains, r.chain) && !r.cal)) return;
+    r.chain = value;
+    delete r.cal;
+    r.pins = chains[value]!.n_pins;
+  }
   clearTimeout(pinsTimer);
   remeasure(r.id, true);
   renderList();
   renderResult();
 };
+
+/** The chains a menu offers: the presets, then the phone's calibrated chains, and `own` (a photo's
+ * calibrated chain the phone no longer lists) last. Values: a preset's key, or cal:<key>. */
+function chainChoices(own: { key: string; label: string } | null): [string, string][] {
+  const out: [string, string][] = Object.keys(chains).map((k) => [k, chainLabel(k)]);
+  const listed = settings.chains.filter((c) => c.base in chains).map((c): [string, string] => [`cal:${calKeyOf(c)}`, calLabel(c, chains)]);
+  out.push(...listed);
+  if (own && !listed.some(([v]) => v === `cal:${own.key}`)) out.push([`cal:${own.key}`, own.label]);
+  return out;
+}
+const calKeyOf = (c: Calibration) => photoCalibration(c, chains).key;
 
 function stepper(box: HTMLElement, get: () => number, set: (n: number) => void): HTMLInputElement {
   const input = box.querySelector("input")!;
@@ -750,7 +785,7 @@ function renderResult(): void {
     : r.via === "take" ? "system camera" : "library";
   const fov = r.camera?.fov != null ? `live view scale ${r.camera.fov.toFixed(3)}` : "";
   const channel = r.channel && r.channel !== "luma" ? `${CHANNEL_TEXT[r.channel].toLowerCase()} channel` : "";
-  $("r-meta").textContent = [r.name, size, focal, `${chainLabel(r.chain)}`, channel, via, fov].filter(Boolean).join(" · ");
+  $("r-meta").textContent = [r.name, size, focal, photoChainLabel(r), channel, via, fov].filter(Boolean).join(" · ");
 
   const v = doc?.view;
   svg.classList.toggle("wait", busy);
@@ -771,10 +806,11 @@ function renderResult(): void {
     : r.pixels ? "" : "This browser can't show this photo, but it can still measure it.";
   photoPins.value = String(r.pins);
   const chainSelect = $<HTMLSelectElement>("r-chain");
-  if (chainSelect.options.length !== Object.keys(chains).length) {
-    chainSelect.replaceChildren(...Object.keys(chains).map((k) => new Option(chainLabel(k), k)));
+  const styles = chainChoices(r.cal ? { key: r.cal.key, label: photoChainLabel(r) } : null);
+  if ([...chainSelect.options].map((o) => `${o.value}=${o.text}`).join("\n") !== styles.map(([v, t]) => `${v}=${t}`).join("\n")) {
+    chainSelect.replaceChildren(...styles.map(([v, t]) => new Option(t, v)));
   }
-  chainSelect.value = presetKey(chains, r.chain);
+  chainSelect.value = r.cal ? `cal:${r.cal.key}` : presetKey(chains, r.chain);
   chainSelect.disabled = gone;
   for (const c of $("r-pins").querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) c.disabled = gone;
 
@@ -837,7 +873,7 @@ const DOWNLOADS: [OutputKind, string][] = [["dxf", "DXF"], ["svg", "SVG 1:1"], [
 
 /** The chain a photo was measured with, in its colours, as the drawings show it; null until the presets are loaded. */
 function lookOf(r: PhotoRecord): ChainSpec | null {
-  return Object.keys(chains).length ? chainSpec(chains, r.chain, r.pins, r.shade ?? "light") : null;
+  return Object.keys(chains).length ? chainSpec(chains, r.chain, r.pins, r.shade ?? "light", "luma", r.cal ?? null) : null;
 }
 
 /** The history's first rows; ••• shows the rest. */
@@ -1047,7 +1083,7 @@ const outputsWork = new Map<string, { doc: string; done: Promise<Outputs> }>();
  * (a tapped side and "inside" give the same curve, but the JSON file says which). Not the
  * focal length settings: a change to them measures the photo again, and a new document. */
 function docKey(r: PhotoRecord, doc: MeasurementDocument): string {
-  return JSON.stringify([doc, r.side, r.edits, r.pins, r.chain, r.shade ?? "light", r.channel ?? "luma"]);
+  return JSON.stringify([doc, r.side, r.edits, r.pins, r.chain, r.shade ?? "light", r.channel ?? "luma", r.cal?.key ?? null]);
 }
 
 /** The photo's output files: kept ones while they are of its measurement, else made by the core and kept. */
@@ -1204,7 +1240,7 @@ let pairingRun = 0;
 async function startPairing(hash = location.hash): Promise<void> {
   const run = ++pairingRun;
   const fromAddress = hash === location.hash;
-  secret = phoneSecret(store, hash, () => { if (fromAddress) history_.replaceState(null, "", location.pathname + location.search); });
+  secret = phoneSecret(store, hash, (rest) => { if (fromAddress) history_.replaceState(null, "", location.pathname + location.search + rest); });
   if (!secret || !relayUrl) {
     renderPairing();
     return;
@@ -1224,6 +1260,7 @@ async function startPairing(hash = location.hash): Promise<void> {
         if (s.state === "open" && (before.state !== "open" || s.peers > before.peers)) {
           hello();
           sendFullState();
+          sendChain();
         }
         renderPairing();
         renderResult();
@@ -1232,6 +1269,7 @@ async function startPairing(hash = location.hash): Promise<void> {
         outbox?.onMessage(m);
         if (m.type === "hello" && m.role === "desktop") {
           sendFullState();
+          sendChain();
           if (m.device && m.device !== computerName()) {
             store.set("computer", m.device);
             renderPairing();
@@ -1245,6 +1283,14 @@ async function startPairing(hash = location.hash): Promise<void> {
   link.start();
   renderPairing();
   renderResult();
+}
+
+/** The chain new photos are measured with, for the computer's Measure a photo (item 14): a calibrated
+ * chain as its card link, or null for a preset's numbers. */
+function sendChain(): void {
+  if (!link || !room || !Object.keys(chains).length) return;
+  const c = activeChain(settings, chains);
+  void link.send({ type: "chain", link: c ? linkText(c, chains) : null });
 }
 
 /** Everything this phone holds of its curves: the computer answers with all it holds. */
@@ -1287,7 +1333,7 @@ async function syncCurve(r: PhotoRecord): Promise<void> {
     const out = await outputsOf(r.id);
     // Measured again meanwhile (another tap): that measurement sends its own.
     if (r.doc !== doc || !records.has(r.id) || !outbox) return;
-    const spec = chainSpec(chains, r.chain, r.pins, r.shade, r.channel);
+    const spec = specOf(r);
     const curve = curveFrom(doc, { chainName: chainLabel(r.chain), pitch_mm: spec.pitch_mm, half_width_mm: spec.half_width_mm, n_pins: r.pins },
       await pack(out.files));
     if (!curve || r.doc !== doc) return;
@@ -1455,7 +1501,9 @@ $("unpair").onclick = () => {
 // differs from the open one only in its #fragment, so the browser does not load
 // the page again, it only changes location.hash. Pair here instead.
 addEventListener("hashchange", () => {
-  if (secretFromHash(location.hash)) pairAgain(location.hash);
+  const hash = location.hash;
+  if (secretFromHash(hash)) pairAgain(hash);
+  if (hasLink(hash)) void readCard(hash);
 });
 
 /** Pair with the computer whose code this is, in place of the current pairing. */
@@ -1463,7 +1511,7 @@ function pairAgain(hash: string): void {
   const before = secret;
   if (secretFromHash(hash) === before && link) {
     toast("Already paired with this computer.");
-    if (hash === location.hash) history_.replaceState(history_.state, "", location.pathname + location.search);
+    if (hash === location.hash) history_.replaceState(history_.state, "", location.pathname + location.search + hashWithout(hash, "pair"));
     return;
   }
   link?.stop();
@@ -1480,6 +1528,7 @@ function pairAgain(hash: string): void {
 function cameraCode(text: string): void {
   const m = codeMeaning(text, location.href);
   if (m.kind === "pair") pairAgain(`#pair=${m.secret}`);
+  else if (m.kind === "card") void readCard(m.hash);
   else if (m.kind === "elsewhere") toast(`That pairing code is for another copy of the site (${m.where}). Open the site at ${location.host} on the computer.`, 6000);
 }
 
@@ -1505,11 +1554,15 @@ function renderStrip(): void {
 }
 
 function renderSettings(): void {
+  // The chain (debug mode): the presets and the phone's calibrated chains (item 14), and Type a pitch.
   const select = $<HTMLSelectElement>("s-chain");
-  if (!select.options.length || select.options.length !== Object.keys(chains).length) {
-    select.replaceChildren(...Object.keys(chains).map((k) => new Option(chainLabel(k), k)));
+  const choices = chainChoices(null);
+  if ([...select.options].map((o) => `${o.value}=${o.text}`).join("\n") !== choices.map(([v, t]) => `${v}=${t}`).join("\n")) {
+    select.replaceChildren(...choices.map(([v, t]) => new Option(t, v)));
   }
-  select.value = presetKey(chains, settings.chain);
+  const cal = activeChain(settings, chains);
+  select.value = cal ? `cal:${calKeyOf(cal)}` : presetKey(chains, settings.chain);
+  $("s-cal-forget").hidden = !cal;
   $<HTMLSelectElement>("s-shade").value = settings.shade;
   // The colour channel is for testing coloured rims (debug mode), next to Colors; one left on is named below.
   $("s-channel-row").hidden = !settings.debug;
@@ -1570,9 +1623,11 @@ void cameras().then(listCameras);
 navigator.mediaDevices?.addEventListener?.("devicechange", () => void cameras().then(listCameras));
 
 function setSettings(next: Settings, measureAgain = false): void {
+  const chainBefore = settings.cal;
   settings = next;
   saveSettings(store, settings);
   renderSettings();
+  if (settings.cal !== chainBefore) sendChain();
   if (measureAgain && selected) {
     const r = records.get(selected);
     if (r && (r.status === "done" || r.status === "error")) remeasure(r.id, true);
@@ -1580,11 +1635,59 @@ function setSettings(next: Settings, measureAgain = false): void {
 }
 
 $<HTMLSelectElement>("s-chain").onchange = (e) => {
-  const chain = (e.target as HTMLSelectElement).value;
+  const value = (e.target as HTMLSelectElement).value;
+  const c = value.startsWith("cal:") ? findChain(settings.chains, value.slice(4), chains) : undefined;
   // A new chain brings its own pin count.
-  setSettings({ ...settings, chain, pins: null });
-  toast("New photos are measured with this chain.");
+  if (c) setSettings(useChain(settings, c, chains));
+  else setSettings({ ...settings, chain: value, cal: null, pins: null });
+  toast(`New photos are measured with this chain: ${settingsChainLabel(settings, chains)}.`);
 };
+$("s-cal-add").onclick = () => {
+  const pitch = $<HTMLInputElement>("s-cal-pitch"), half = $<HTMLInputElement>("s-cal-half");
+  try {
+    const c = typedChain(presetKey(chains, settings.chain), pitch.value, half.value, chains, Date.now());
+    setSettings(useChain(settings, c, chains));
+    pitch.value = half.value = "";
+    toast(`${settingsChainLabel(settings, chains)}: new photos are measured with it.`);
+  } catch (err) {
+    if (!(err instanceof ChainLinkError)) throw err;
+    toast(err.message, 8000);
+  }
+};
+$("s-cal-forget").onclick = () => {
+  const c = activeChain(settings, chains);
+  if (!c) return;
+  setSettings({ ...settings, chains: forgetChain(settings.chains, calKeyOf(c), chains), cal: null });
+  toast(`Forgotten: ${calLabel(c, chains)}. Photos measured with it keep its numbers.`);
+};
+
+/** A chain card's link (#cal=…, pipeline/chainlink.ts): its chain becomes the one new photos are
+ * measured with, said in a toast with Undo, so a link cannot change the chain unnoticed. Debug mode
+ * only while cards are tested; outside it the card's link is left in the address. */
+async function readCard(hash: string): Promise<void> {
+  try {
+    await chainsLoaded;
+  } catch {
+    return;                                       // the page says the presets did not load
+  }
+  if (!settings.debug) {
+    toast("Chain cards are being tested: open the page with ?debug.", 6000);
+    return;
+  }
+  if (hash === location.hash) history_.replaceState(history_.state, "", location.pathname + location.search + hashWithout(hash, "cal"));
+  let link;
+  try {
+    link = parseLink(hash, chains);
+  } catch (err) {
+    if (!(err instanceof ChainLinkError)) throw err;
+    toast(err.message, 8000);
+    return;
+  }
+  const before = settings;
+  setSettings(useChain(settings, { ...link, via: "card", at: Date.now() }, chains));
+  toast(`${settingsChainLabel(settings, chains).replace(" · ", " set up · ")}`, 10000,
+    { label: "Undo", run: () => { setSettings(before); toast("Chain card undone: new photos are measured as before."); } });
+}
 $<HTMLSelectElement>("s-shade").onchange = (e) => {
   const shade = (e.target as HTMLSelectElement).value as Shade;
   setSettings({ ...settings, shade });
@@ -1713,9 +1816,18 @@ $<HTMLInputElement>("s-teach").onchange = async (e) => {
 // ---- the rest ----
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
-function toast(text: string, ms = 3500): void {
+function toast(text: string, ms = 3500, action?: { label: string; run: () => void }): void {
   const t = $("toast");
   t.textContent = text;
+  t.classList.toggle("act", !!action);
+  if (action) {
+    const b = el("button", { type: "button", textContent: action.label });
+    b.onclick = () => {
+      t.classList.remove("on");
+      action.run();
+    };
+    t.append(" ", b);
+  }
   t.classList.add("on");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove("on"), ms);
@@ -1726,7 +1838,8 @@ function toast(text: string, ms = 3500): void {
 const cameraView = new CameraView({
   chain: async () => {
     await chainsLoaded;
-    return chainSpec(chains, presetKey(chains, settings.chain), defaultPins(settings, chains), settings.shade, settings.channel);
+    const { chain, cal } = newPhotoChain(settings, chains);
+    return chainSpec(chains, chain, defaultPins(settings, chains), settings.shade, settings.channel, cal ?? null);
   },
   settings: () => settings,
   camerasListed: listCameras,
@@ -1788,6 +1901,8 @@ async function main(): Promise<void> {
     if (!r.ok) throw new Error(`chains.json: HTTP ${r.status}`);
     chains = (await r.json()) as Record<string, ChainSpec>;
     renderSettings();
+    if (hasLink(location.hash)) void readCard(location.hash);
+    sendChain();                      // a link that opened before the presets were in
     renderList();                     // the drawings, now with their chains
     renderResult();
   });

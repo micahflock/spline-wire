@@ -94,3 +94,7 @@ uv run splinewire chain-link --pitch 12.987 --half-width 4.39 --qr out/card.svg
 `--shade dark`, `--channel b`, `--pins 20` and `--base` add the other fields; `--page` sets the phone page (the default carries `?debug` while chain cards are being tested, and loses it once the feature is promoted). The card is 85.6 × 54 mm (a bank card): the QR code (error correction M, with its 4-module quiet zone), the numbers in words and the link in small type for a person to type. Print it at 100% scale.
 
 To measure with the numbers on a computer: `splinewire measure PHOTO --chain-link URL`, or `--pitch` and `--half-width` over the chain file's. `splinewire synth --pitch P` renders a chain off its nominal pitch, to test both.
+
+## On the pages
+
+While chain cards are tested, only with `?debug` in the address (the cards carry it). The phone page reads a card's link when it opens and when a link is scanned while it is open, from the address or from the page's own Scan (the QR reader); a toast says which chain was set up, with Undo. The phone keeps up to 10 calibrated chains (Settings, Debug, Chain, beside the presets; **Type a pitch** makes one by hand), and each photo keeps the numbers of the chain it was measured with. The paired desktop page hears the phone's chain (the relay's `chain` message carries the same link text) and Measure a photo uses it; the desktop page also reads a link in its own address. Code: `web/src/phone/calibration.ts` and `settings.ts`.

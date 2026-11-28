@@ -315,6 +315,10 @@ html.vt-bad::view-transition-group(x-frame) { border: 2px solid var(--bad); }
   background: var(--ink); color: var(--page); padding: 10px 16px; border-radius: 2px; font-size: 14.5px; opacity: 0; pointer-events: none;
   transition: opacity .2s; z-index: 30; }
 #toast.on { opacity: 1; }
+#toast.act.on { pointer-events: auto; }
+#toast button { margin-left: 8px; background: none; border: 0; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; padding: 6px 2px; cursor: pointer; }
+.cal-type { display: flex; gap: 6px; align-items: center; }
+.cal-type input.num { width: 72px; }
 /* Over the camera view (a pairing code it saw), above the Debug key. */
 html.cam-on #toast { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 90px); }
 

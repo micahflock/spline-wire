@@ -5,7 +5,7 @@ import { MemoryRelay } from "../../relay/memory-relay";
 import { deriveKeys, newSecret, type Keys, type Role } from "./crypto";
 import { Inbox } from "./inbox";
 import { RelayLink, type LinkStatus } from "./link";
-import { newCurveId, parseCurve, pointsTsv, type Curve, type Message } from "./messages";
+import { newCurveId, parseCurve, parseMessage, pointsTsv, type Curve, type Message } from "./messages";
 import { Outbox } from "./outbox";
 import { desktopSecret, hashWithout, pairingUrl, phoneSecret } from "./pairing";
 import { parseLink } from "../pipeline/chainlink";
@@ -249,6 +249,12 @@ describe("pairing", () => {
 });
 
 describe("messages", () => {
+  it("carries the phone's chain as its card link, or null for a preset's numbers", () => {
+    expect(parseMessage({ type: "chain", link: "1;base=snap;p=12.987;k=u" })).toEqual({ type: "chain", link: "1;base=snap;p=12.987;k=u" });
+    expect(parseMessage({ type: "chain", link: null })).toEqual({ type: "chain", link: null });
+    for (const link of [undefined, "", 3, "x".repeat(301)]) expect(parseMessage({ type: "chain", link }), String(link)).toBeNull();
+  });
+
   it("checks a curve off the network and drops what it does not know", () => {
     const c = curve();
     expect(parseCurve({ ...c, extra: "from a newer build" })).toEqual(c);

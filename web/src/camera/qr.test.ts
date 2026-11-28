@@ -18,6 +18,12 @@ describe("codeMeaning", () => {
     expect(codeMeaning(pairingUrl("https://example.github.io/other/phone/", SECRET), HERE).kind).toBe("elsewhere");
   });
 
+  it("knows a chain card's code, wherever the card was made for (it carries only numbers)", () => {
+    const card = "https://micahflock.github.io/spline-wire/phone/?debug#cal=1;base=snap;p=12.987;h=4.39;k=k";
+    expect(codeMeaning(card, HERE)).toEqual({ kind: "card", hash: "#cal=1;base=snap;p=12.987;h=4.39;k=k" });
+    expect(codeMeaning(`${HERE}#cal=1;base=snap;p=13;k=0`, HERE).kind).toBe("card");      // read, and refused, by the page
+  });
+
   it("ignores codes that are not pairing codes", () => {
     for (const text of ["hello", "", HERE, `${HERE}#pair=short`, "https://example.com/#pair=", "WIFI:S:x;;"]) {
       expect(codeMeaning(text, HERE), text).toEqual({ kind: "other" });
