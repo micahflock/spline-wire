@@ -80,6 +80,24 @@ export function lensName(e: Exif): string {
   return e.focalMm !== null ? `${phone}, ${+e.focalMm.toFixed(2)} mm lens` : phone;
 }
 
+/** Settings, Detected camera, in two lines: the camera ("iPhone 16 Pro back camera") and its focal lengths
+ * ("24mm (6.765mm f/1.78)": the 35 mm equivalent, then the real one and the aperture when known). Read from the
+ * lens name (EXIF LensModel, "iPhone 16 Pro back triple camera 6.765mm f/1.78", or lensName's "<phone>, 6.3 mm
+ * lens"); the module's "dual", "triple" or "quad" is dropped, since only the lens in use matters here. */
+export function cameraLines(l: Pick<LensMemory, "name" | "focal35" | "focalMm">): { camera: string; focal: string } {
+  let name = l.name.trim(), mm: string | null = null, f: string | null = null;
+  const lens = /[\s,]+(\d+(?:\.\d+)?)\s*mm(?:\s+f\/(\d+(?:\.\d+)?)|\s+lens)?\s*$/i.exec(name);
+  if (lens) {
+    name = name.slice(0, lens.index);
+    mm = lens[1]!;
+    f = lens[2] ?? null;
+  }
+  mm ??= l.focalMm !== null ? String(+l.focalMm.toFixed(3)) : null;
+  const camera = name.replace(/\b(?:dual|triple|quad)\s+/gi, "").replace(/\s+/g, " ").trim() || "Camera";
+  const real = mm ? ` (${mm}mm${f ? ` f/${f}` : ""})` : "";
+  return { camera, focal: `${l.focal35}mm${real}` };
+}
+
 export function isFront(e: Exif, facing?: string | null, cameraLabel?: string | null): boolean {
   return facing === "user" || /front/i.test(e.lens ?? "") || (!!cameraLabel && isFrontLabel(cameraLabel));
 }

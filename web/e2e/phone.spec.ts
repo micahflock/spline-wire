@@ -412,8 +412,8 @@ test("settings learn a focal length per lens, not from a selfie, and take the ma
   await page.setInputFiles("#s-teach", lensPhoto);
   await expect(page.locator("#toast")).toContainText("Learned 26 mm for Phone back camera 4.25mm f/1.8");
   // The detected camera, its focal length under it; taken without asking: the override box shows it in use.
-  await expect(page.locator("#s-camera span")).toHaveText("Phone back camera 4.25mm f/1.8");
-  await expect(page.locator("#s-camera b")).toHaveText("26 mm");
+  await expect(page.locator("#s-camera span")).toHaveText("Phone back camera");
+  await expect(page.locator("#s-camera b")).toHaveText("26mm (4.25mm f/1.8)");
   await expect(page.locator("#s-focal")).toHaveValue("26");
   await expect(page.locator("#s-focal-status")).toHaveText(
     "The detected camera's. Used for photos without camera data, which iPhones often strip. Type another to override it.");
@@ -429,7 +429,7 @@ test("settings learn a focal length per lens, not from a selfie, and take the ma
   await expect(page.locator("#s-focal-status")).toContainText("Typed. Used for photos without camera data");
   await expect(page.locator("#s-focal-status")).toContainText("Clear it to use the detected camera's 26 mm.");
   await expect(page.locator("#s-focal")).toHaveValue("24");
-  await expect(page.locator("#s-camera b")).toHaveText("26 mm");                   // still detected
+  await expect(page.locator("#s-camera b")).toHaveText("26mm (4.25mm f/1.8)");                   // still detected
   await page.locator("#s-focal").fill("");                                          // cleared: the detected one again
   await page.locator("#s-focal").blur();
   await expect(page.locator("#s-focal")).toHaveValue("26");

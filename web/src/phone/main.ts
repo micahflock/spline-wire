@@ -33,7 +33,7 @@ import { curveFrom } from "./curve";
 import { cardCrop, cardSvg, clampBox, curveDrawing, fitBox, stripSvg, type Box } from "./drawings";
 import { TapFilter } from "./taps";
 import { NO_EXIF, exifOfFile, type Exif } from "./exif";
-import { isFront, learn, lensFocal, lensName, mainLens, savedFocal } from "./lenses";
+import { cameraLines, isFront, learn, lensFocal, lensName, mainLens, savedFocal } from "./lenses";
 import { Measurer, type Update } from "./measurer";
 import {
   KEEP_CURVES, PHOTO_FILES, PhotoStore, cleanupPlan, hasCurve, newPhotoId, type BlobKind, type PhotoFocal, type PhotoRecord,
@@ -1528,8 +1528,9 @@ function renderSettings(): void {
   const override = $<HTMLInputElement>("s-override");
   if (document.activeElement !== override) override.value = settings.focalOverride35?.toString() ?? "";
   $("s-focal-status").textContent = focalStatus(saved, learned);
-  $("s-camera").replaceChildren(...(learned
-    ? [el("span", { textContent: learned.name }), el("b", { textContent: `${learned.focal35} mm` })]
+  const shown = learned ? cameraLines(learned) : null;
+  $("s-camera").replaceChildren(...(shown
+    ? [el("span", { textContent: shown.camera }), el("b", { textContent: shown.focal })]
     : [el("span", { textContent: "None yet" })]));
 }
 

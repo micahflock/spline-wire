@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Exif } from "./exif";
-import { cameraFocal, frameFocal, isUltraWide, learn, lensFocal, lensKey, mainLens, savedFocal, ultraWides, type LensState } from "./lenses";
+import { cameraFocal, cameraLines, frameFocal, isUltraWide, learn, lensFocal, lensKey, mainLens, savedFocal, ultraWides, type LensState } from "./lenses";
 
 const ex = (e: Partial<Exif>): Exif => ({ make: null, model: null, lens: null, focalMm: null, focal35: null, ...e });
 const empty = (): LensState & { savedFocal35: number | null } =>
@@ -102,5 +102,17 @@ describe("the focal length of the live view's frames", () => {
     const f = frameFocal(settings({ savedFocal35: 24 }), null, { width: 1920, height: 1080 })!;
     expect(f.px).toBeCloseTo(24 * 5040 / Math.hypot(36, 24) * 1920 / 4032, 6);
     expect(f.focal35).toBeGreaterThan(24);
+  });
+});
+
+describe("the detected camera, as Settings shows it", () => {
+  const lines = (e: Exif) => cameraLines(learn(empty(), e, { width: 4032, height: 3024 }).lenses[0]!);
+  it("splits the lens name into the camera and its focal lengths, without the module's triple", () => {
+    expect(lines(iphoneTakePhoto)).toEqual({ camera: "iPhone 16 Pro back camera", focal: "24mm (6.765mm f/1.78)" });
+    expect(lines(pixelLibrary)).toEqual({ camera: "Pixel 7 Pro back camera", focal: "24mm (6.81mm f/1.85)" });
+  });
+  it("names the phone and takes the real focal length from the photo when there is no lens name", () => {
+    expect(lines(samsungMain)).toEqual({ camera: "samsung SM-S918U", focal: "23mm (6.3mm)" });
+    expect(cameraLines({ name: "Some lens", focal35: 26, focalMm: null })).toEqual({ camera: "Some lens", focal: "26mm" });
   });
 });
