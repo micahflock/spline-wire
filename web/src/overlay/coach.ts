@@ -77,7 +77,7 @@ export const COACH = {
   /** The chain's extent (its pins') as a fraction of the frame's shorter side.
    * Recalibrated 2026-11-19 for the snap-fit chain, now that the live view
    * reads the region round the chain at its own scale (region.ts) rather than
-   * the whole frame at 800 px (open-items.md, live view resolution). With
+   * the whole frame at 800 px (experiments/live_view/README.md, Findings). With
    * the pins' extent plus a rim as "span": the live view finds 13 of 13 rims
    * from a cold start down to 0.22 and tracks them to ~0.18
    * (experiments/live_view/regions.ts; the 800 px frame lost them below 0.40),

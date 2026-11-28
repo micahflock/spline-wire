@@ -1,5 +1,5 @@
 // The live view's frame grab and detector, off the page's thread
-// (docs/open-items.md, live view resolution; camera/grab.ts is the page's side).
+// (experiments/live_view/README.md, Findings; camera/grab.ts is the page's side).
 //
 // The page hands over the video's current frame as a VideoFrame (taking it
 // costs the page nothing), with the region to draw (overlay/region.ts). Here
