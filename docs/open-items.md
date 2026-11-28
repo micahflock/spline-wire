@@ -69,6 +69,13 @@ From [web-build.md](web-build.md) (Status, Open decisions, Work queue).
   - **Faster tracking (2026-11-21, web-build.md's Log):** the tracker follows the chain's motion (`experiments/live_view/motion.ts`: all 13 pins at up to 1.5 links a frame where it held 0.5 without a focal length), the worker picks the faster of two canvases, and the stream is 1440×1920 once the focal length is known (Settings, Live stream, in debug mode). To read on the iPhone: "frame X+Y ms" against 48+9, the canvas figures, and that the still stays 4032×3024.
 - **A staging path** for deploying branches before `main`.
 
+## 4a. Website: new features, in debug mode first (the owner's list, 2026-11-28)
+
+Built behind `?debug` and promoted to the ordinary pages only after the owner has tried them on a phone. Details and sizes in [web-build.md](web-build.md), work queue items 13 and 14.
+
+- **Colour channel for detection** (item 13): Gray, Red, Green or Blue, so coloured rims (orange on off-white) are found. About one session.
+- **Per-chain calibration from a link** (item 14): a QR card per measured chain (pitch, half width, colours; no serial number, a chain is its numbers) sets up the phone page; the same setting typed by hand for home-printed chains; the desktop page measures with it too. Link syntax proposed as O12, to confirm. About two sessions.
+
 ## 5. End to end
 
 - Real chain, real object (a pipe or a molding profile), from the phone to a curve in a Fusion sketch, timed.
