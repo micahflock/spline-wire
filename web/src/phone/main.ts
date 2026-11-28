@@ -994,7 +994,11 @@ function switchView(animate: boolean): void {
     to = placeOf(pictureOf(expanded));
   });
   let pictures: Animation[] = [];
-  void t.ready.then(() => { pictures = [...animatePictures(from, to), ...slideSheet(opening)]; }, () => {});
+  void t.ready.then(() => {
+    // The page is not snapshotted (phone.css): the one now shown fades in around the moving pieces.
+    const page = $(opening ? "xv" : "page").animate({ opacity: [0, 1] }, { duration: VT_MS, easing: VT_EASE });
+    pictures = [...animatePictures(from, to), ...slideSheet(opening), page];
+  }, () => {});
   void t.finished.finally(() => {
     for (const a of pictures) a.cancel();
     root.classList.remove("vt", "vt-drawing", "vt-old-over");

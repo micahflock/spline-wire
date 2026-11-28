@@ -242,6 +242,11 @@ input.num { width: 84px; text-align: right; font-family: var(--f-data); flex: no
 #result .fl.tr, .vp .fl.tr { view-transition-name: x-tr; }
 #result .fl.bl, .vp .fl.bl { view-transition-name: x-bl; }
 #result .fl.br, .vp .fl.br { view-transition-name: x-br; }
+/* The page itself is not snapshotted (no "root" group): Safari snapshots the screen only above its bottom toolbar,
+   which left the strip under the toolbar black until the end (owner's iPhone recording). So the real page is drawn
+   all the time, behind the toolbar too, and only the named pieces above are animated over it; main.ts fades the
+   page that is shown in. */
+:root { view-transition-name: none; }
 ::view-transition-group(*) { animation-duration: 280ms; animation-timing-function: cubic-bezier(.3, 0, 0, 1); }
 ::view-transition-image-pair(x-photo) { overflow: clip; }
 ::view-transition-old(x-photo), ::view-transition-new(x-photo) { width: 100%; height: 100%; object-fit: none;
