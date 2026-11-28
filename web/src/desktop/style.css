@@ -1,8 +1,8 @@
 /* The desktop page in the phone page's look (for UI review/phone/BRIEF.md), sized for a mouse and a wide
    window: a near-white page, white panels on hairline rules, small uppercase mono legends and mono readouts,
    flat grey keys, one colour per job (orange measures a photo, blue is the curve, green is the link, yellow a
-   star; amber Check and red Failed kept apart from them) and one heavy ink key, Copy points. Corners 2-3 px;
-   no shadows but the keys' bottom edge. */
+   star; amber Check and red Failed kept apart from them). Copy points is a grey key like the others, only bigger
+   (as on the phone since 2026-11-28: no ink key). Corners 2-3 px; no shadows but the keys' bottom edge. */
 @font-face { font-family: "Plex Cond"; font-weight: 400; src: url("../fonts/plex-sans-condensed-400.woff2") format("woff2"); font-display: swap; }
 @font-face { font-family: "Plex Cond"; font-weight: 500; src: url("../fonts/plex-sans-condensed-500.woff2") format("woff2"); font-display: swap; }
 @font-face { font-family: "Plex Cond"; font-weight: 600; src: url("../fonts/plex-sans-condensed-600.woff2") format("woff2"); font-display: swap; }
@@ -15,7 +15,6 @@
   --rule: #d5d5d0; --rule-2: #bdbdb7; --chain: #1e1e1e; --chain-2: #3b3b3b; --chain-dot: #ffffff;
   --cap: #ff5a14; --cap-ink: #ffffff; --cap-edge: #c9420a;
   --curve: #2456f0; --link: #12a150; --fav: #ffbf00; --fav-text: #b07d00; --chk: #ef8a00; --chk-text: #b86500; --bad: #dc2f1c; --bad-text: #b3200f;
-  --ink-key: #232323; --ink-key-ink: #f4f4f1;
   --sel: #ebebe7;
   /* the chain as drawn (drawing/chain-art.ts): links, their lower parts, rims or dots; pale links for a chain printed the other way round */
   --ca-link: var(--chain); --ca-low: var(--chain-2); --ca-mark: var(--chain-dot); --ca-pale: #b4b4ae; --ca-pale-2: #c9c9c3;
@@ -32,7 +31,6 @@
     --rule: #2c2c2c; --rule-2: #444441; --chain: #e9e9e6; --chain-2: #a9a9a5; --chain-dot: #111111;
     --cap: #ff6a26; --cap-ink: #111111; --cap-edge: #b8440f;
     --curve: #6f93ff; --link: #2fc46e; --fav: #ffc933; --fav-text: #ffc933; --chk: #ffa025; --chk-text: #ffa025; --bad: #ff5a47; --bad-text: #ff7a6a;
-    --ink-key: #ededea; --ink-key-ink: #111111;
     --sel: #242424; --ca-pale: #5a5a56; --ca-pale-2: #454542;
     --grat: #2a2a2a; --grat-2: #1f1f1f; --plot-ink: #c9c9c5;
     --screen: #2a2a2a;
@@ -49,8 +47,17 @@ h1, h2, h3 { margin: 0; }
 .mono, kbd { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
 [hidden] { display: none !important; }
 .spacer { flex: 1; }
+/* The menus' arrow drawn here, as on the phone (the browsers' own sits a few px from the edge): a chevron 12 px in
+   from the right edge, in the ink colour; the text stops clear of it. */
+select { appearance: none; -webkit-appearance: none; padding-right: 30px !important; background-repeat: no-repeat; background-position: right 10px center;
+  background-size: 11px 7px; text-overflow: ellipsis; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' fill='none' stroke='%23151515' stroke-width='2'/%3E%3C/svg%3E"); }
+@media (prefers-color-scheme: dark) {
+  select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' fill='none' stroke='%23ededea' stroke-width='2'/%3E%3C/svg%3E"); }
+}
 
-/* Keys: flat grey on a hairline; the heavy ones (Copy points, Measure a photo) have a darker bottom edge. */
+/* Keys: flat grey on a hairline; the heavy ones (Copy points, Measure a photo) have a darker bottom edge and, pressed,
+   sink onto it and darken a little, as the phone's capture keys do. */
 .btn { border: 1px solid var(--rule-2); background: var(--key); padding: 6px 11px; border-radius: 2px; display: inline-flex;
   gap: 8px; align-items: center; white-space: nowrap; text-decoration: none; color: inherit; min-height: 32px; }
 .btn:hover { background: var(--key-2); }
@@ -59,10 +66,15 @@ h1, h2, h3 { margin: 0; }
 .btn.plain:hover { color: var(--ink); background: var(--key); }
 .btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
 .btn.danger:hover { background: color-mix(in srgb, var(--bad) 85%, #000); }
-.btn.cap { background: var(--cap); border-color: var(--cap-edge); color: var(--cap-ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--cap-edge);
-  padding-bottom: 5px; }
+/* Delete in the curve's header: red words, no key (the phone's Delete). */
+.btn.plain.del { color: var(--bad-text); }
+.btn.plain.del:hover { color: var(--bad-text); }
+.btn.cap { background: var(--cap); border-color: var(--cap-edge); color: var(--cap-ink); font-weight: 600; box-shadow: inset 0 -4px 0 var(--cap-edge);
+  padding-bottom: 6px; }
 .btn.cap:hover { background: color-mix(in srgb, var(--cap) 90%, #000); }
-.btn.cap:active { transform: translateY(1px); box-shadow: inset 0 -2px 0 var(--cap-edge); }
+.btn.cap, .copy { transition: transform .12s ease-out, box-shadow .12s ease-out, filter .12s ease-out; }
+.btn.cap:active { transform: translateY(2px); box-shadow: inset 0 -2px 0 var(--cap-edge); filter: brightness(.9); }
+@media (prefers-reduced-motion: reduce) { .btn.cap, .copy { transition: none; } }
 .btn.cap svg { width: 15px; height: 15px; flex: none; }
 kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var(--rule-2); border-bottom-width: 2px; border-radius: 2px; color: var(--muted); }
 
@@ -126,10 +138,14 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .item .warns { background: var(--chk); color: #151515; }
 .item .tag-here { color: var(--muted); border: 1px solid var(--rule-2); padding: 2px 4px 1px; }
 .item .tag-here + .warns { margin-left: 0; }
-.item .starred { flex: none; color: var(--fav); font-size: 13px; line-height: 1; }
-.head .star .sg { color: var(--muted); }
+/* The star: the phone's, outlined faint until set, then filled yellow. */
+.item .starred { flex: none; display: inline-flex; }
+.item .starred svg { width: 12px; height: 12px; }
+.item .starred path { fill: var(--fav); stroke: var(--fav); }
+.head .star svg { width: 17px; height: 17px; flex: none; }
+.head .star path { fill: none; stroke: currentColor; stroke-width: 1.6; }
 .head .star.on { color: var(--ink); }
-.head .star.on .sg { color: var(--fav); }
+.head .star.on path { fill: var(--fav); stroke: var(--fav); }
 .item.draft { border-left-style: dashed; }
 .item.flash { animation: flash 1.8s ease-out; }
 @keyframes flash { from { background: color-mix(in srgb, var(--curve) 22%, transparent); } }
@@ -170,6 +186,7 @@ kbd { font-size: 10.5px; line-height: 1; padding: 3px 4px; border: 1px solid var
 .tag.ok { background: var(--link); } .tag.chk { background: var(--chk); color: #151515; } .tag.bad { background: var(--bad); }
 @media (prefers-color-scheme: dark) { .tag.ok { color: #111; } }
 .plot { position: relative; flex: 1; min-height: 320px; margin: 14px 16px 0; background: var(--card); border: 1px solid var(--rule-2); border-radius: 3px; overflow: hidden; }
+.plot.chk { border: 2px solid var(--chk); }   /* Check: the phone card's 2 px amber frame */
 .plot svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .plot .grat, .plot .grat-2 { stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .plot .grat { stroke: var(--grat); } .plot .grat-2 { stroke: var(--grat-2); }
@@ -215,12 +232,12 @@ details.about summary:hover { color: var(--ink); }
 .kv span:first-child { color: var(--muted); }
 .kv span:last-child { text-align: right; font: 500 12px var(--f-data); overflow-wrap: anywhere; }
 .out { padding: 14px 16px 16px; display: grid; gap: 8px; border-top: 1px solid var(--rule-2); }
-/* The one heavy ink key (bone white in the dark). */
-.copy { background: var(--ink-key); color: var(--ink-key-ink); border: 0; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, .35); padding: 14px 14px 16px;
-  font: 700 17px/1 var(--f-ui); letter-spacing: .03em; display: flex; justify-content: space-between; align-items: center; border-radius: 2px; }
-.copy:hover { background: color-mix(in srgb, var(--ink-key) 88%, var(--curve)); }
-.copy:active { transform: translateY(1px); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .35); }
-.copy kbd { color: var(--ink-key-ink); border-color: color-mix(in srgb, var(--ink-key-ink) 40%, transparent); }
+/* Copy points (Insert in Fusion, Add to the list): the phone's big grey key, bold, with the 4 px bottom edge. */
+.copy { background: var(--key); color: var(--ink); border: 1px solid var(--rule-2); box-shadow: inset 0 -4px 0 var(--key-2); padding: 14px 14px 17px;
+  font: 700 17px/1 var(--f-ui); letter-spacing: .03em; display: flex; justify-content: space-between; align-items: center; border-radius: 2px; min-height: 50px; }
+.copy > span:only-child { margin-inline: auto; }   /* a key with no shortcut: its words centred */
+.copy:hover { background: var(--key-2); box-shadow: inset 0 -4px 0 color-mix(in srgb, var(--key-2) 80%, var(--ink)); }
+.copy:active { transform: translateY(2px); box-shadow: inset 0 -2px 0 var(--key-2); filter: brightness(.9); }
 .then { font-size: 12.5px; color: var(--muted); }
 .then b { color: var(--ink); }
 .addin { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
@@ -229,10 +246,12 @@ details.about summary:hover { color: var(--ink); }
 .addin ol { margin: 6px 0 2px; padding-left: 18px; }
 .addin li { margin: 3px 0; }
 .addin b { color: var(--ink); font-weight: 600; }
-.exp { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font: 600 10px/1.3 var(--f-data); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
-  padding-top: 8px; border-top: 1px solid var(--rule); }
-.exp .btn { padding: 3px 8px; min-height: 28px; font: 500 11.5px var(--f-data); letter-spacing: 0; text-transform: none; color: var(--ink); }
-.exp > span { font: 12px/1.35 var(--f-ui); letter-spacing: 0; text-transform: none; margin-top: 4px; }
+.exp { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--rule); }
+/* The downloads: a row of equal grey keys in mono, as in the phone's This curve. */
+.exp .keys { display: flex; gap: 6px; }
+.exp .btn { flex: 1 1 0; min-width: 0; justify-content: center; padding: 4px 4px; min-height: 34px; font: 500 12px/1.1 var(--f-data); color: var(--ink);
+  text-align: center; white-space: normal; }
+.exp > span:not(.lg) { font: 12px/1.35 var(--f-ui); color: var(--muted); }
 
 .foot { display: flex; gap: 12px; padding: 6px 16px; border-top: 1px solid var(--rule-2); background: var(--page); font: 11px/1.3 var(--f-data); color: var(--muted); }
 
@@ -264,7 +283,7 @@ dialog::backdrop { background: rgba(14, 13, 11, .42); }
 .item .tag-in { background: var(--link); color: #fff; }
 .item .tag-wait { color: var(--chk-text); border: 1px solid currentColor; padding: 2px 4px 1px; }
 .item .tag-in + .warns, .item .tag-wait + .warns { margin-left: 0; }
-.copy:disabled { opacity: .45; cursor: default; transform: none; }
+.copy:disabled { opacity: .45; cursor: default; transform: none; filter: none; }
 body.fusion .top { gap: 8px; padding: 6px 10px; min-height: 0; }
 body.fusion .mark h1 { font-size: 15px; }
 body.fusion #chain-mark { display: none; }

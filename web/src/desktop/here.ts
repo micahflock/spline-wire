@@ -535,12 +535,12 @@ function layout(name: string): string {
           <button type="button" data-here="outside" aria-pressed="false">Outside</button>
         </div>
       </div>
-      <label class="field"><span>Chain</span><select data-field="chain"></select></label>
-      <label class="field"><span>Colours</span><select data-field="shade">
+      <label class="field"><span>Chain style</span><select data-field="chain"></select></label>
+      <label class="field"><span>Colors</span><select data-field="shade">
         <option value="light">${SHADE_TEXT.light}</option><option value="dark">${SHADE_TEXT.dark}</option></select></label>
       <div class="field"><span>Pins in the chain</span>
-        <span class="stepper"><button type="button" data-here="fewer" aria-label="One pin fewer">−</button><input type="number"
-          data-field="pins" min="3" max="999" aria-label="Pins in the chain"><button type="button" data-here="more" aria-label="One pin more">+</button></span></div>
+        <span class="stepper"><input type="number" data-field="pins" min="3" max="999" aria-label="Pins in the chain"><button
+          type="button" data-here="more" aria-label="One pin more">+</button><button type="button" data-here="fewer" aria-label="One pin fewer">−</button></span></div>
       <label class="field"><span>Focal length if the photo has none, mm (35 mm equiv.)</span>
         <input class="num" data-field="focal" inputmode="decimal" placeholder="none"></label>
       <p class="bad-text" data-out="focal-error" role="alert"></p>

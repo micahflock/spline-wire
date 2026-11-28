@@ -68,6 +68,8 @@ const PHONE_KEY = "phone";
 
 /** In Fusion's palette (?fusion). */
 const FUSION = fusionMode(location.search);
+/** The phone's star (phone/index.html): outlined until set, then filled yellow (style.css). */
+const STAR_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.7 5.9 6.4.7-4.8 4.3 1.4 6.3L12 16.8 6.3 20l1.4-6.3L2.9 9.4l6.4-.7z" stroke-linejoin="round"/></svg>`;
 /** The chain presets (chains.json), read for the chains drawn: the header's, and each curve's (lookOf). */
 let presets: Promise<Record<string, ChainSpec>> | null = null;
 let chains: Record<string, ChainSpec> = {};
@@ -149,7 +151,7 @@ function loadPresets(): Promise<Record<string, ChainSpec>> {
   return presets;
 }
 
-/** A short piece of the chain chosen here (Measure a photo's Chain and Colours), as the phone's strip draws it. */
+/** A short piece of the chain chosen here (Measure a photo's Chain style and Colors), as the phone's strip draws it. */
 async function renderChainMark(): Promise<void> {
   try {
     const all = await loadPresets(), s = loadSettings(store);
@@ -526,7 +528,7 @@ function renderList(): void {
     return `<li><button type="button" class="item${c.id === flashId ? " flash" : ""}" data-id="${esc(c.id)}"
       aria-current="${!showingDraft && c.id === selection.id}">
       <span class="thumb" aria-hidden="true">${curveDrawing({ pins: c.pins_mm, spline: c.points_mm }, 1, { pad: 8, look: lookOf(c) })}${w ? `<span class="dot"></span>` : ""}</span>
-      <span class="row1">${inbox.isStarred(c.id) ? `<span class="starred" title="Starred">★</span>` : ""}<span class="name">${esc(title(c))}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
+      <span class="row1">${inbox.isStarred(c.id) ? `<span class="starred" title="Starred">${STAR_SVG}</span>` : ""}<span class="name">${esc(title(c))}</span>${mine ? `<span class="tag-here">measured here</span>` : ""}${FUSION ? markTag(c.id) : ""}${w ? `<span class="warns">${plural(w, "warning")}</span>` : ""}</span>
       <span class="sub"><time datetime="${esc(c.measured_at)}" title="${esc(exactTime(t))}">${esc(relativeTime(t, now))}</time>
         · ${c.chain.n_pins} pins · ${esc(c.chain.name)}</span>
     </button></li>`;
@@ -689,10 +691,10 @@ function curveHtml(c: Curve): string {
       <span class="meta">${metaHtml(c)}</span>
       <span class="spacer"></span>
       <button type="button" class="btn plain small star${inbox.isStarred(c.id) ? " on" : ""}" data-act="star" aria-pressed="${inbox.isStarred(c.id)}"
-        title="${mine ? "Starred here" : "Starred here and on the phone"}"><span class="sg">${inbox.isStarred(c.id) ? "★" : "☆"}</span> ${inbox.isStarred(c.id) ? "Starred" : "Star"}</button>
+        title="${mine ? "Starred here" : "Starred here and on the phone"}">${STAR_SVG} ${inbox.isStarred(c.id) ? "Starred" : "Star"}</button>
       ${renameButtonHtml(c, renaming === c.id)}
-      <button type="button" class="btn plain small" data-act="delete">Delete…</button></div>
-    <div class="plot">${plot}</div>
+      <button type="button" class="btn plain small del" data-act="delete">Delete…</button></div>
+    <div class="plot${c.warnings.length ? " chk" : ""}">${plot}</div>
     <div class="legend" aria-hidden="true">
       <span>${look ? `<span class="chain-art">${chainMarkSvg(look, 1)}</span>` : `<svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--plot-ink)" stroke-opacity=".6"/></svg>`}Pin of the chain</span>
       <span><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3.5" fill="var(--curve)"/></svg>Point on the object's edge</span>
@@ -720,7 +722,7 @@ function curveHtml(c: Curve): string {
       <button type="button" class="copy" data-act="copy"><span>Copy points</span><kbd>${IS_MAC ? "⌘ C" : "Ctrl C"}</kbd></button>
       <div class="then">then <b>Paste points</b> in a Fusion sketch</div>
       ${ADDIN_HELP}
-      <div class="exp" id="exp">Save as …</div>
+      <div class="exp" id="exp"><span class="lg">Save as …</span></div>
     </div>`}
   </aside>`;
 }
@@ -747,7 +749,7 @@ async function fillDownloads(c: Curve): Promise<void> {
   });
   const missing = c.files ? (s.corners.length ? `<span>With sharp corners: no SVG or Fusion CSV, which hold one smooth spline.</span>` : "")
     : `<span>The phone sent this curve without its files (too long for one message): only ${s.corners.length ? "the files of points" : "the points"} can be saved.</span>`;
-  $("exp").innerHTML = `Save as ${links.join("")}${missing}`;
+  $("exp").innerHTML = `<span class="lg">Save as</span><div class="keys">${links.join("")}</div>${missing}`;
 }
 
 // ---- actions --------------------------------------------------------------
